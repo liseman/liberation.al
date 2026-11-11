@@ -9,8 +9,10 @@ import { curveStepAfter, max as d3max, line, scaleBand, scaleLinear, scaleQuanti
 import {
   type KeyboardEvent,
   type MouseEvent,
+  memo,
   type ReactNode,
   type RefObject,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -61,7 +63,6 @@ export function spaced(ticks: Set<number>, at: (i: number) => number, gap = 56):
   return out;
 }
 
-/** In-app navigation for an SVG link (an SVGAElement, whose href linkClick can't read). */
 /** A chart wider than its frame scrolls, newest at the right: show the newest end first, as on a phone, where two
  *  weeks of hours don't fit. Only when the drawing's width changes, so it never fights the reader's own scrolling. */
 export function useNewestInView(ref: RefObject<HTMLElement | null>, drawn: number): void {
@@ -143,13 +144,26 @@ export function placeTip(
  *  otherwise stay put while its mark moved away under it. The next pointer move or focus puts it back. */
 export function useTip(): [Tip | null, (tip: Tip | null) => void] {
   const [tip, setTip] = useState<Tip | null>(null);
+  const open = tip !== null;
   useEffect(() => {
-    if (!tip) return;
-    const hide = () => setTip(null);
+    if (!open) return;
+    const hide = () => setTip(() => null);
     window.addEventListener('scroll', hide, { capture: true, passive: true });
     return () => window.removeEventListener('scroll', hide, { capture: true });
-  }, [tip]);
+  }, [open]);
   return [tip, setTip];
+}
+
+/** A chart's pointer callbacks, stable for as long as its tip's setter is, so the drawn plot can be memoized: a
+ *  pointer move then re-renders the tooltip alone. */
+function useTipShow(setTip: (tip: Tip | null) => void) {
+  return {
+    show: useCallback(
+      (e: { clientX: number; clientY: number }, text: string) => setTip({ x: e.clientX, y: e.clientY, text }),
+      [setTip],
+    ),
+    hide: useCallback(() => setTip(null), [setTip]),
+  };
 }
 
 /** The tooltip floats over the page: in a portal on the document's body with fixed positioning, so the chart's
@@ -264,7 +278,8 @@ interface HeatmapProps {
   rowLabelWidth?: number;
 }
 
-/** A grid of cells, rows by columns, colored by value on the ramp. */
+/** A grid of cells, rows by columns, colored by value on the ramp. The tooltip's state stays in this frame, so a
+ *  pointer move re-renders the tooltip and not HeatPlot's cells, scales, and tab stops. */
 export function Heatmap({
   label,
   rows,
@@ -282,8 +297,73 @@ export function Heatmap({
   const { ref: sized, width } = useElementSize();
   const ref = useRef<HTMLElement>(null);
   const figure = useMergedRef(sized, ref);
-  const gap = usePatternId();
   const [tip, setTip] = useTip();
+  const { show, hide } = useTipShow(setTip);
+  return (
+    <figure ref={figure} className={classes.chart} aria-label={label}>
+      <HeatPlot
+        label={label}
+        rows={rows}
+        cols={cols}
+        colTicks={colTicks}
+        rowTicks={rowTicks}
+        cell={cell}
+        xTitle={xTitle}
+        yTitle={yTitle}
+        cellHeight={cellHeight}
+        maxCellWidth={maxCellWidth}
+        minCellWidth={minCellWidth}
+        rowLabelWidth={rowLabelWidth}
+        width={width}
+        frame={ref}
+        show={show}
+        hide={hide}
+      />
+      <Tooltip tip={tip} />
+    </figure>
+  );
+}
+
+interface HeatPlotProps {
+  label: string;
+  rows: string[];
+  cols: string[];
+  colTicks: Set<number>;
+  rowTicks?: Set<number>;
+  cell: (row: number, col: number) => HeatCell;
+  xTitle: string;
+  yTitle: string;
+  cellHeight: number;
+  maxCellWidth: number;
+  minCellWidth: number;
+  rowLabelWidth: number;
+  width: number;
+  frame: RefObject<HTMLElement | null>;
+  show: (e: { clientX: number; clientY: number }, text: string) => void;
+  hide: () => void;
+}
+
+/** The heatmap's drawing: everything a pointer move would otherwise rebuild. Nothing in the grid changes when the
+ *  pointer moves, so the tip's state is the frame's alone and this re-renders only when its data or width does. */
+const HeatPlot = memo(function HeatPlot({
+  label,
+  rows,
+  cols,
+  colTicks,
+  rowTicks,
+  cell,
+  xTitle,
+  yTitle,
+  cellHeight,
+  maxCellWidth,
+  minCellWidth,
+  rowLabelWidth,
+  width,
+  frame,
+  show,
+  hide,
+}: HeatPlotProps) {
+  const gap = usePatternId();
   const cells = rows.map((_, r) => cols.map((_, c) => cell(r, c)));
   const top = d3max(cells.flat(), d => d.value ?? 0) ?? 0;
   const left = rowLabelWidth;
@@ -298,15 +378,12 @@ export function Heatmap({
   const shownCols = spaced(colTicks, c => x(c) ?? 0);
   const w = left + cw * cols.length + 8;
   const h = plotBottom + 20; // the tick labels; the caption is below, in the page
-  useNewestInView(ref, w);
+  useNewestInView(frame, w);
   const keys = cells.map((row, r) => row.flatMap((d, c) => (d.href ? [`${r}:${c}`] : [])));
   const roving = useRoving(keys);
   const inset = cw > 6 ? 1 : 0;
-  const show = (e: { clientX: number; clientY: number }, text: string) => {
-    setTip({ x: e.clientX, y: e.clientY, text });
-  };
   return (
-    <figure ref={figure} className={classes.chart} aria-label={label}>
+    <>
       <div className={classes.track}>
         <YAxis title={yTitle || 'Rows'} width={left} height={h}>
           {rows.map((name, r) =>
@@ -358,7 +435,7 @@ export function Heatmap({
               if (!d.href)
                 return (
                   // biome-ignore lint/a11y/noStaticElementInteractions: hover only; the same facts are in the summary
-                  <g key={key} onMouseMove={e => show(e, d.label)} onMouseLeave={() => setTip(null)}>
+                  <g key={key} onMouseMove={e => show(e, d.label)} onMouseLeave={hide}>
                     {rect}
                   </g>
                 );
@@ -372,9 +449,9 @@ export function Heatmap({
                   aria-label={`${d.label}. Open in Review`}
                   onClick={e => follow(e, d.href ?? '')}
                   onKeyDown={roving.onKeyDown}
-                  onBlur={() => setTip(null)}
+                  onBlur={hide}
                   onMouseMove={e => show(e, d.label)}
-                  onMouseLeave={() => setTip(null)}
+                  onMouseLeave={hide}
                   onFocus={e => {
                     roving.setActive(key);
                     const box = e.currentTarget.getBoundingClientRect();
@@ -389,10 +466,9 @@ export function Heatmap({
         </svg>
       </div>
       <XCaption left={left}>{xTitle}</XCaption>
-      <Tooltip tip={tip} />
-    </figure>
+    </>
   );
-}
+});
 
 export interface BarPoint {
   key: string;
@@ -412,13 +488,66 @@ interface BarsProps {
   plan?: number | null | (number | null)[]; // what the bars are measured against: one level, or one per bar (a dashed line)
 }
 
-/** Bars over time from a zero baseline; a gap is a hatched column the height of the plot. */
+/** Bars over time from a zero baseline; a gap is a hatched column the height of the plot. The tooltip's state stays
+ *  in this frame, so a pointer move re-renders the tooltip and not BarsPlot's scales, marks, and plan line. */
 export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height = 160, plan }: BarsProps) {
   const { ref: sized, width } = useElementSize();
   const ref = useRef<HTMLElement>(null);
   const figure = useMergedRef(sized, ref);
-  const gap = usePatternId();
   const [tip, setTip] = useTip();
+  const { show, hide } = useTipShow(setTip);
+  return (
+    <figure ref={figure} className={classes.chart} aria-label={label}>
+      <BarsPlot
+        label={label}
+        points={points}
+        ticks={ticks}
+        tickLabel={tickLabel}
+        xTitle={xTitle}
+        yTitle={yTitle}
+        height={height}
+        plan={plan}
+        width={width}
+        frame={ref}
+        show={show}
+        hide={hide}
+      />
+      <Tooltip tip={tip} />
+    </figure>
+  );
+}
+
+interface BarsPlotProps {
+  label: string;
+  points: BarPoint[];
+  ticks: Set<number>;
+  tickLabel: (i: number) => string;
+  xTitle: string;
+  yTitle: string;
+  height: number;
+  plan?: number | null | (number | null)[];
+  width: number;
+  frame: RefObject<HTMLElement | null>;
+  show: (e: { clientX: number; clientY: number }, text: string) => void;
+  hide: () => void;
+}
+
+/** The bars' drawing, memoized on everything but the tooltip, as HeatPlot is. */
+const BarsPlot = memo(function BarsPlot({
+  label,
+  points,
+  ticks,
+  tickLabel,
+  xTitle,
+  yTitle,
+  height,
+  plan,
+  width,
+  frame,
+  show,
+  hide,
+}: BarsPlotProps) {
+  const gap = usePatternId();
   const left = 44;
   const levels = Array.isArray(plan) ? plan : points.map(() => plan ?? null);
   const top = Math.max(d3max(points, p => p.value ?? 0) ?? 0, d3max(levels, v => v ?? 0) ?? 0);
@@ -433,14 +562,11 @@ export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height =
     .range([height, 6]);
   const keys = [points.flatMap(p => (p.href ? [p.key] : []))];
   const roving = useRoving(keys);
-  const show = (e: { clientX: number; clientY: number }, text: string) => {
-    setTip({ x: e.clientX, y: e.clientY, text });
-  };
   const bw = x.bandwidth();
   const shownTicks = spaced(ticks, i => x(i) ?? 0);
-  useNewestInView(ref, plotW);
+  useNewestInView(frame, plotW);
   return (
-    <figure ref={figure} className={classes.chart} aria-label={label}>
+    <>
       <div className={classes.track}>
         <YAxis title={yTitle} width={left} height={height + 20}>
           {y.ticks(4).map(v => (
@@ -470,7 +596,7 @@ export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height =
             if (p.value === null)
               return (
                 // biome-ignore lint/a11y/noStaticElementInteractions: hover only; the title says what a gap is
-                <g key={p.key} onMouseMove={e => show(e, p.label)} onMouseLeave={() => setTip(null)}>
+                <g key={p.key} onMouseMove={e => show(e, p.label)} onMouseLeave={hide}>
                   <rect x={x0} y={6} width={bw} height={height - 6} fill={`url(#${gap})`} />
                 </g>
               );
@@ -490,7 +616,7 @@ export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height =
             if (!p.href)
               return (
                 // biome-ignore lint/a11y/noStaticElementInteractions: hover only
-                <g key={p.key} onMouseMove={e => show(e, p.label)} onMouseLeave={() => setTip(null)}>
+                <g key={p.key} onMouseMove={e => show(e, p.label)} onMouseLeave={hide}>
                   {hit}
                   {bar}
                 </g>
@@ -505,9 +631,9 @@ export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height =
                 aria-label={`${p.label}. Open in Review`}
                 onClick={e => follow(e, p.href ?? '')}
                 onKeyDown={roving.onKeyDown}
-                onBlur={() => setTip(null)}
+                onBlur={hide}
                 onMouseMove={e => show(e, p.label)}
-                onMouseLeave={() => setTip(null)}
+                onMouseLeave={hide}
                 onFocus={e => {
                   roving.setActive(p.key);
                   const box = e.currentTarget.getBoundingClientRect();
@@ -538,10 +664,9 @@ export function Bars({ label, points, ticks, tickLabel, xTitle, yTitle, height =
         </svg>
       </div>
       <XCaption left={left}>{xTitle}</XCaption>
-      <Tooltip tip={tip} />
-    </figure>
+    </>
   );
-}
+});
 
 /** The key under a ramp chart: what the steps, an empty recorded stretch, and a gap look like. */
 export function RampLegend({

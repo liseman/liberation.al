@@ -109,6 +109,7 @@ import math
 import pathlib
 import re
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, NoReturn
 from urllib.parse import urlparse
@@ -250,7 +251,6 @@ def narration_rules() -> str:
 # Paired speech quotes, with word boundaries so apostrophes in contractions are not quote delimiters.
 _QUOTED = re.compile(r"""".*?"|“.*?”|(?<!\w)'(.*?)'(?!\w)|‘.*?’(?!\w)""", re.S)
 _NARRATOR = re.compile(r"\b(?i:i|me|my|mine|myself|we|our|ours|ourselves)\b|\b(?:us|Us)\b|\b(?i:the wearer)\b")
-_REJECTIONS = 0
 
 
 def narration_clean(value: object) -> bool:
@@ -269,10 +269,8 @@ def narration_clean(value: object) -> bool:
 
 
 def reject_narration() -> None:
-    """Count rejections without putting generated household text in logs."""
-    global _REJECTIONS
-    _REJECTIONS += 1
-    LOG.warning("journal narration rejected; total_rejections=%d", _REJECTIONS)
+    """Note a rejected narration without putting generated household text in logs."""
+    LOG.warning("journal narration rejected")
 
 
 def narration_retry() -> str:
@@ -744,9 +742,18 @@ def _norm(text: str) -> str:
     return " ".join(re.findall(r"\w+", text.casefold()))
 
 
-def _same(a: str, b: str) -> bool:
+def _alike(a: str, b: str, a_counts: Counter[str] | None = None, b_counts: Counter[str] | None = None) -> bool:
+    """Whether two normalized captions describe the same scene, letting most dissimilar pairs go cheaply.
+
+    difflib's ratio() is 2*M/T, and M (matched characters) never exceeds the characters the two strings have in
+    common, so the character-multiset overlap bounds it: a pair under SAME there cannot match, and skipping it
+    changes nothing. Callers comparing one string against many pass its counts so they are built once."""
     if a == b:
         return True
+    ca = Counter(a) if a_counts is None else a_counts
+    cb = Counter(b) if b_counts is None else b_counts
+    if 2 * sum((ca & cb).values()) < SAME * (len(a) + len(b)):
+        return False
     m = difflib.SequenceMatcher(None, a, b, autojunk=False)
     return m.quick_ratio() >= SAME and m.ratio() >= SAME
 
@@ -756,14 +763,17 @@ def scenes(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     keeping the first time and gathering cameras, faces, objects, and row ids. Captions the secret filter rejects
     are dropped with their rows."""
     kept: list[dict[str, Any]] = []
+    counts: list[Counter[str]] = []  # kept[i]'s character counts, built once for the whole row loop
     for r in rows:
         if not history_qa._has_text(r["caption"]):
             continue
         n = _norm(r["caption"])
-        hit: dict[str, Any] | None = next((k for k in kept if _same(k["norm"], n)), None)
+        own = Counter(n)
+        hit: dict[str, Any] | None = next((k for i, k in enumerate(kept) if _alike(k["norm"], n, counts[i], own)), None)
         if hit is None:
             hit = dict(ts=r["ts"], caption=r["caption"], norm=n, cams=[], faces=[], objects=[], rows=[])
             kept.append(hit)
+            counts.append(own)
         for key, values in (("cams", [r["cam"]]), ("faces", r["faces"]), ("objects", r["objects"])):
             hit[key] += [v for v in values if v not in hit[key]]
         hit["rows"].append(r)
@@ -773,9 +783,12 @@ def scenes(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 def _new(now: list[dict[str, Any]], before: list[dict[str, Any]]) -> bool:
     """Whether these scenes show something the window before didn't: a caption unlike any of its captions, or a face."""
     seen = {f.casefold() for s in before for f in s["faces"]}
-    return any(not any(_same(s["norm"], p["norm"]) for p in before) for s in now) or any(
-        f.casefold() not in seen for s in now for f in s["faces"]
-    )
+    earlier = [(p["norm"], Counter(p["norm"])) for p in before]
+    for s in now:
+        own = Counter(s["norm"])
+        if not any(_alike(s["norm"], norm, own, counts) for norm, counts in earlier):
+            return True
+    return any(f.casefold() not in seen for s in now for f in s["faces"])
 
 
 def day_bounds(day: str | dt.date) -> tuple[float, float]:

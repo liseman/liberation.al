@@ -2,9 +2,10 @@
 // A selected exact camera ID gets the full video and
 // face/object controls; the #camera hash preserves that selection across reloads. The caption sits below pixels.
 import { Anchor, Button, NativeSelect, Switch, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { useMergedRef } from '@mantine/hooks';
 import { IconEqual } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { type RefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import { cropLiveObject } from '../../objects/handoff';
 import { type Box, type BoxPick, liveBoxes } from '../camera/boxes';
 import { CameraControls } from '../camera/CameraControls';
@@ -14,6 +15,7 @@ import { LiveCam, useCameraAspect } from '../camera/LiveCam';
 import { PreviewCam } from '../camera/PreviewCam';
 import { hm } from '../lib/format';
 import { mirrored, setMirrored, setPref, usePrefs } from '../lib/prefs';
+import { rememberedHeight, useRememberHeight } from '../lib/rememberedHeight';
 import { useLive } from '../live/hooks';
 import { useLiveStatus } from '../live/status';
 import type { VisionCamera } from '../live/types';
@@ -237,33 +239,6 @@ function writeCamera(cam: string | null): void {
   history.replaceState(history.state, '', location.pathname + location.search + (hash.size ? `#${hash}` : ''));
 }
 
-/** The cameras' last height in this browser, so their place is held at it on the next load. */
-const STAGE_H_KEY = 'liberational.live.stageHeight';
-function rememberedStageHeight(): number | undefined {
-  try {
-    const h = Number(localStorage.getItem(STAGE_H_KEY));
-    return h > 0 ? h : undefined;
-  } catch {
-    return undefined;
-  }
-}
-function rememberHeight(root: RefObject<HTMLElement | null>) {
-  return (el: HTMLElement | null) => {
-    root.current = el;
-    if (!el || typeof ResizeObserver !== 'function') return;
-    const ro = new ResizeObserver(() => {
-      const h = Math.round(el.getBoundingClientRect().height);
-      try {
-        if (h > 0) localStorage.setItem(STAGE_H_KEY, String(h));
-      } catch {
-        // not remembered this time: the next load holds a 16:9 place instead
-      }
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  };
-}
-
 export function Stage({
   last,
   live,
@@ -281,7 +256,9 @@ export function Stage({
   const now = useLiveStatus(s => s.now);
   const [chosen, setChosen] = useState<string | null>(cameraInHash);
   const root = useRef<HTMLElement>(null);
-  const stageRef = useMemo(() => rememberHeight(root), []);
+  // The stage's height is remembered per width band, as Review's timeline is: a phone's tall stage must not size
+  // the wide layout. root stays the measurement target the name-a-face search reads the canvases from.
+  const stageRef = useMergedRef(root, useRememberHeight<HTMLElement>('live.stage'));
   const [faceDraft, setFaceDraft] = useState<LiveFaceDraft | null>(null);
   const [error, setError] = useState('');
   const cams = useActiveCameras();
@@ -395,7 +372,7 @@ export function Stage({
             </div>
           </>
         ) : (
-          <div className="cam-wait" style={{ height: rememberedStageHeight() }} />
+          <div className="cam-wait" style={{ height: rememberedHeight('live.stage') }} />
         )}
       </section>
     );

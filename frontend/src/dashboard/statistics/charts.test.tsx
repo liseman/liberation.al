@@ -1,5 +1,5 @@
 import { act, fireEvent, renderHook, screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { Bars, Heatmap, placeTip, useNewestInView } from './charts';
 
@@ -78,4 +78,45 @@ it('keeps the x-axis caption out of the scrolling plot, so the sticky labels nev
   const caption = screen.getByText('Hour of day (links open the latest day)');
   expect(caption.tagName).toBe('FIGCAPTION');
   expect(caption.closest('svg')).toBeNull();
+});
+
+// A pointer move changes only where the tooltip sits: the grid under it is the same cells, scales, and tab stops.
+it("doesn't rebuild the heatmap's grid for a pointer move, only its tooltip", () => {
+  const cell = vi.fn((_row: number, _col: number) => ({ value: 1, label: 'one line' }));
+  const { container } = renderPage(
+    <Heatmap
+      label="Lines by person and hour"
+      rows={['Alice']}
+      cols={['12 am', '1 am']}
+      colTicks={new Set([0])}
+      cell={cell}
+      xTitle="Hour"
+      yTitle=""
+    />,
+  );
+  const cellsBuilt = cell.mock.calls.length;
+  expect(cellsBuilt).toBeGreaterThan(0);
+  const marks = [...container.querySelectorAll('svg g')].filter(g => g.querySelector('rect'));
+  expect(marks).toHaveLength(2);
+  fireEvent.mouseMove(marks[0] as Element, { clientX: 10, clientY: 12 });
+  fireEvent.mouseMove(marks[1] as Element, { clientX: 14, clientY: 16 });
+  expect(screen.getAllByText('one line', { selector: 'div' })).toHaveLength(1);
+  expect(cell.mock.calls.length).toBe(cellsBuilt);
+});
+
+it("doesn't rebuild the bars for a pointer move, only their tooltip", () => {
+  const tickLabel = vi.fn(() => 'Mon');
+  const points = [
+    { key: 'a', value: 3, label: 'Monday: 3 GB' },
+    { key: 'b', value: 5, label: 'Tuesday: 5 GB' },
+  ];
+  const { container } = renderPage(
+    <Bars label="Storage" points={points} ticks={new Set([0, 1])} tickLabel={tickLabel} xTitle="day" yTitle="GB" />,
+  );
+  const labels = tickLabel.mock.calls.length;
+  expect(labels).toBeGreaterThan(0);
+  const marks = [...container.querySelectorAll('svg g')].filter(g => g.querySelector('rect'));
+  fireEvent.mouseMove(marks[0] as Element, { clientX: 10, clientY: 12 });
+  expect(screen.getAllByText('Monday: 3 GB', { selector: 'div' })).toHaveLength(1);
+  expect(tickLabel.mock.calls.length).toBe(labels);
 });

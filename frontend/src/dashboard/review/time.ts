@@ -96,7 +96,7 @@ export function dataEdges(
 /** Where Review opens: the latest moment with at least minS seconds of video after it, so pressing play shows a full
  *  minute (opening at the very end of the data otherwise showed "No video"). A camera's newest segment counts while
  *  it's still growing: the gateway plays it to its end. Null if the day has no stretch of video that long. */
-export function latestVideo(segs: Record<string, readonly Segment[]>, _now: number, minS = 60): number | null {
+export function latestVideo(segs: Record<string, readonly Segment[]>, minS = 60): number | null {
   const runs: Span[][] = []; // per camera: its unbroken stretches of finished video, each at least minS long
   for (const list of Object.values(segs)) {
     const rs: Span[] = [];

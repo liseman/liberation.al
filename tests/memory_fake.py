@@ -88,6 +88,7 @@ class FakeMemoryLog:
         person: str | None = None,
         *,
         include_quiet: bool = False,
+        review: Any = None,
     ) -> list[dict[str, Any]]:
         found = memory_log.current(self.range(memory_log.JOURNAL, start, end))
         if not include_quiet:

@@ -62,6 +62,9 @@ describe('crossing answers', () => {
     expect(b).toHaveTextContent('left to right: 2 · right to left: 1');
     expect(b).toHaveTextContent('Line: default vertical line at 50% of the frame width');
     expect(b).toHaveTextContent('Scanned 60 min of the requested window (50%), sampled at 5 frames per second.');
+    expect(b).toHaveTextContent(
+      'Camera motion was detected in 2 of these crossings, so a fixed line is unreliable there. Treat this count with extra caution.',
+    );
     expect(b).toHaveTextContent("Partial: see-actions wasn't watching for some of the requested window");
     expect(b).toHaveTextContent('never summed');
     expect(b).toHaveTextContent('cam0: people walked past about 3 times.');

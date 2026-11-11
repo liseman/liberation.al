@@ -327,15 +327,24 @@ def transcript_current(
     return record.get("transcript_revision", 0) == review.revision(start, end)
 
 
-def reviewed(records: Iterable[dict[str, Any]], state: str | Path | None = None) -> list[dict[str, Any]]:
-    """Hide stale derived evidence immediately, including while its worker is rebuilding it."""
+def review_snapshot(state: str | Path | None = None) -> Corrections:
+    """The transcript corrections in one read, for a caller asking about many records: pass it down as `review` to
+    `reviewed`, `entries`, or `transcript_current` instead of each call reading the knowledge store again."""
     from liberational import config as cfg
     from liberational.listen import revisions
 
+    return revisions.review_snapshot(Path(state) if state is not None else cfg.path("paths.state"))
+
+
+def reviewed(
+    records: Iterable[dict[str, Any]], state: str | Path | None = None, *, review: Corrections | None = None
+) -> list[dict[str, Any]]:
+    """Hide stale derived evidence immediately, including while its worker is rebuilding it."""
     records = list(records)
     if not records:
         return records
-    review = revisions.review_snapshot(Path(state) if state is not None else cfg.path("paths.state"))
+    if review is None:
+        review = review_snapshot(state)
     if review.newest == 0:
         return records
     out = []
@@ -660,11 +669,13 @@ class MemoryLog:
         person: str | None = None,
         *,
         include_quiet: bool = False,
+        review: Corrections | None = None,
     ) -> list[dict[str, Any]]:
         """The current journal entries overlapping [start, end): at `level` (seconds) when given, about `person` (a
         person id; merges followed) when given, in time order then finest level first. A quiet window's marker is
-        left out unless `include_quiet` (a failed window's marker likewise)."""
-        found = reviewed(current(self.range(JOURNAL, start, end)), self.state)
+        left out unless `include_quiet` (a failed window's marker likewise). A caller making many reads passes one
+        `review_snapshot` as `review`, as `transcript_current`'s docstring asks for many-record callers."""
+        found = reviewed(current(self.range(JOURNAL, start, end)), self.state, review=review)
         if not include_quiet:
             found = [r for r in found if not r.get("status")]  # a marker (quiet or failed) is no entry
         if level is not None:

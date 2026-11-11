@@ -612,10 +612,14 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         "warnings": history.get("warnings") or [],
         "recorded_answer": history.get("answer"),
     }
+    # The JSON as it stands, kept as a running length: dumping the whole structure per evidence item made this cost
+    # the evidence list squared. json.dumps writes ", " between items, so one more item adds its own length and a
+    # separator, and nothing else in the structure changes here.
     if len(json.dumps(compact, ensure_ascii=False)) > budget // 2:
         compact["coverage"] = {"detail": "See complete coverage in the dashboard."}
         compact["warnings"] = [str(x)[:180] for x in compact["warnings"][:3]]
         compact["recorded_answer"] = str(compact["recorded_answer"] or "")[: budget // 4]
+    written = len(json.dumps(compact, ensure_ascii=False))
     selected = 0
     evidence = history.get("evidence") or []
     camera_names = views.names() if any(item.get("camera") for item in evidence) else {}
@@ -629,9 +633,11 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         if isinstance(camera_id, str) and (name := camera_names.get(camera_id)) and name != camera_id:
             row["camera_name"] = name
         row.setdefault("text", str(item.get("caption") or item.get("quote") or ""))
-        if len(json.dumps({**compact, "evidence": compact["evidence"] + [row]}, ensure_ascii=False)) > budget - 160:
+        grown = written + len(json.dumps(row, ensure_ascii=False)) + (2 if compact["evidence"] else 0)
+        if grown > budget - 160:
             continue
         compact["evidence"].append(row)
+        written = grown
         selected += 1
     total = len(history.get("evidence") or [])
     compact["input_selection"] = {"included": selected, "available": total, "partial": selected < total}
@@ -1064,16 +1070,17 @@ def spoken(result: Mapping[str, Any], maximum: int = 1800) -> str:
     return answer
 
 
-def partial_path(jid: str) -> Path:
+def partial_path(jid: str, state: str | Path | None = None) -> Path:
     """Where a running job's answer so far is kept (the worker writes it, JobManager.get reads it)."""
-    return STATE / "ask" / "partial" / f"{jid}.txt"
+    return Path(state or STATE) / "ask" / "partial" / f"{jid}.txt"
 
 
 class JobManager:
-    def __init__(self, runner: Callable[..., Mapping[str, Any]] | None = None) -> None:
+    def __init__(self, runner: Callable[..., Mapping[str, Any]] | None = None, state: str | Path | None = None) -> None:
         # The worker subprocess (the default runner) streams its answer into a file per job, which get() shows.
         self.streams = runner is None
         self.runner = runner or _ask_result
+        self.state = Path(state or STATE)  # read once, so the default global is not a dependency of every job
         self.followups: dict[str, dict[str, Any]] = {}  # job id -> the report it follows up on, until it runs
         self.jobs: dict[str, dict[str, Any]] = {}
         self.lock = threading.RLock()
@@ -1109,7 +1116,7 @@ class JobManager:
                 del self.jobs[candidates[0]]
             jid = uuid.uuid7().hex
             origin = surface or ("review" if day else "live")
-            saved = _history_start(question, day, origin, exchange_id=jid, call_id=call_id, created_at=now)
+            saved = _history_start(question, day, origin, self.state, exchange_id=jid, call_id=call_id, created_at=now)
             job = {
                 "id": jid,
                 "question": question,
@@ -1129,7 +1136,7 @@ class JobManager:
             # Research holds its model calls from now until this question is answered (memory/research.py).
             from liberational.memory import research
 
-            self.held[jid] = research.hold(f"job-{jid}", Path(STATE))
+            self.held[jid] = research.hold(f"job-{jid}", self.state)
             self.queue.put_nowait(jid)
             if self.thread is None or not self.thread.is_alive():
                 self.thread = threading.Thread(target=self.work, daemon=True, name="pack-question-worker")
@@ -1142,7 +1149,7 @@ class JobManager:
             job = copy.deepcopy(self.jobs[jid]) if jid in self.jobs else None
         if job is not None and job["status"] == "running" and self.streams:
             try:
-                job["partial"] = partial_path(jid).read_text()[:MAX_PARTIAL]
+                job["partial"] = partial_path(jid, self.state).read_text()[:MAX_PARTIAL]
             except OSError:
                 pass
         return job
@@ -1171,7 +1178,7 @@ class JobManager:
                 try:
                     options: dict[str, Any] = {"day": job["day"]} if job.get("day") else {}
                     if self.streams:
-                        options["partial"] = partial_path(jid)
+                        options["partial"] = partial_path(jid, self.state)
                     if jid in self.followups:
                         options["followup"] = self.followups.pop(jid)
                     try:
@@ -1180,10 +1187,10 @@ class JobManager:
                         result = _with_note(self.runner(asked, **options), resolved)
                     finally:
                         if self.streams:
-                            partial_path(jid).unlink(missing_ok=True)
+                            partial_path(jid, self.state).unlink(missing_ok=True)
                     finished = time.time()
                     result, answer_saved = _history_finish(
-                        jid if job["history_saved"] else None, result, job["started_at"], finished
+                        jid if job["history_saved"] else None, result, job["started_at"], finished, self.state
                     )
                     with self.lock:
                         job.update(
@@ -1211,7 +1218,7 @@ class JobManager:
                         "evidence": [],
                     }
                     failure, answer_saved = _history_finish(
-                        jid if job["history_saved"] else None, failure, job["started_at"], finished
+                        jid if job["history_saved"] else None, failure, job["started_at"], finished, self.state
                     )
                     with self.lock:
                         job.update(
