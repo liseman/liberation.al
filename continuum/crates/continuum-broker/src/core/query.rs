@@ -363,6 +363,9 @@ impl Sched {
         };
         let promise = quote.as_ref().map(|q| q.promise);
         let tail = self.ring_tail(stream, range);
+        // A query reaching past the newest indexed batch gets the ring's unsealed tail, and `complete` says so. The
+        // tail's span stays listed in `missing` (it is missing from the catalog, not from the answer): the tail
+        // itself and `complete` are what say those bytes can be read now, not later.
         let complete = missing.is_empty() && tail.is_none();
         let reply = QueryReply { session, request_id, complete, missing, quote, next_after: 0, by_seq: false, tail };
         let limit = if ask.max_items == 0 { DEFAULT_MAX_ITEMS } else { ask.max_items as usize };

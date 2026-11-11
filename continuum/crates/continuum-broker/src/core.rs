@@ -2260,9 +2260,9 @@ impl Sched {
         worker.is_some() && self.leases.get(&LeaseId(lease)).map(|&(w, _)| w) == worker.copied()
     }
 
-    /// The live streams for the scheduler's view (no live edges yet: rings come with continuum-shm).
-    fn live(&self) -> HashMap<StreamId, Option<u64>> {
-        self.producers.keys().map(|&s| (s, None)).collect()
+    /// The live streams for the scheduler's view: those whose producer session is open.
+    fn live(&self) -> HashSet<StreamId> {
+        self.producers.keys().copied().collect()
     }
 
     fn reply_error(&mut self, session: SessionId, request_id: u64, code: ErrorCode, message: &str) {
@@ -3084,12 +3084,6 @@ fn purge_job(
 
 /// How many times a purge step's storage error is retried before the purge is given up for this run.
 const PURGE_RETRIES: u32 = 3;
-
-/// UTC nanoseconds now.
-fn now_ns() -> u64 {
-    u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos())
-        .unwrap_or(u64::MAX)
-}
 
 /// The error code a client gets for a catalog error: the client's mistakes keep their meaning, and only a storage
 /// failure is the broker's.
