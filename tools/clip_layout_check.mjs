@@ -159,6 +159,7 @@ try {
         assert.equal(states.playing[0].band, 'side');
         assert.equal(states.playing[1].band, 'bottom');
         for (const state of Object.values(states)) {
+          assert.equal(new Set(state.map(card => card.question)).size, 1, 'Wrapped metadata keeps questions aligned');
           for (let i = 0; i < 3; i++) {
             assert.equal(state[i].card, states.poster[i].card);
             assert.equal(state[i].media, 240);
