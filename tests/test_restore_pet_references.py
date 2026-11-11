@@ -2,6 +2,7 @@
 stranded labels from their kept photos, and carrying pets over from an earlier embedding space."""
 
 import importlib.util
+import json
 import pathlib
 from types import SimpleNamespace
 
@@ -172,3 +173,30 @@ def test_a_stranded_label_is_embedded_again_from_its_kept_photo(tmp_path, models
     assert (new["track_id"], new["label"]) == (track, MIA)
     assert models.embedded == [(None, [track])]
     assert R.stranded(tmp_path) == []
+
+
+def test_restore_dry_run_measures_recoverable_and_missing_photos_without_opening_a_writer(
+    tmp_path, models, monkeypatch, capsys
+):
+    taught(tmp_path, ("run0:cat:1", MIA, 0), ("run0:cat:2", POPPY, 1))
+    saved(tmp_path, "run0:cat:1")
+    models.old["run0:cat:1"] = 0
+    before = records(tmp_path, R.REFERENCES)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("dry run opened a writer")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(knowledge.Store, "__init__", refuse)
+        tool.restore(tmp_path, dry_run=True)
+    result = json.loads(capsys.readouterr().out)
+    assert [(r["recoverable"], r["no_photo"]) for r in result["pets"]] == [(1, 0), (0, 1)]
+    assert records(tmp_path, R.REFERENCES) == before
+    assert not (tmp_path / R.EVIDENCE_LOCK).exists()
+
+
+def test_restore_dry_run_on_fresh_install_does_not_create_state(tmp_path, capsys):
+    state = tmp_path / "fresh"
+    tool.restore(state, dry_run=True)
+    assert json.loads(capsys.readouterr().out)["pets"] == []
+    assert not state.exists()

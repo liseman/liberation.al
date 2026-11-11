@@ -1,6 +1,7 @@
 """Telling pets apart (people/pet_recognition.py): sightings, groups, owner labels, and the held-out check that
 keeps recognition off until the labels show it works."""
 
+import json
 from unittest.mock import create_autospec
 
 import numpy as np
@@ -16,6 +17,110 @@ DIM = 384
 MIA, POPPY = "0199a3c1-0000-7000-8000-000000000001", "0199a3c1-0000-7000-8000-000000000002"
 BESS = "0199a3c1-0000-7000-8000-00000000000b"
 PETS = [{"id": MIA, "name": "Mia", "species": "cat"}, {"id": POPPY, "name": "Poppy", "species": "cat"}]
+
+
+def similar_pets(n=80, gap=1800):
+    examples = []
+    for k in range(n):
+        identity = 1 if k % 2 else -1
+        lighting = 0.3 if k % 4 < 2 else -0.3
+        crops = [np.array([1.0, identity * strength, lighting]) for strength in (0.12, 0.13)]
+        crops = [v / np.linalg.norm(v) for v in crops]
+        at = T + k * gap
+        examples.append(
+            (R.Sighting(f"visit-{k}", "cat", "cam0", at, at + 5, crops), "Alice" if identity == 1 else "Dana")
+        )
+    return examples
+
+
+def test_time_validated_classifier_learns_lookalikes_in_day_and_night_from_a_growing_set():
+    examples = similar_pets()
+    assert R._temporal_check(examples[:12], "cat", None) == {}
+    check = R._temporal_check(examples, "cat", None)
+    assert check["method"] == "classifier"
+    assert check["validation"] == {"right": 20, "wrong": 0, "unknown": 0, "tested": 20}
+    model = check["_model"]
+    assert model.answers([examples[-1][0], examples[-2][0]]) == ["Alice", "Dana"]
+    mixed_track = R.Sighting("mixed", "cat", "cam0", T, T, [*examples[-1][0].vectors, *examples[-2][0].vectors])
+    assert model.answers([mixed_track]) == [None]
+    rejected = R._judge(examples[-1][0], examples, {**check, "on": True}, exclude=["Alice"])
+    assert "recognized" not in rejected and "suggestion" not in rejected
+    assert "ruled out" in rejected["reason"]
+
+
+def test_classifier_that_makes_more_time_held_out_errors_cannot_replace_current_rule():
+    examples = similar_pets()
+    changed = [(s, "Dana" if label == "Alice" else "Alice") for s, label in examples[60:]]
+    check = R._temporal_check([*examples[:60], *changed], "cat", None)
+    assert check["candidate"]["wrong"] > 0
+    assert check["method"] == "nearest" and "_model" not in check
+
+
+def test_temporal_classifier_purges_nearby_tracks_on_both_split_boundaries():
+    assert R._temporal_check(similar_pets(gap=1), "cat", None) == {}
+
+
+def test_one_pet_species_keeps_gallery_even_with_many_labels():
+    examples = [(s, "Rex") for s, _ in similar_pets()]
+    check = R._temporal_check(examples, "cat", "Rex")
+    assert check["method"] == "nearest" and "_model" not in check
+
+
+def test_improving_a_bad_baseline_does_not_waive_the_absolute_error_gate():
+    candidate = {"right": 55, "wrong": 40, "unknown": 5, "tested": 100}
+    baseline = {"right": 50, "wrong": 45, "unknown": 5, "tested": 100}
+    assert not R._passes(candidate, baseline)
+
+
+def test_foreign_species_cannot_replace_missing_same_species_competitors():
+    examples = [(s, "Alice") for s, _ in similar_pets()]
+    dog = R.Sighting("dog", "dog", "cam0", T, T, [np.array([0.0, 0.0, 1.0])])
+    check = R._temporal_check([*examples, (dog, "Rex")], "cat", None)
+    assert check["method"] == "nearest" and "_model" not in check
+
+
+def test_learning_coverage_is_held_out_and_missing_periods_are_not_zero():
+    examples = similar_pets()
+    check = R._temporal_check(examples, "cat", None)
+    names = {"Alice": "Alice", "Dana": "Dana", "Sam": "Sam"}
+    result = R._learning({"cat": check}, examples, {}, names, T + 80 * 1800)
+    assert (result["Alice"]["automatic_percent"], result["Alice"]["tested"]) == (100, 10)
+    assert result["Alice"]["start"] >= T + 60 * 1800
+    assert result["Sam"]["automatic_percent"] is None and result["Sam"]["start"] is None
+    expired = R._learning({"cat": check}, examples, {}, names, T + 30 * 86400)
+    assert expired["Alice"]["automatic_percent"] is None
+
+
+def test_waiting_groups_never_combine_conflicting_pet_guesses(tmp_path):
+    examples = similar_pets(4)
+    rows = [
+        {**row(s.track_id, 0, k, s.start), "vector": np.pad(s.mean, (0, DIM - 3)).tolist()}
+        for k, (s, _) in enumerate(examples)
+    ]
+    store(tmp_path, rows)
+    R.label(tmp_path, ["visit-0"], MIA, PETS, now=T + 10000)
+    R.label(tmp_path, ["visit-1"], POPPY, PETS, now=T + 10001)
+    result = R.view(tmp_path, PETS, now=T + 10002)
+    waiting = [g for g in result["groups"] if g["sightings"]]
+    assert len(waiting) == 2
+    assert {g["guess"]["id"] for g in waiting} == {MIA, POPPY}
+    assert all(len(g["sightings"]) == 1 for g in waiting)
+
+
+def test_dashboard_serializes_a_learned_model_as_measured_counts_not_an_estimator(tmp_path):
+    examples = similar_pets()
+    rows = [
+        {**row(s.track_id, 0, k, s.start), "vector": np.pad(s.mean, (0, DIM - 3)).tolist()}
+        for k, (s, _) in enumerate(examples)
+    ]
+    store(tmp_path, rows)
+    R.label(tmp_path, [s.track_id for s, label in examples if label == "Alice"], MIA, PETS, now=T + 150000)
+    R.label(tmp_path, [s.track_id for s, label in examples if label == "Dana"], POPPY, PETS, now=T + 150001)
+    view = json.loads(json.dumps(R.view(tmp_path, PETS, now=T + 150002)))
+    assert view["recognition"][0]["method"] == "classifier"
+    assert view["recognition"][0]["tested"] == 20
+    assert view["learning"][MIA]["tested"] == 10
+    assert view["learning"][MIA]["stranded"] == 0
 
 
 def look(identity: int, k: int) -> list[float]:
@@ -198,7 +303,10 @@ def test_labeling_groups_turns_recognition_on_and_names_new_sightings(log):
     (cat,) = [c for c in after["recognition"] if c["species"] == "cat"]
     assert cat["on"] is True
     rows = {s["track_id"]: s for g in after["groups"] for s in g["sightings"]}
-    assert (rows["m-new"]["recognized"]["label"], rows["p-new"]["recognized"]["label"]) == (MIA, POPPY)
+    assert "m-new" not in rows and "p-new" not in rows
+    assert after["seen"][MIA][0]["track_id"] == "m-new"
+    assert after["seen"][POPPY][0]["track_id"] == "p-new"
+    assert after["seen"][MIA][0]["how"] == "recognized"
     assert "recognized" not in rows["dog"] and "suggestion" not in rows["dog"], "no dog labels to compare with"
 
 
@@ -498,8 +606,8 @@ def test_aging_unlabeled_detail_preserves_old_reference_recognition_and_photo_se
     store(log.state, [row("recent", 0, 30, now - 1)])
     before = R.view(log.state, PETS, now=now)
     assert before["recognition"][0]["on"] is True
-    recent = next(s for g in before["groups"] for s in g["sightings"] if s["track_id"] == "recent")
-    assert recent["recognized"]["label"] == MIA
+    recent = before["seen"][MIA][0]
+    assert (recent["track_id"], recent["how"]) == ("recent", "recognized")
     # Without the old unlabeled detail, as the store's history window drops it, owner reference tracks still answer.
     kept = [r for r in FIXTURE_ROWS if r["track_id"] not in ("m-new", "p-new", "dog")]
     aged = store(log.state / "aged", [*kept, row("recent", 0, 30, now - 1)])
@@ -630,8 +738,9 @@ def test_labels_keep_recognition_across_a_reset_that_drops_their_embeddings(log)
     R.label(log.state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
     R.label(log.state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
     state = after_reset(log, [row("m-new", 0, 20, T + 20000), row("p-new", 1, 21, T + 20001)])
-    rows = listed(state, now + 2)
-    assert (rows["m-new"]["recognized"]["label"], rows["p-new"]["recognized"]["label"]) == (MIA, POPPY)
+    result = R.view(state, PETS, now=now + 2)
+    assert result["groups"] == []
+    assert (result["seen"][MIA][0]["track_id"], result["seen"][POPPY][0]["track_id"]) == ("m-new", "p-new")
 
 
 def test_an_ignored_label_keeps_no_example_and_relabeling_keeps_one(log):
@@ -735,7 +844,8 @@ def test_the_only_dog_is_recognized_and_a_strange_dog_is_not(tmp_path):
     (dog,) = [c for c in view["recognition"] if c["species"] == "dog"]
     assert dog["on"] is True
     sightings = {s["track_id"]: s for g in view["groups"] for s in g["sightings"]}
-    assert sightings["bess-new"]["recognized"]["label"] == BESS
+    assert "bess-new" not in sightings
+    assert view["seen"][BESS][0]["track_id"] == "bess-new"
     assert "recognized" not in sightings["stranger"]
 
 
@@ -833,15 +943,16 @@ def test_not_this_pet_moves_a_sightings_suggestion_on_and_taking_it_back_restore
     now = T + 30000
     R.label(log.state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
     R.label(log.state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
-    assert listed(log.state, now + 2)["m-new"]["recognized"]["label"] == MIA
+    assert R.view(log.state, PETS, now=now + 2)["seen"][MIA][0]["track_id"] == "m-new"
     assert R.mark_not(log.state, ["m-new"], MIA, PETS, now=now + 3) == 1
     denied = listed(log.state, now + 4)["m-new"]
     assert (denied.get("recognized"), denied["suggestion"]["label"], denied["not"]) == (None, POPPY, [MIA])
     seen_mia = {r["track_id"] for r in R.view(log.state, PETS, now=now + 4)["seen"][MIA]}
     assert "m-new" not in seen_mia, "not on Mia's card either"
     R.mark_not(log.state, ["m-new"], MIA, PETS, active=False, now=now + 5)
-    back = listed(log.state, now + 6)["m-new"]
-    assert (back["recognized"]["label"], back["not"]) == (MIA, [])
+    assert "m-new" not in listed(log.state, now + 6)
+    assert R.view(log.state, PETS, now=now + 6)["seen"][MIA][0]["track_id"] == "m-new"
+    assert R.nots(log.state) == {}
 
 
 def test_not_this_pet_on_a_sighting_labeled_as_that_pet_clears_the_label(log):
@@ -882,14 +993,13 @@ def test_review_never_names_a_track_as_a_pet_the_owner_said_it_isnt(log):
 
 def test_each_waiting_sighting_and_group_carries_the_guess_shape_faces_and_voices_share(log):
     now = T + 30000
-    R.label(log.state, [f"m{k}" for k in range(4)], MIA, PETS, now=now)
-    R.label(log.state, [f"p{k}" for k in range(4)], POPPY, PETS, now=now + 1)
+    R.label(log.state, ["m0", "m1"], MIA, PETS, now=now)
     got = R.view(log.state, PETS, now=now + 2)
     assert got["count"] == len(got["groups"])
     row = {s["track_id"]: s for g in got["groups"] for s in g["sightings"]}["m-new"]
     assert row["guess"]["id"] == MIA and row["guess"]["name"] == "Mia"
     assert (row["guess"]["band"], row["guess"]["close"], row["not"]) == ("probable", None, [])
-    assert row["guess"]["score"] == round(100 * row["recognized"]["similarity"])
+    assert row["guess"]["score"] == round(100 * row["suggestion"]["similarity"])
     (group,) = [g for g in got["groups"] if any(s["track_id"] == "m-new" for s in g["sightings"])]
     assert group["guess"]["id"] == MIA and group["not"] == []
 
@@ -1033,9 +1143,9 @@ def test_removing_a_training_image_takes_its_label_vector_and_photo_out_and_reco
     assert len(store.query(R.REFERENCES, key="m0")) == 1 and R.kept_photo(log.state, "m0") == b"photo of m0"
     assert R.kept_photo(log.state, "p0") is None
     assert [r["track_id"] for r in R.examples(log.state, MIA, PETS)] == ["m0", "m1", "m2", "m3"]
-    waiting = {s["track_id"]: s for g in R.view(log.state, PETS, now=now + 3)["groups"] for s in g["sightings"]}
-    assert waiting["p0"]["label"] is None and waiting["p0"]["not"] == [MIA]
-    assert waiting["p0"].get("recognized", {}).get("label") != MIA
+    result = R.view(log.state, PETS, now=now + 3)
+    assert "p0" not in {s["track_id"] for s in result["seen"][MIA]}
+    assert "p0" in {s["track_id"] for s in result["seen"][POPPY]}
 
 
 def test_an_example_that_is_only_a_vector_is_listed_without_a_picture_and_can_be_removed(log):

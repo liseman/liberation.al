@@ -286,6 +286,29 @@ it('counts pet video statuses only among the newest four and never requests unpr
 });
 
 describe("Pets in People's form", () => {
+  it('shows measured per-pet coverage and stranded teaching on the recognition card', async () => {
+    view.learning = {
+      [MIA]: {
+        tested: 20,
+        right: 18,
+        wrong: 0,
+        unknown: 2,
+        days: 7,
+        start: T,
+        end: T + 3600,
+        automatic_percent: 90,
+        references: 120,
+        stranded: 30,
+      },
+    };
+    serve();
+    renderPage(<Pets />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Mia/ }));
+    const card = await screen.findByRole('article', { name: 'Card of Mia' });
+    expect(within(card).getByText(/90% correctly named automatically in 20 held-out sightings/)).toHaveTextContent(
+      '30 earlier taught sightings have no usable reference',
+    );
+  });
   it('lists the named pets with where they were last seen, and opens a card for each', async () => {
     serve();
     const user = userEvent.setup();
@@ -391,6 +414,23 @@ describe("Pets in People's form", () => {
 });
 
 describe('Sightings to name', () => {
+  it('explains why a valid sighting still needs a name', async () => {
+    view.groups = [
+      {
+        id: 'cat:z',
+        species: 'cat',
+        sightings: [
+          sighting('z', {
+            suggestion: { label: MIA, similarity: 0.5 },
+            reason: 'Another animal looks too similar to name this sighting safely.',
+          }),
+        ],
+      },
+    ];
+    serve();
+    renderPage(<Pets />);
+    expect(await screen.findByText('Another animal looks too similar to name this sighting safely.')).toBeVisible();
+  });
   it('names a group with its guess, takes it off at once, and Undo puts it back', async () => {
     serve();
     const user = userEvent.setup();

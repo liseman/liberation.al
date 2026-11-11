@@ -38,6 +38,7 @@ export interface Sighting {
   suggestion?: Guess;
   not?: string[]; // the pets the owner said it isn't: never guessed as them again
   guess?: NamingGuess | null;
+  reason?: string;
 }
 /** A named pet's sighting: one the owner labeled, or one recognition named. */
 export interface Seen {
@@ -59,6 +60,19 @@ export interface Check {
   unknown: number;
   on: boolean;
   reason: string | null;
+  tested?: number;
+}
+export interface Learning {
+  tested: number;
+  right: number;
+  wrong: number;
+  unknown: number;
+  days: number;
+  start: number | null;
+  end: number | null;
+  automatic_percent: number | null;
+  references: number;
+  stranded: number;
 }
 export interface SightingGroup {
   id: string;
@@ -70,6 +84,7 @@ export interface SightingGroup {
   photos_unavailable?: number;
 }
 export interface SightingsView {
+  learning?: Record<string, Learning>;
   photos_pending?: number;
   videos_pending?: number;
   photos_unavailable?: number;

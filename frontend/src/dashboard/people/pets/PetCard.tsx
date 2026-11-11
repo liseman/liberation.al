@@ -15,6 +15,7 @@ import { VideoTile } from '../profile/VideoTile';
 import { petTraining, TrainingSet } from '../TrainingSet';
 import {
   type Check,
+  type Learning,
   type Pet,
   petPhoto,
   petVideos,
@@ -29,7 +30,7 @@ import {
 export function checkText(check: Check): string {
   const tally = `${check.right} right, ${check.wrong} wrong, ${check.unknown} unsure`;
   return check.on
-    ? `recognized by appearance. Checked on ${check.labeled} labeled sightings: ${tally}.`
+    ? `recognized by appearance. Checked on ${check.tested ?? check.labeled} labeled sightings: ${tally}.`
     : `not recognized yet (${check.reason}).${check.labeled ? ` Checked so far: ${tally}.` : ''}`;
 }
 
@@ -38,12 +39,21 @@ function CheckLine({ check }: { check: Check }) {
   return <Text size="sm">{capitalize(t)}</Text>;
 }
 
+export function learningText(learning: Learning): string {
+  const measured =
+    learning.automatic_percent == null
+      ? `No time-separated check is available within the last ${learning.days} days.`
+      : `Within the last ${learning.days} days, ${learning.automatic_percent}% correctly named automatically in ${learning.tested} held-out sightings: ${learning.wrong} wrong, ${learning.unknown} unsure. Available check: ${span(learning.start ?? 0, learning.end ?? 0)}.`;
+  return `${measured} ${learning.references} usable teaching examples.${learning.stranded ? ` ${learning.stranded} earlier taught sightings have no usable reference.` : ''}`;
+}
+
 export function PetCard({
   pet,
   seen,
   pending = 0,
   unavailable = 0,
   check,
+  learning,
   onBack,
   onEdit,
   onRemove,
@@ -56,6 +66,7 @@ export function PetCard({
   pending?: number;
   unavailable?: number;
   check?: Check;
+  learning?: Learning;
   onBack: () => void;
   onEdit: () => void;
   onRemove: () => void;
@@ -156,6 +167,11 @@ export function PetCard({
       {check && (
         <Section title="Recognition">
           <CheckLine check={check} />
+          {learning && (
+            <Text size="sm" mt="xs">
+              {learningText(learning)}
+            </Text>
+          )}
         </Section>
       )}
     </article>
