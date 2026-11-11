@@ -96,6 +96,15 @@ def _gone(error: BaseException) -> bool:
     )
 
 
+UNKNOWN_PARENT = re.compile(r"unknown parent ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+
+
+def _unknown_parent(error: BaseException) -> str | None:
+    """The source id the broker refused as a parent because it doesn't have it, or None for any other error."""
+    found = UNKNOWN_PARENT.search(str(error)) if _gone(error) else None
+    return found[1] if found else None
+
+
 def _uses_history(root: Mapping[str, Any], result: Mapping[str, Any] | None) -> bool:
     """History scope depends on retrieved inputs even when an answer omits citations."""
     return root.get("scope") == "history" or result is None or bool(result.get("evidence") or result.get("citations"))
@@ -242,7 +251,14 @@ class History:
                         "data": base64.b64encode(encoded[start : start + _CHUNK]).decode("ascii"),
                     }
                     try:
-                        chunk_id = self.log.append(memory_log.ASK_ANSWER, chunk, parents=parents)
+                        chunk_id, kept = self._append_known(memory_log.ASK_ANSWER, chunk, parents, root_id)
+                        if len(kept) < len(parents):
+                            # Only a payload the broker has can be a parent. A transcript line read from the hourly
+                            # segment files has a row id, not a broker payload: it is left out, and the answer is
+                            # kept as unverified, so the revision checkpoint hides it once the transcript changes
+                            # (a forget, a correction), as for any source without canonical provenance.
+                            parents = kept
+                            metadata.update(answer_unverified=True, revisions=root.get("revisions"))
                         metadata["chunks"].append(chunk_id)
                     except Exception as error:
                         if not _gone(error):
@@ -259,7 +275,8 @@ class History:
                         "index": index,
                     }
                     try:
-                        marker_id = self.log.append(memory_log.ASK_ANSWER, marker, parents=[root_id, *ids])
+                        cited = [pid for pid in ids if pid in parents]
+                        marker_id = self.log.append(memory_log.ASK_ANSWER, marker, parents=[root_id, *cited])
                     except Exception as error:
                         if not _gone(error):
                             raise
@@ -271,6 +288,22 @@ class History:
                     return False
                 raise
             return any(row["id"] == root_id for row in self._roots())
+
+    def _append_known(
+        self, stream: str, record: Mapping[str, Any], parents: list[str], root_id: str
+    ) -> tuple[str, list[str]]:
+        """Append `record`, leaving out each parent the broker reports it doesn't have (a refused append writes
+        nothing), and return its id and the parents it was written with. The root must be known; an unknown root
+        means the question was deleted, which the caller handles."""
+        kept = list(parents)
+        while True:
+            try:
+                return self.log.append(stream, record, parents=kept), kept
+            except Exception as error:
+                missing = _unknown_parent(error)
+                if missing is None or missing == root_id or missing not in kept:
+                    raise
+                kept.remove(missing)
 
     def _entry(self, root: Mapping[str, Any]) -> dict[str, Any]:
         entry = {key: root.get(key) for key in ("question", "surface", "day", "scope", "mode", "call_id", "created_at")}
