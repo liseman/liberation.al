@@ -52,7 +52,7 @@ import numpy as np
 
 from liberational import config as cfg
 from liberational import json_state, logs
-from liberational.spatial import surroundings
+from liberational.spatial import camera_track, surroundings
 from liberational.spatial import surroundings_clouds as clouds
 from liberational.spatial import surroundings_frames as frames
 
@@ -273,6 +273,15 @@ async def pictures(camera: str) -> AsyncIterator[np.ndarray]:
         yield frame.pixels
 
 
+async def fast_pictures(camera: str) -> AsyncIterator[np.ndarray]:
+    """`camera`'s pictures while it is tracked as it moves: one every `camera_track.TRACK_EVERY_S`."""
+    from liberational.see import shared_frames
+
+    every = int(camera_track.TRACK_EVERY_S * 1e9)
+    async for frame in shared_frames.decoded_frames(camera, format="bgr", every_ns=every):
+        yield frame.pixels
+
+
 class Service:
     """Follows the switch, and the chosen cameras while it's on."""
 
@@ -285,10 +294,16 @@ class Service:
         on_idle: Callable[[], None] = lambda: None,
         monotonic: Callable[[], float] = time.monotonic,
         clouds: clouds.Clouds | None = None,
+        tracker: camera_track.Follows | None = None,
+        fast: Pictures = fast_pictures,
     ) -> None:
         self.monotonic = monotonic
         self.sampler = sampler
         self.clouds = clouds
+        self.tracker = tracker
+        self.fast = fast
+        self.tracking: dict[str, asyncio.Task[None]] = {}
+        self._track_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="camera-track")
         self.read = read
         self.source = source
         self.clock = clock
@@ -311,16 +326,37 @@ class Service:
                 continue  # its last look is still running: pass this picture by
             self._busy.add(camera)
             try:
-                await loop.run_in_executor(self._pool, self._look, camera, pixels, self.clock())
+                moving = await loop.run_in_executor(self._pool, self._look, camera, pixels, self.clock())
             finally:
                 self._busy.discard(camera)
+            if moving and camera not in self.tracking:
+                task = self.tracking[camera] = loop.create_task(self._track(camera))
+                task.add_done_callback(lambda done, camera=camera: self._tracked(camera, done))
 
-    def _look(self, camera: str, pixels: np.ndarray, now: float) -> None:
+    def _look(self, camera: str, pixels: np.ndarray, now: float) -> bool:
         """One sampled picture: the sampler's look, then the camera's own cloud's (on the same thread, since they
-        share the detector)."""
+        share the detector), then whether the camera has begun to move (spatial/camera_track.py). Whether it has."""
         self.sampler.look(camera, pixels, now)
         if self.clouds is not None:
             self.clouds.look(camera, pixels, now)
+        return self.tracker is not None and self.tracker.look(camera, pixels, now)
+
+    async def _track(self, camera: str) -> None:
+        """Give the tracker `camera`'s frames, one at a time on a thread of its own, until its track is over."""
+        assert self.tracker is not None
+        loop = asyncio.get_running_loop()
+        try:
+            async for pixels in self.fast(camera):
+                if await loop.run_in_executor(self._track_pool, self.tracker.step, camera, pixels, self.clock()):
+                    break
+        finally:
+            await loop.run_in_executor(self._track_pool, self.tracker.end, camera, self.clock())
+
+    def _tracked(self, camera: str, done: asyncio.Task[None]) -> None:
+        self.tracking.pop(camera, None)
+        error = None if done.cancelled() else done.exception()
+        if error is not None:
+            LOG.warning("%s: tracking it stopped: %s", camera, error)
 
     def step(self) -> surroundings.Switch:
         """Bring what's followed in line with the switch as it reads now; the switch."""
@@ -339,6 +375,8 @@ class Service:
             elif camera not in want:
                 task.cancel()
                 del self.following[camera]
+                if camera in self.tracking:
+                    self.tracking[camera].cancel()
                 LOG.info("%s: stopped sampling", camera)
         for camera in sorted(want - set(self.following)):
             if now >= self._retry_at.get(camera, 0.0):
@@ -384,11 +422,12 @@ class Service:
                 except TimeoutError:
                     pass
         finally:
-            tasks = list(self.following.values())
+            tasks = [*self.following.values(), *self.tracking.values()]
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self._pool.shutdown(wait=True)
+            self._track_pool.shutdown(wait=True)
             if self.clouds is not None:
                 self.clouds.close()
 
@@ -419,7 +458,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
         own = clouds.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail)
-        await Service(sampler, on_idle=idle, clouds=own).run(stop)
+        tracker = camera_track.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail)
+        await Service(sampler, on_idle=idle, clouds=own, tracker=tracker).run(stop)
 
     asyncio.run(run())
 

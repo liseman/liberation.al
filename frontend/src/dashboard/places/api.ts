@@ -206,7 +206,8 @@ export interface ScenePlaced {
   camera: string;
   points: number;
   placed: boolean;
-  /** "spot": from its spot on the plan alone; "adjusted": from its spot, corrected against the cameras in `against`
+  /** How its own cloud is placed (while it moves, `track` says where the camera itself is now).
+   *  "spot": from its spot on the plan alone; "adjusted": from its spot, corrected against the cameras in `against`
    *  by what their pictures share; "following": its view changed (it was turned or carried) and it was placed again
    *  by itself, where `follow` says. Not in the scene: "no_spot", "no_facing", and "lost" (its view changed and
    *  can't be placed with confidence: `follow.lost` says why). */
@@ -219,6 +220,8 @@ export interface ScenePlaced {
   /** For a camera that was placed again by itself, or whose view can't be placed; absent for one that never left
    *  its spot. The owner's plan and its spots are never changed by any of it. */
   follow?: SceneFollow | null;
+  /** While the camera is tracked as it moves, or has just come to rest and waits for a cloud of its new view. */
+  track?: SceneTrack | null;
   /** When its cloud's picture was taken (epoch seconds). */
   at?: number;
   /** What its cloud was levelled by: its own floor, its walls (no floor in view), or nothing (it stands as if the
@@ -236,11 +239,30 @@ export interface ScenePlaced {
   fitted?: boolean;
 }
 
+/** A moving camera's track: where it is now, from its live frames, held to the plan's walls where they are in view. */
+export interface SceneTrack {
+  state: 'tracking' | 'ended';
+  /** When the track began, and when it last placed the camera (epoch seconds). */
+  since: number;
+  at: number;
+  /** When a keyframe was last held to the plan's walls; null when none has been: the pose may have drifted. */
+  held: number | null;
+  /** The camera in the scene now (4 x 4, row by row); null before its first frame was placed. */
+  pose: number[] | null;
+  /** How far its path has run, and how far it now is from where its cloud was made: metres, degrees of facing. */
+  went_m: number;
+  from_m: number;
+  from_deg: number;
+  /** Its last keyframes, whose points are drawn with the camera's own. */
+  keyframes: { n: number; transform: number[] }[];
+}
+
 /** How a camera whose view changed was placed again, or why it couldn't be. */
 export interface SceneFollow {
-  /** What placed it: "pictures" (what its new picture shares with an earlier one or another camera's), "turned"
-   *  (its walls, where it stood), "walls" (its walls, wherever they fit the plan); "" for none. */
-  by: 'pictures' | 'turned' | 'walls' | '';
+  /** What placed it: "tracking" (where its track left it when it came to rest), "pictures" (what its new picture
+   *  shares with an earlier one or another camera's), "turned" (its walls, where it stood), "walls" (its walls,
+   *  wherever they fit the plan); "" for none. */
+  by: 'tracking' | 'pictures' | 'turned' | 'walls' | '';
   /** When the picture it was placed with was taken (epoch seconds). */
   since: number;
   /** Why its view can't be placed, or "": no wall in view, no wall on the plan, walls that fit nowhere well enough,
@@ -377,6 +399,8 @@ export const followCamera = (place: string, camera: string, use: 'spot' | 'cloud
  *  that it was turned on. */
 export const SCENE_LEARNING_MS = 10_000;
 export const SCENE_IDLE_MS = 60_000;
+/** And while a camera is being tracked as it moves, so its row and its marker keep up with it. */
+export const SCENE_TRACKING_MS = 2_000;
 
 /** A place's scene; with `camera`, that camera's own cloud; with `all`, every camera's cloud placed in the place.
  *  `flat` (the default) draws the floor and matched walls of clouds fitted to their rooms flat; without it every
@@ -397,5 +421,9 @@ export const sceneQuery = (place: string, camera?: string | null, all = false, f
       ),
     placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
-    refetchInterval: q => (q.state.data?.learning?.on ? SCENE_LEARNING_MS : SCENE_IDLE_MS),
+    refetchInterval: q => {
+      const scene = q.state.data;
+      if (scene?.combined?.cameras.some(camera => camera.track?.state === 'tracking')) return SCENE_TRACKING_MS;
+      return scene?.learning?.on ? SCENE_LEARNING_MS : SCENE_IDLE_MS;
+    },
   });

@@ -367,7 +367,14 @@ def _all_cameras_scene(
         return 200, {**base, "revision": None}
     clouds = {p.camera: store.current(p.camera) for p in placed}
     cameras = {
-        p.camera: {"pose": list(p.pose or ()), "focal": c.focal, "width": c.width, "height": c.height, "at": c.at}
+        # a camera being tracked as it moves is shown where its track has it, not where its cloud was made
+        p.camera: {
+            "pose": list((p.track or {}).get("pose") or p.pose or ()),
+            "focal": c.focal,
+            "width": c.width,
+            "height": c.height,
+            "at": c.at,
+        }
         for p in placed
         if (c := clouds[p.camera]) is not None
     }

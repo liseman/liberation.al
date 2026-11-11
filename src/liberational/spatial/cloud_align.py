@@ -679,6 +679,7 @@ class Located:
     score: float = 0.0  # of the answer: `Fit.share` less the share of the cloud's points outside the plan's rooms
     rival: float = 0.0  # and of the best answer somewhere else
     walls: int = 0  # the cloud's walls matched to the plan's
+    scale: float = 1.0  # the cloud's size against the plan's, by the fit that placed it
 
 
 @dataclass(frozen=True)
@@ -689,6 +690,7 @@ class _Try:
     bearing: float
     walls: int
     crossed: bool  # its matched walls run in two directions
+    scale: float = 1.0
 
     def near(self, other: _Try) -> bool:
         turn = abs((self.bearing - other.bearing + math.pi) % (2 * math.pi) - math.pi)
@@ -720,7 +722,7 @@ def _try(
     normals = np.array([wall.normal for wall in fitted.walls])
     cross = np.abs(normals[:, None, 0] * normals[None, :, 1] - normals[:, None, 1] * normals[None, :, 0])
     crossed = bool((cross > math.sin(math.radians(CROSS_DEG))).any())
-    return _Try(fitted.share - beyond, at[0], at[1], facing, len(fitted.walls), crossed)
+    return _Try(fitted.share - beyond, at[0], at[1], facing, len(fitted.walls), crossed, fitted.scale)
 
 
 def _bearings(found: Sequence[Line], plan: Sequence[Edge]) -> list[float]:
@@ -841,8 +843,36 @@ def locate(
         return Located("no_match")
     assert best is not None
     told = {"x": best.x, "y": best.y, "bearing": best.bearing, "by": by, "score": round(best.score, 3),
-            "rival": round(rival, 3), "walls": best.walls}  # fmt: skip
+            "rival": round(rival, 3), "walls": best.walls, "scale": best.scale}  # fmt: skip
     return Located("ambiguous" if rival >= best.score - RIVAL else "placed", **told)
+
+
+def hold(
+    found: Sequence[Line],
+    x: float,
+    y: float,
+    bearing: float,
+    plan: Sequence[Edge],
+    rooms: Sequence[Sequence[tuple[float, float]]],
+    points: np.ndarray,
+) -> Located:
+    """Hold a cloud whose camera is already known to stand near x, y facing `bearing` (a tracked camera's keyframe)
+    to the plan's walls: squared and fitted from there within the bounds any cloud is (`TURN_DEG`, `FIT_SLIDE_M`,
+    `SIZE`), and counted by `locate`'s score. "placed" with where the walls put it, or "no_walls", "no_plan", or
+    "no_match": then the camera stands where it was taken to. Nothing else is tried: the track says where it is,
+    and the walls only take out what it has drifted."""
+    if not found:
+        return Located("no_walls")
+    if not plan:
+        return Located("no_plan")
+    rng = np.random.default_rng(0)
+    xy = np.asarray(points, dtype=np.float64)[:, :2]
+    sample = xy[rng.choice(len(xy), min(len(xy), SAMPLE_XY), replace=False)] if len(xy) else xy
+    tried = _try(found, x, y, bearing, plan, rooms, sample)
+    if tried is None or tried.score < MIN_SCORE:
+        return Located("no_match")
+    return Located("placed", tried.x, tried.y, tried.bearing, "held", round(tried.score, 3), 0.0, tried.walls,
+                   tried.scale)  # fmt: skip
 
 
 # ---- what is kept

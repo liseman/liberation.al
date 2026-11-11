@@ -1,6 +1,6 @@
 // The cameras of a scene of all cameras' clouds (#445), under the 3D view: a row a camera, made to be scanned. A box
 // that shows or hides its points, its colour (its outline in the scene, and its points' tint when coloured by camera),
-// its name, its state in a word (Placed, Adjusted, Following, Not placed, No spot), and at the right what can be done:
+// its name, its state in a word (Placed, Adjusted, Following, Tracking, Moved, Not placed, No spot), and at the right what can be done:
 // look from it, or set its spot in the plan editor. The sentence behind the word, how its cloud was levelled and
 // squared to the plan, what its pair's pictures said, when its picture was taken, and how many of its points are left
 // out open under the row on demand.
@@ -26,6 +26,7 @@ import {
   placedState,
   SCENE_LIMITS,
   squareLine,
+  trackLine,
   wayBack,
 } from './status';
 
@@ -93,7 +94,8 @@ export function SceneLayers({
       <Stack gap={4} component="ul" m={0} p={0} style={{ listStyle: 'none' }} aria-label="Cameras in the scene">
         {cameras.map((camera, index) => {
           const name = viewName(camera.camera);
-          const state = placedState(camera.how);
+          const state = placedState(camera.how, camera.track?.state);
+          const tracked = trackLine(camera);
           const shown = open.has(camera.camera);
           const way = wayBack(camera);
           const lines = [
@@ -162,6 +164,11 @@ export function SceneLayers({
               </Group>
               <Collapse expanded={shown}>
                 <Stack gap={2} pl={44} pt={2} pb="xs">
+                  {tracked && (
+                    <Text size="xs" c="dimmed">
+                      {tracked}
+                    </Text>
+                  )}
                   <Text size="xs" c="dimmed">
                     {placedLine(camera, viewName)}
                   </Text>
