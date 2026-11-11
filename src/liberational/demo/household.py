@@ -84,7 +84,8 @@ def review_recordings(folder: Path, day: dt.date) -> list[dict[str, object]]:
     encoded: dict[tuple[str, tuple[int, ...], bool], Path] = {}
     index: list[dict[str, object]] = []
     for hour, minute in sorted({line.at[:2] for line in dataset.TRANSCRIPT}):
-        scene = scenes_at[hour]
+        # At 12:04 Dana is still in the hall and Alice is in the living room; they reach the kitchen at 12:09.
+        scene = ("kitchen", (), False) if (hour, minute) == (12, 4) else scenes_at[hour]
         camera, people, pet = scene
         if scene not in encoded:
             mesh = scenes.room(camera, occupied=False)
