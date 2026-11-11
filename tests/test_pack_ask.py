@@ -1782,3 +1782,40 @@ def test_the_worker_reads_a_followup_with_a_long_report_whole(monkeypatch):
     with patch.object(p, "execute", autospec=True, return_value={"answer": "ok"}) as execute:
         p.main()
     assert execute.call_args.kwargs["followup"] == earlier
+
+
+def test_a_count_answer_citing_transcript_lines_is_saved_and_read_back_through_the_job_routes(
+    memory, monkeypatch, readings
+):
+    """The whole path a question takes on the dashboard: submit, run, save, and read back over GET. Transcript lines
+    come from the hourly segment files, so their ids are rows, not broker payloads, and the broker refuses them as
+    parents; the answer is still saved (unverified) and read back, never "Saved answer is unavailable"."""
+    from liberational.memory import ask_history
+    from liberational.memory import question as reader
+
+    asked = "How many times did Sam say garden since recording started"
+    readings[asked] = reader.Reading(
+        source="speech", measure="count", people=("Sam",), other_time="since recording started"
+    )
+    speech_fake.fake().say(dict(ts_start=time.time() - 60, speaker="Sam", text="The garden, the garden."))
+    memory.known_parents_only = True  # the broker refuses the segment rows' ids as parents
+    manager = p.JobManager(p.execute)  # the answer runs here, not in a worker process, so it reads the fakes
+    monkeypatch.setattr(p, "JOBS", manager)
+    code, ack = call(body={"question": asked})
+    assert code == 202
+    manager.queue.join()
+    status, job = call(command="GET", path="/" + ack["id"])
+    assert (status, job["status"]) == (200, "completed")
+    assert job["result"]["answer"].startswith('Sam said "garden" 2 times in all your recordings')
+    saved = ask_history.at(p.STATE).get(ack["id"])
+    assert saved is not None and saved["result"] is not None
+    assert saved["answer_unverified"] is True  # its sources aren't broker payloads, so the checkpoint guards it
+
+
+def test_a_failed_job_says_why_in_the_log():
+    manager = p.JobManager(runner(side_effect=RuntimeError("synthetic")))
+    with patch.object(p.LOG, "exception", autospec=True) as logged:
+        job = manager.submit("Explain gravity")
+        manager.queue.join()
+    assert manager.jobs[job["id"]]["status"] == "failed"
+    assert logged.call_args.args[0] == f"Ask job {job['id'][:8]} failed"

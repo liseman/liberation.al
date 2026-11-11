@@ -1194,7 +1194,16 @@ class JobManager:
                         )
                         if job["status"] == "failed":
                             job["error"] = str(result.get("answer") or "Question failed.")
+                    # A failed job, or an answer that wasn't kept, says why in the log: the page only shows that it
+                    # failed.
+                    if job["status"] == "failed":
+                        LOG.warning(
+                            f"Ask job {jid[:8]} failed: {result.get('status')} ({result.get('error') or 'no error'})"
+                        )
+                    if job["history_saved"] and not answer_saved:
+                        LOG.warning(f"Ask job {jid[:8]} was answered, but its answer could not be saved")
                 except Exception as exc:
+                    LOG.exception(f"Ask job {jid[:8]} failed")
                     finished = time.time()
                     failure = {
                         "status": "error",
@@ -1323,6 +1332,10 @@ def _saved_job(jid: str, live: dict[str, Any] | None = None) -> dict[str, Any] |
             and history.can_reuse_unsaved(jid, live.get("result"))
         ):
             return live
+        LOG.warning(
+            f"Ask job {jid[:8]}: no saved answer to read back (status {entry.get('status')}, "
+            f"removed {entry.get('answer_removed')})"
+        )
         return {**entry, "status": "failed", "error": "Saved answer is unavailable or the question was interrupted."}
     return {**entry, "status": "completed" if result.get("status") in ("ok", "partial") else "failed"}
 
