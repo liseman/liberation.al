@@ -78,17 +78,83 @@ SECOND = (0, 2 * NS)  # a two-second clip
 SHORT = (0, NS // 2)
 
 
-def test_a_new_voice_opens_a_voiceprint_and_its_next_line_matches_it_before_the_search_has_it(tmp_path: Path) -> None:
+def test_a_new_voice_opens_on_its_second_line_and_that_lines_twin_matches_it_before_the_search_has_it(
+    tmp_path: Path,
+) -> None:
     m, _ = matcher(tmp_path, FakeSearch([]), known=4)
 
     async def run() -> list[voices.Match | None]:
-        return [await m.match(A, *SECOND), await m.match(A, *SECOND), await m.match(B, *SECOND)]
+        return [
+            await m.match(A, *SECOND),
+            await m.match(B, *SECOND),
+            await m.match(A, *SECOND),
+            await m.match(A, *SECOND),
+        ]
 
-    first, again, other = asyncio.run(run())
-    assert first is not None and again is not None and other is not None
-    assert (first.speaker_id, first.speaker) == (5, "Speaker 5"), "above every number the registry knows"
-    assert again.speaker_id == 5, "the search hasn't filed it yet, but the matcher remembers it"
-    assert other.speaker_id == 6
+    first, other, second, again = asyncio.run(run())
+    assert first is None and other is None, "one line each opens nothing: neither voice has recurred yet"
+    assert second is not None
+    assert (second.speaker_id, second.speaker) == (5, "Speaker 5"), "above every number the registry knows"
+    assert again is not None and again.speaker_id == 5, "the search hasn't filed it yet, but the matcher remembers it"
+
+
+def test_a_one_off_voice_is_left_unattributed_instead_of_opening_a_voiceprint(tmp_path: Path) -> None:
+    m, _ = matcher(tmp_path, FakeSearch([hit(voices.subject(3), 1 - 0.42)]), known=3)
+    assert asyncio.run(m.match(A, *SECOND)) is None, "nearest at 0.42: a show's line, not a voice of its own"
+    assert m.prints.next == 4, "a hundred of these an hour must not fill the unnamed list"
+
+
+def test_the_line_that_recurs_opens_the_voice_and_the_one_before_it_stays_unattributed(tmp_path: Path) -> None:
+    m, store = matcher(tmp_path, FakeSearch([]), known=4)
+    assert asyncio.run(m.match(A, *SECOND)) is None
+    m.learn(A, None, "0199a000-0000-7000-8000-000000000001", *SECOND)  # filed unassigned, as listen does
+    opened = asyncio.run(m.match(A, *SECOND))
+    assert opened is not None and opened.speaker_id == 5
+    m.learn(A, opened, "0199a000-0000-7000-8000-000000000002", *SECOND)
+    assert [r["voiceprint"] for r in filed(store)] == [voices.subject(0), voices.subject(5)], (
+        "no migration: the first line keeps no voice, the second opens Speaker 5"
+    )
+
+
+def test_a_held_line_is_spent_opening_one_voice_and_opens_no_second(tmp_path: Path) -> None:
+    m, _ = matcher(tmp_path, FakeSearch([]), known=4)
+    assert asyncio.run(m.match(A, *SECOND)) is None
+    assert m.held == 1
+    assert asyncio.run(m.match(A, *SECOND)) is not None
+    assert m.held == 0, "the line it recurred into is spent, so it opens no other voice"
+
+
+def test_a_held_line_is_let_go_after_its_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    m, _ = matcher(tmp_path, FakeSearch([]), known=4)
+    assert asyncio.run(m.match(A, *SECOND)) is None
+    monkeypatch.setattr(voices, "OPEN_HELD_S", 0.0)  # a line held longer than this is forgotten
+    assert asyncio.run(m.match(A, *SECOND)) is None, "the line it would have recurred into was let go"
+    assert m.held == 1, "and this one is held for the next line of its voice"
+    assert m.prints.next == 5
+
+
+def test_the_held_lines_are_bounded_and_the_oldest_go_first(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(voices, "OPEN_HELD_MAX", 2)
+    m, _ = matcher(tmp_path, FakeSearch([]), known=4)
+    one_off = (A, B, unit(0, 0, 1))  # three voices with nothing in common
+
+    async def run() -> None:
+        for embedding in one_off:
+            assert await m.match(embedding, *SECOND) is None
+
+    asyncio.run(run())
+    assert m.held == 2, "three one-off lines are held two at a time"
+    assert m.prints.next == 5
+
+
+def test_a_line_the_named_gate_refuses_is_not_held_to_open_a_voiceprint(tmp_path: Path) -> None:
+    dana = "0199a000-0000-7000-8000-00000000daaa"
+    m, _ = matcher(tmp_path, FakeSearch([hit(voices.subject(8), 0.07)]), FakePeople({7: ALICE, 8: dana}), known=8)
+    m.references = lambda: [voices.Reference(ALICE, 7, str(i), A) for i in range(3)]
+    query = unit(0.83, (1 - 0.83**2) ** 0.5)
+    assert asyncio.run(m.match(query, *SECOND)) is None
+    assert m.held == 0, "a person's own miss must not come back as a new voice"
+    assert m.prints.next == 9
 
 
 def test_the_nearest_hit_names_the_voiceprint_it_was_filed_under(tmp_path: Path) -> None:
@@ -99,11 +165,13 @@ def test_the_nearest_hit_names_the_voiceprint_it_was_filed_under(tmp_path: Path)
     assert (got.speaker, got.speaker_id, got.sim) == ("Speaker 3", 3, pytest.approx(0.8))
 
 
-@pytest.mark.parametrize(("similarity", "expected"), [(0.44, 4), (0.46, 3)])
-def test_anonymous_matching_respects_the_calibrated_floor(tmp_path: Path, similarity: float, expected: int) -> None:
+@pytest.mark.parametrize(("similarity", "expected"), [(0.44, None), (0.46, 3)])
+def test_anonymous_matching_respects_the_calibrated_floor(
+    tmp_path: Path, similarity: float, expected: int | None
+) -> None:
     m, _ = matcher(tmp_path, FakeSearch([hit(voices.subject(3), 1 - similarity)]), known=3)
     got = asyncio.run(m.match(A, *SECOND))
-    assert got is not None and got.speaker_id == expected
+    assert (got.speaker_id if got is not None else None) == expected
 
 
 def test_a_named_index_hit_without_confirmed_references_stays_unnamed(tmp_path: Path) -> None:
@@ -1278,8 +1346,10 @@ def test_a_one_word_line_never_opens_an_unknown_voice(tmp_path):
     m, _ = matcher(tmp_path, FakeSearch([]), known=5)
     assert asyncio.run(m.match(A, *SECOND, words=1)) is None
     assert m.prints.next == 6, "no voiceprint opened"
+    assert asyncio.run(m.match(A, *SECOND, words=3)) is None
+    assert m.held == 1, "the one-word line was never held to recur into: only the longer line is"
     again = asyncio.run(m.match(A, *SECOND, words=3))
-    assert again is not None and again.speaker_id == 6, "and nothing remembered it to match the next line"
+    assert again is not None and again.speaker_id == 6
 
 
 def test_a_one_word_line_does_not_join_an_unknown_voice_or_feed_it(tmp_path):

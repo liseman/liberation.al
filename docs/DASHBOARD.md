@@ -101,10 +101,13 @@ The Settings drawer reads `GET /config` (`config.schema()`: every setting in `co
 effective value and its comment as the description; secrets are never sent) and saves with `POST /config`.
 
 - Saving writes only values that differ from the defaults into `pack.toml`, keeps the file's comments, restarts the
-  services that read the changed settings, and re-executes the dashboard.
+  services that read the changed settings, and re-executes the dashboard. A setting marked `live` in
+  `config/labels.toml` is followed without a restart, so saving only those restarts nothing.
 - With no `pack.toml`, the dashboard opens on the same form as first-run setup.
 - **Devices** (cameras and microphones) edits the device manifest. Changing which devices are used restarts capture;
-  changing one camera's settings restarts only that camera's worker. Sensitivity applies live.
+  changing one camera's settings restarts only that camera's worker. A microphone's sensitivity applies live: the
+  listen worker re-reads it within about a second and tunes that microphone's energy gate and speech gate to it, and
+  saving it restarts nothing.
 - **Network cameras** discovers RTSP cameras through UniFi Protect or ONVIF ([NETWORK.md](NETWORK.md#network-cameras)).
 - **Services** shows each service's state, last error, and history, and switches services on and off
   ([SERVICES.md](SERVICES.md)).

@@ -14,6 +14,9 @@ POST /objects/api/find        {snapshot, crop?, job?}: every object EdgeTAM find
                               (never an automatic pass over the frame) and a snapshot-bound selection token
 POST /objects/api/cancel     {job}: stop only that owned EdgeTAM request before replacing the frozen view
 POST /objects/api/enroll      {name, camera, snapshot, selection?|full_crop?|direct_crop?, crop?, aliases, note}: remember explicitly
+POST /objects/api/rename      {id, name}: give a remembered object another name
+POST /objects/api/forget      {id}: stop remembering an object (its sightings stay)
+POST /objects/api/restore     {id}: remember a forgotten object again (the Undo of a removal)
 """
 
 import base64
@@ -421,6 +424,21 @@ def enroll(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def rename_object(data: dict[str, Any]) -> dict[str, Any]:
+    """The renamed object as /api/objects lists it, with its sightings where they were."""
+    return {"object": store().rename(str(data.get("id", "")), data.get("name", ""))}
+
+
+def forget_object(data: dict[str, Any]) -> dict[str, Any]:
+    object_id = str(data.get("id", ""))
+    store().forget(object_id)
+    return {"ok": True, "id": object_id}
+
+
+def restore_object(data: dict[str, Any]) -> dict[str, Any]:
+    return {"object": store().restore(str(data.get("id", "")))}
+
+
 def handle(h: Any, method: str) -> bool:
     """Answers an /objects request on the dashboard's handler `h`; False for any other path."""
     u = urllib.parse.urlsplit(h.path)
@@ -483,6 +501,12 @@ def handle(h: Any, method: str) -> bool:
             h._json({"ok": True, "cancelled": segmentation.cancel(str(data.get("job", "")))})
         elif sub == "/api/enroll":
             h._json({"object": enroll(data)}, 201)
+        elif sub == "/api/rename":
+            h._json(rename_object(data))
+        elif sub == "/api/forget":
+            h._json(forget_object(data))
+        elif sub == "/api/restore":
+            h._json(restore_object(data))
         else:
             h._json({"error": "not found"}, 404)
     except segmentation.Cancelled as exc:

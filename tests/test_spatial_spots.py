@@ -450,18 +450,47 @@ def test_a_run_of_the_job_fits_the_tilts_records_the_footprints_and_places_them(
     assert (again["recorded"], again["records"]) == (0, 0)
 
 
-@pytest.mark.parametrize("track", [pytest.param("7", id="person"), pytest.param("5:cat:1", id="animal")])
-def test_a_footprint_its_camera_cant_see_by_the_plan_gets_no_point(tmp_path, vision, monkeypatch, pinhole, track):
+def test_a_persons_footprint_its_camera_cant_see_by_the_plan_gets_no_point(tmp_path, vision, monkeypatch, pinhole):
     # The frame's bottom right corner from a level camera 2 m up at (1, 1) facing east lands about (2.9, 4.4): in the
-    # hall, behind the wall at y = 3 from the camera, where a pet up on a cabinet is cast to the floor.
+    # hall, behind the wall at y = 3 from the camera. A person's foot point is pose's, and a pose that puts feet
+    # behind a wall isn't a piece of furniture the person stood on.
     place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90")
     fit(tmp_path, monkeypatch)
-    foot(vision, T, u=1.0, v=1.0, track=track)
+    foot(vision, T, u=1.0, v=1.0, track="7")
     foot(vision, T + 2, u=0.5, v=1.0)  # in the living room, in view
     hidden: set = set()
     rows = P.derive(tmp_path, T - 1, T + 5, place=place, hidden=hidden)
     assert [(p.x, p.y) for p in rows if p.x is not None] == [pytest.approx((2.93, 1.0), abs=0.03)]
-    assert hidden == {("cam0", f"cam0:{track}", T)}
+    assert hidden == {("cam0", "cam0:7", T)}
+
+
+def test_an_animal_its_camera_cant_see_on_the_floor_is_placed_at_the_furniture_in_its_room(
+    tmp_path, vision, monkeypatch, pinhole
+):
+    # The frame's bottom right corner from the same camera is (2.9, 4.4), in the hall behind the living room's far
+    # wall (y = 3): on the floor that is where a pet up on a cabinet against that wall is cast to. It is put at the
+    # furniture instead: the sight line from the spot (1, 1) leaves the living room at (2.13, 3), and the point is
+    # three tenths back along it, so it is inside the room, at the cabinet, and says it is approximate.
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90")
+    fit(tmp_path, monkeypatch)
+    foot(vision, T, u=1.0, v=1.0, track="5:cat:1")
+    hidden: set = set()
+    (p,) = P.derive(tmp_path, T - 1, T + 5, place=place, hidden=hidden)
+    assert (p.place, p.room, p.room_id) == (place, "Living", "r1")
+    assert (p.x, p.y) == pytest.approx((1.98, 2.74), abs=0.02)
+    assert p.y is not None and p.y < 3.0, "short of the wall the floor point was beyond"
+    assert (p.approximate, p.uncertain, p.in_frame) == (True, False, True)
+    assert hidden == set(), "put at the furniture, so not left out"
+
+
+def test_an_animal_put_at_the_furniture_is_stored_approximate(tmp_path, vision, monkeypatch, pinhole):
+    place = taught(tmp_path, "x-camera cam0 at 1,1 height 2 yaw 90")
+    fit(tmp_path, monkeypatch)
+    foot(vision, T, u=1.0, v=1.0, track="5:cat:1")
+    assert P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)["records"] == 1
+    (p,) = P.positions(tmp_path, T - 1, T + 5, place=place)
+    assert (p.approximate, p.room) == (True, "Living")
+    assert (p.x, p.y) == pytest.approx((1.98, 2.74), abs=0.02)
 
 
 def test_the_owners_spot_outranks_the_maps_registration_of_the_camera(tmp_path, vision, monkeypatch, pinhole):
@@ -505,8 +534,10 @@ def test_a_dry_run_counts_what_each_camera_would_place_and_keeps_nothing(tmp_pat
     ]
     monkeypatch.setattr(footprints, "collect", lambda state, start, end, cameras: seen)
     cam0, porch = P.dry_run(tmp_path, ["cam0", "porch"], T, 24.0)
-    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 4, 1, 1, [])
-    assert (cam0["people_placed"], cam0["behind_wall"]) == (1, {"person": 1, "animal": 1})
+    # The animal behind the wall is put at the furniture, in the living room, so it's placed and only the person is
+    # left unplaced behind a wall.
+    assert (cam0["by"], cam0["footprints"], cam0["placed"], cam0["in_a_room"], cam0["missing"]) == ("spot", 4, 2, 2, [])
+    assert (cam0["people_placed"], cam0["behind_wall"]) == (1, {"person": 1, "animal": 0})
     assert (porch["by"], porch["footprints"], porch["placed"], porch["behind_wall"]) == (None, 1, 0, None)
     assert spots.aims(tmp_path) == {}
     assert not S.root(tmp_path).exists()

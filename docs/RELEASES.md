@@ -219,7 +219,8 @@ A checkout from 2026-11-09 or later follows [MIGRATING.md](../MIGRATING.md), sta
 older checkouts before pulling:
 
 - It runs as one application. `python -m liberational.services migrate` removes the earlier per-service units. A
-  dry run prints the plan and changes nothing.
+  dry run prints the plan and changes nothing. `pack-services` no longer renders, installs, or uninstalls a unit per
+  service: it is the open application's client, and with none open it changes nothing and says to open one.
 - It resets recorded history. The catalog is format 8, and the broker refuses an older catalog.
   `pack-reset-catalog --keep-taught` prints the plan; `--yes` resets. The knowledge store, the face gallery, voice
   references, and models stay. The reset also works with the application closed; open it afterwards.

@@ -213,6 +213,26 @@ def test_environment_points_every_path_into_the_demo_dir(tmp_path):
     assert env["CONTINUUM_SOCKET"] == str(root / "state" / "continuum" / "broker.sock")
 
 
+def test_the_gateway_is_sent_the_socket_the_broker_listens_on(tmp_path):
+    root = tmp_path / "d"
+
+    command = cli.gateway_command(cli.environment(root, cli.PORT, base={}), 9000)
+
+    assert Path(command[command.index("--broker-socket") + 1]) == root / "state" / "continuum" / "broker.sock"
+
+
+def test_a_long_demo_dir_sends_the_gateway_the_short_socket_too(tmp_path):
+    root = tmp_path / ("x" * 120)
+
+    env = cli.environment(root, cli.PORT, base={})
+    command = cli.gateway_command(env, 9000)
+    sock = Path(command[command.index("--broker-socket") + 1])
+
+    assert str(sock) == env["CONTINUUM_SOCKET"]
+    assert not sock.is_relative_to(root)
+    sock.parent.rmdir()
+
+
 def test_a_socket_path_too_long_for_a_socket_goes_to_a_short_dir(tmp_path):
     root = tmp_path / ("x" * 120)
 
