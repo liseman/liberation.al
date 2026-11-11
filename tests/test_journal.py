@@ -57,11 +57,11 @@ def default_reply(system, user):
     """Stands in for the model: names every speaker token and plain speaker name it was given, so tests can see what
     reached it."""
     data = json.loads(user.split("\n\nYour last")[0])
-    names = {i["speaker"] for i in data.get("items", []) if i.get("type") == "speech"} - {"I", "someone"}
+    names = {i["speaker"] for i in data.get("items", []) if i.get("type") == "speech"} - {"Alice", "someone"}
     who = " and ".join(sorted(set(re.findall(r"\[S\d+\]", json.dumps(data))) | names)) or "nobody"
     return json.dumps(
         {
-            "text": f"I talked with {who}." if "items" in data else f"Summary: I met {who}.",
+            "text": f"Alice talked with {who}." if "items" in data else f"Summary: Alice met {who}.",
             "source_ids": [r["id"] for r in data.get("sources", [])],
         }
     )
@@ -86,6 +86,8 @@ def env(tmp_path, monkeypatch):
     e = types.SimpleNamespace(
         state=state, calls=[], replies=[], slept=[], before=None, up=True, speech=speech, vision=vision, memory=memory
     )
+
+    e.chat_spec = journal.chat
 
     def chat(system, user, model, num_predict, *, structured=False, max_chars=None, ids=()):
         e.calls.append(
@@ -208,7 +210,7 @@ def test_builds_an_entry_with_parents_subjects_payload_and_producer(env):
     assert result == {"built": 4, "calls": 4, "superseded": 0}  # the entry, then one rollup per longer level
     data = entry_calls(env)[0]["data"]
     speech = [(i["speaker"], i["text"]) for i in data["items"] if i["type"] == "speech"]
-    assert speech == [("I", "Let's book the venue for Friday."), ("[S3]", "I can call them tomorrow.")]
+    assert speech == [("Alice", "Let's book the venue for Friday."), ("[S3]", "I can call them tomorrow.")]
     cams = [i for i in data["items"] if i["type"] == "camera"]
     assert len(cams) == 1  # the same caption from two cameras a second apart is one scene
     assert cams[0]["cameras"] == ["cam0", "cam1", "cam2"]
@@ -218,8 +220,8 @@ def test_builds_an_entry_with_parents_subjects_payload_and_producer(env):
 
     [r] = records(env)
     assert (r["ts_start"], r["ts_end"], r["level"]) == (T0, T0 + 30, 30)
-    assert r["text"] == "I talked with [S3]."
-    assert r["search"] == "I talked with Dana."  # the text a search index files, with names at write time
+    assert r["text"] == "Alice talked with [S3]."
+    assert r["search"] == "Alice talked with Dana."  # the text a search index files, with names at write time
     assert r["speakers"] == ["1", "3"]
     assert r["line_speakers"][two] == {"sid": "3", "me": False, "label_hash": journal.label_hash("Dana")}
     assert r["line_speakers"][one]["me"] is True
@@ -232,7 +234,7 @@ def test_builds_an_entry_with_parents_subjects_payload_and_producer(env):
         "version_hash": "",
         "model": "test-llm",
         "version": "sha256:abc",
-        "prompt_id": "journal.entry.30.v2",
+        "prompt_id": "journal.entry.30.v3",
         "prompt_hash": hashlib.sha256(env.calls[0]["system"].encode()).hexdigest()[:16],
     }
     # Every other window of the day so far is a quiet marker, so the catalog says the day is done up to the lag.
@@ -294,7 +296,7 @@ def test_skips_quiet_windows_and_unchanged_scenes(env):
     assert len(entry_calls(env)) == 3
 
 
-def test_owner_is_first_person_and_unnamed_speakers(env):
+def test_owner_is_named_and_unnamed_speakers(env):
     say(env, T0 + 1, "Morning.", sid=1)
     say(env, T0 + 2, "Hi there.", label="Alice")  # no voice id, but the owner's label
     say(env, T0 + 3, "Who left this?", label="unknown")
@@ -304,8 +306,167 @@ def test_owner_is_first_person_and_unnamed_speakers(env):
     journal.run_pass(env.state, now=NOW)
 
     data = entry_calls(env)[0]["data"]
-    assert [i["speaker"] for i in data["items"]] == ["I", "I", "someone", "Eve", "[S5]"]
+    assert [i["speaker"] for i in data["items"]] == ["Alice", "Alice", "someone", "Eve", "[S5]"]
     assert records(env)[0]["speakers"] == ["1", "5"]
+
+
+@pytest.mark.parametrize("level", [30, 180, 600, 3600])
+def test_generation_names_configured_owner_in_third_person(env, level):
+    with cfg.override({"owner": {"name": "Sam"}}):
+        p = journal.Pass(env.state, NOW)
+        try:
+            p.write(level, {"start": "10:00", "end": "10:30", "items": [], "sources": []}, set())
+        finally:
+            p.close()
+    assert 'The owner is "Sam"' in env.calls[0]["system"]
+    assert "third person, past tense" in env.calls[0]["system"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "I sat.",
+        "Dana spoke to me.",
+        "My cup fell.",
+        "It was mine.",
+        "We left.",
+        "Our meal ended.",
+        "I’m here.",
+        "The wearer sat.",
+    ],
+)
+def test_narration_rejects_first_person(text):
+    assert not journal.narration_clean(text)
+
+
+@pytest.mark.parametrize("text", ["Alice sat.", "Someone left.", "[S3] handed Sam a cup.", "Alice discussed the US."])
+def test_narration_accepts_third_person(text):
+    assert journal.narration_clean(text)
+
+
+@pytest.mark.parametrize("second, succeeds", [("Alice sat.", True), ("We sat.", False)])
+def test_first_person_gets_one_retry_and_is_never_stored(env, second, succeeds, caplog):
+    env.replies[:] = [json.dumps({"text": t, "source_ids": []}) for t in ("I sat.", second)]
+    p = journal.Pass(env.state, NOW)
+    payload = {"start": "10:00", "end": "10:00:30", "items": [], "sources": []}
+    try:
+        if succeeds:
+            assert p.write(30, payload, set())[0] == "Alice sat."
+        else:
+            with pytest.raises(journal.EmptyReply, match="first-person"):
+                p.write(30, payload, set())
+    finally:
+        p.close()
+    assert len(env.calls) == 2
+    assert "entirely in third person" in env.calls[1]["user"]
+    assert "total_rejections=" in caplog.text
+
+
+def test_rewrite_preserves_original_evidence_and_resumes_newest_first(env, monkeypatch):
+    evidence = {
+        "status": "verified",
+        "sources": [{"id": "source-1", "camera": "cam0", "ts_start": T0, "ts_end": T0 + 5}],
+    }
+    old = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I sat.", "evidence": evidence}
+    )
+    newer = env.memory.append(
+        memory_log.JOURNAL,
+        {"ts_start": T0 + 60, "ts_end": T0 + 90, "level": 30, "text": "I left.", "evidence": evidence},
+    )
+    corrected = create_autospec(env.chat_spec, side_effect=['{"text":"Alice left."}', '{"text":"Alice sat."}'])
+    monkeypatch.setattr(journal, "chat", corrected)
+    result = journal.rewrite_third_person(env.state, now=NOW, days=1)
+    assert result["superseded"] == 2
+    assert json.loads(corrected.call_args_list[0].args[1]) == {"text": "I left."}
+    rows = env.memory.entries(T0, NOW)
+    assert [r["supersedes"] for r in rows] == [old, newer]
+    assert [r["text"] for r in rows] == ["Alice sat.", "Alice left."]
+    assert [r["evidence"] for r in rows] == [evidence, evidence]
+    assert len(env.memory.range(memory_log.JOURNAL, T0, NOW)) == 4
+    assert journal.rewrite_third_person(env.state, now=NOW)["would_supersede"] == 0
+    assert corrected.call_count == 2
+
+
+def test_rewrite_failure_keeps_original_and_recording_links(env, monkeypatch):
+    original = {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I sat [clip](#t=123)."}
+    old = env.memory.append(memory_log.JOURNAL, original)
+    monkeypatch.setattr(
+        journal, "chat", create_autospec(env.chat_spec, return_value='{"text":"Alice sat [clip](#t=999)."}')
+    )
+    assert journal.rewrite_third_person(env.state, now=NOW)["failed"] == 1
+    assert [(r["id"], r["text"]) for r in env.memory.entries(T0, NOW)] == [(old, original["text"])]
+
+
+def test_rewrite_page_keeps_sections_links_and_parent_identifiers(env, monkeypatch):
+    parent = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "Alice sat."}
+    )
+    start, end = journal.day_bounds(DAY)
+    old = env.memory.append(
+        memory_log.PAGES,
+        {
+            "ts_start": start,
+            "ts_end": end,
+            "level": "day",
+            "period": DAY,
+            "md": "I sat [h1](#t=123).",
+            "sections": {"in_short": "I sat."},
+        },
+        parents=[parent],
+    )
+    monkeypatch.setattr(
+        journal,
+        "chat",
+        create_autospec(
+            env.chat_spec,
+            return_value=json.dumps(
+                {
+                    "md": "Alice sat [h1](#t=123).",
+                    "sections": {"in_short": "Alice sat."},
+                }
+            ),
+        ),
+    )
+    assert journal.rewrite_third_person(env.state, now=NOW)["superseded"] == 1
+    row = env.memory.page("day", DAY)
+    assert row is not None
+    assert (row["supersedes"], row["parents"], row["sections"], row["md"]) == (
+        old,
+        [parent],
+        {"in_short": "Alice sat."},
+        "Alice sat [h1](#t=123).",
+    )
+    assert journal.rewrite_third_person(env.state, now=NOW)["would_supersede"] == 0
+
+
+def test_rewrite_dry_run_is_private_bounded_and_writes_nothing(env, monkeypatch):
+    env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I discussed a private topic."}
+    )
+    env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0 - 3 * 86400, "ts_end": T0 - 3 * 86400 + 30, "level": 30, "text": "I left."}
+    )
+    monkeypatch.setattr(
+        journal,
+        "chat",
+        create_autospec(
+            env.chat_spec,
+            side_effect=[
+                '{"text":"Alice discussed a private topic."}',
+                '{"text":"Alice made tea."}',
+                '{"text":"Dana handed Alice a book."}',
+                '{"text":"Alice and Dana discussed their shopping list."}',
+            ],
+        ),
+    )
+    result = journal.rewrite_third_person(env.state, now=NOW, days=1, dry_run=True)
+    assert result["would_supersede"] == 1
+    assert result["by_level"] == {"journal.entry:30": 1}
+    assert result["estimated_payload_growth_bytes"] > 0
+    assert len(result["invented_examples"]) == 3
+    assert "private topic" not in json.dumps(result)
+    assert len(env.memory.range(memory_log.JOURNAL, 0, NOW)) == 2
 
 
 def test_speaker_ids_sort_numbers_first_and_never_raise():
@@ -359,14 +520,14 @@ def test_unknown_tokens_get_one_retry_then_become_someone(env):
     say(env, T0 + 31, "Hi again.", sid=3)
     env.replies[:] = [
         json.dumps({"text": t, "source_ids": []})
-        for t in ["I greeted [S9].", "I greeted [S3].", "I saw [S9] and [S3].", "I saw [S9] and [S3]."]
+        for t in ["Alice greeted [S9].", "Alice greeted [S3].", "Alice saw [S9] and [S3].", "Alice saw [S9] and [S3]."]
     ]
 
     journal.run_pass(env.state, now=NOW)
 
     first, second = records(env)
-    assert first["text"] == "I greeted [S3]."  # the retry fixed it
-    assert second["text"] == "I saw someone and [S3]."  # still wrong after the retry
+    assert first["text"] == "Alice greeted [S3]."  # the retry fixed it
+    assert second["text"] == "Alice saw someone and [S3]."  # still wrong after the retry
     assert len(entry_calls(env)) == 4
     assert "[S9]" in entry_calls(env)[1]["user"] and "[S3]" in entry_calls(env)[1]["user"].split("Your last")[1]
 
@@ -390,13 +551,13 @@ def test_rollups_cite_their_children_and_union_people(env):
     )
     assert three["parents"] == [k["id"] for k in kids]
     assert three["speakers"] == ["3", "5"]
-    assert three["text"] == "Summary: I met [S3] and [S5]."
+    assert three["text"] == "Summary: Alice met [S3] and [S5]."
     assert ten["parents"] == [three["id"]]
     assert hour["speakers"] == ["3", "5"]
     assert set(hour["subjects"]) == set(kids[0]["subjects"]) | set(kids[1]["subjects"])
     rollup = next(c for c in env.calls if "entries" in c["data"])
     assert [e["text"] for e in rollup["data"]["entries"]] == [k["text"] for k in kids]
-    assert hour["producer"]["prompt_id"] == "journal.entry.3600.v2"
+    assert hour["producer"]["prompt_id"] == "journal.entry.3600.v3"
 
 
 def test_rollups_wait_for_final_children(env):
@@ -716,10 +877,13 @@ def test_rebuild_day_and_show(env, capsys):
     assert {r["supersedes"] for r in records(env)} == before
     assert len(records(env)) == 2 and len(env.calls) == 5  # two entries, three rollups
     out = journal.show(DAY, env.state)
-    assert out.splitlines() == ["10:00:00-10:00:30  I talked with Dana.", "10:00:30-10:01:00  I talked with nobody."]
+    assert out.splitlines() == [
+        "10:00:00-10:00:30  Alice talked with Dana.",
+        "10:00:30-10:01:00  Alice talked with nobody.",
+    ]
     write_voices(env.state, {3: "Dana Cole"})
     journal.main(["--show", DAY, "--level", "180", "--state-dir", str(env.state)])
-    assert capsys.readouterr().out == "10:00:00-10:03:00  Summary: I met Dana Cole.\n"
+    assert capsys.readouterr().out == "10:00:00-10:03:00  Summary: Alice met Dana Cole.\n"
     assert journal.show("2026-03-01", env.state) == "No entries at the 30 second level for 2026-03-01."
 
 
@@ -810,7 +974,10 @@ def test_entries_are_embedded_once_as_payloads_for_the_vector_worker(env, monkey
         first = journal.embed(env.state, now=NOW)
         again = journal.embed(env.state, now=NOW)
     assert (first, again) == ({"embedded": 5}, {"embedded": 0})  # two entries and three rollups, once
-    assert sorted(asked[0])[:2] == ["I talked with Dana.", "I talked with nobody."]  # rendered text, names current
+    assert sorted(asked[0])[:2] == [
+        "Alice talked with Dana.",
+        "Alice talked with nobody.",
+    ]  # rendered text, names current
     stream = journal.embedding_stream("sha256:feedfacefeedface")
     assert stream == "journal.embedding.feedfacefeed"
     everything = {r["id"] for lv in (30, 180, 600, 3600) for r in records(env, lv)}
@@ -902,7 +1069,7 @@ def test_evidence_contains_only_selected_atomic_sources_not_other_people_in_wind
     caption = seen(env, T0 + 2, "cam0", "A mug is on the table.")
     matched = face(env, T0 + 3, "cam0", "Eve")
     ids = {"speech": speech, "face": matched, "object": caption}
-    env.replies[:] = [json.dumps({"text": "I noted the event.", "source_ids": [ids[selected]]})]
+    env.replies[:] = [json.dumps({"text": "Alice noted the event.", "source_ids": [ids[selected]]})]
     built = journal.Pass(env.state, NOW).entry(T0, T0 + 30)
     assert built is not None
     evidence = built["payload"]["evidence"]
@@ -919,7 +1086,7 @@ def test_evidence_contains_only_selected_atomic_sources_not_other_people_in_wind
 @pytest.mark.parametrize("selected", [None, [], ["made-up-source"], "not-a-list"])
 def test_missing_or_unknown_attribution_is_unverified_without_window_fallback(env, selected):
     say(env, T0 + 1, "Let's reserve the venue.", sid=3)
-    env.replies[:] = [json.dumps({"text": "I planned the event.", "source_ids": selected})]
+    env.replies[:] = [json.dumps({"text": "Alice planned the event.", "source_ids": selected})]
     built = journal.Pass(env.state, NOW).entry(T0, T0 + 30)
     assert built is not None
     assert built["payload"]["evidence"] == {"status": "unverified", "sources": []}
@@ -931,14 +1098,14 @@ def test_rollup_selects_atomic_child_sources_and_legacy_children_stay_unverified
     writer = journal.Pass(env.state, NOW)
     writer.build(30, int(T0))
     writer.build(30, int(T0 + 30))
-    env.replies[:] = [json.dumps({"text": "I noticed a mug.", "source_ids": [second]})]
+    env.replies[:] = [json.dumps({"text": "Alice noticed a mug.", "source_ids": [second]})]
     rollup = writer.rollup(180, 30, T0, T0 + 180)
     assert rollup is not None
     assert rollup["payload"]["evidence"]["status"] == "verified"
     assert [s["id"] for s in rollup["payload"]["evidence"]["sources"]] == [second]
     assert first not in [s["id"] for s in rollup["payload"]["evidence"]["sources"]]
     del writer.present[30][int(T0)]["evidence"]
-    env.replies[:] = [json.dumps({"text": "I noticed a mug.", "source_ids": [second]})]
+    env.replies[:] = [json.dumps({"text": "Alice noticed a mug.", "source_ids": [second]})]
     legacy_rollup = writer.rollup(180, 30, T0, T0 + 180)
     assert legacy_rollup is not None
     assert legacy_rollup["payload"]["evidence"]["status"] == "unverified"
@@ -948,7 +1115,7 @@ def test_sources_removed_by_payload_fitting_cannot_be_selected(env, monkeypatch)
     caption = seen(env, T0 + 1, "cam0", "A mug is on the table.")
     say(env, T0 + 2, "A different subject.", sid=3)
     monkeypatch.setattr(journal, "MAX_INPUT", 500)
-    env.replies[:] = [json.dumps({"text": "I noticed a mug.", "source_ids": [caption]})]
+    env.replies[:] = [json.dumps({"text": "Alice noticed a mug.", "source_ids": [caption]})]
     built = journal.Pass(env.state, NOW).entry(T0, T0 + 30)
     sent = env.calls[-1]["data"]
     assert caption not in [s["id"] for s in sent["sources"]]
@@ -989,7 +1156,7 @@ def test_activity_sources_keep_actual_camera_kind_and_source_id(env, stream, cat
     store = segment_log.Writers(segment_log.root(env.state))
     store.append(stream, "cam2", [record])
     store.close()
-    env.replies[:] = [json.dumps({"text": "I noted an unverified event.", "source_ids": [record["id"]]})]
+    env.replies[:] = [json.dumps({"text": "Alice noted an unverified event.", "source_ids": [record["id"]]})]
     built = journal.Pass(env.state, NOW).entry(T0, T0 + 30)
     assert built is not None
     source = built["payload"]["evidence"]["sources"][0]
@@ -1039,7 +1206,7 @@ def test_forget_purges_source_only_identity_and_derived_records(env, stream, bou
     }
     finest = env.memory.append(
         memory_log.JOURNAL,
-        {"level": 30, "text": "I noticed an event.", "evidence": {"status": "verified", "sources": [source]}},
+        {"level": 30, "text": "Alice noticed an event.", "evidence": {"status": "verified", "sources": [source]}},
         span_ns=(int(T0) * memory_log.NS, int(T0 + 30) * memory_log.NS),
     )
     other = env.memory.append(
@@ -1049,7 +1216,7 @@ def test_forget_purges_source_only_identity_and_derived_records(env, stream, bou
     )
     rollup = env.memory.append(
         memory_log.JOURNAL,
-        {"level": 180, "text": "I noted the day."},
+        {"level": 180, "text": "Alice noted the day."},
         parents=[finest, other],
         span_ns=(int(T0) * memory_log.NS, int(T0 + 180) * memory_log.NS),
     )
@@ -1096,7 +1263,7 @@ def test_retained_action_source_cannot_restore_a_forgotten_person(env, bound, re
         reg.ensure("Dana", "test")
     assert reg.resolve(old_person) is None
     assert journal.speakers(env.state).forgotten_at("Dana", T0 + 2)
-    env.replies[:] = [json.dumps({"text": "I noted an unverified drink event.", "source_ids": [record["id"]]})]
+    env.replies[:] = [json.dumps({"text": "Alice noted an unverified drink event.", "source_ids": [record["id"]]})]
     built = writer.entry(T0, T0 + 30)
     assert built is not None
     [source] = built["payload"]["evidence"]["sources"]
@@ -1113,7 +1280,7 @@ def test_a_face_only_window_is_not_quiet_even_without_a_changed_caption(env, cap
         seen(env, T0 - 1, "cam0", "A mug is on a table.")
         seen(env, T0 + 1, "cam0", "A mug is on a table.", unchanged=True)
     matched = face(env, T0 + 3, "cam0", "Dana")
-    env.replies[:] = [json.dumps({"text": "I saw Dana.", "source_ids": [matched]})]
+    env.replies[:] = [json.dumps({"text": "Alice saw Dana.", "source_ids": [matched]})]
     writer = journal.Pass(env.state, NOW)
     rid = writer.build(30, int(T0))
     [stored] = [r for r in records(env, quiet=True) if r["id"] == rid]
@@ -1142,7 +1309,7 @@ def test_retained_action_source_follows_a_living_person_through_rename_or_merge(
     store.append(segment_log.ACTION_SPANS, "cam2", [record])
     store.close()
     getattr(reg, method)("Dana", current_name, "test")
-    env.replies[:] = [json.dumps({"text": "I noted an unverified event.", "source_ids": [record["id"]]})]
+    env.replies[:] = [json.dumps({"text": "Alice noted an unverified event.", "source_ids": [record["id"]]})]
     built = journal.Pass(env.state, NOW).entry(T0, T0 + 30)
     assert built is not None
     [source] = built["payload"]["evidence"]["sources"]
