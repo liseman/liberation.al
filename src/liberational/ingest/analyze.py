@@ -5,8 +5,8 @@ the ingest pipeline registers on `<stream>.video_v1` / `<stream>.audio_v1` was s
 takes each ingested item once it's `done`, decodes its converted files, and runs them through the very same pieces:
 
 - video and photos: frames one a second (a photo: its one frame) through `CaptionPipeline` (captions and objects,
-  committed by `CaptionWorker`'s own code). Faces in ingested items aren't analyzed while faces move to see-actions'
-  tracked heads; the worker says so when it loads its models;
+  committed by `CaptionWorker`'s own code), and through see-actions' head faces (`ingest/faces.py`: faces found on
+  the whole frame and followed from frame to frame, then named, grouped, and recorded as the cameras' are);
 - audio, and a video's sound: the energy VAD, then the listen worker's `Transcriber` (speech gate, ASR, ReDimNet2 B3),
   its voice matcher, and an utterance on `speech.utterance` in the segment store, under the item's own slot
   (`ingest-<item id>`).
@@ -59,6 +59,7 @@ class Done:
 
     frames: int = 0
     captions: int = 0
+    faces: int = 0
     lines: int = 0
     errors: list[str] = field(default_factory=list)
     cancelled: bool = False  # the item was removed mid-pass: write nothing more, and do not record the ledger
@@ -67,6 +68,7 @@ class Done:
         return {
             "frames": self.frames,
             "captions": self.captions,
+            "faces": self.faces,
             "lines": self.lines,
             "errors": self.errors,
             "at": time.time(),
@@ -415,17 +417,19 @@ class Speech:
 
 class Analyzer:
     """Analyzes ingested items. `captions` is a `CaptionWorker` (its streams already registered) with a factory for its
-    pipeline by camera name; `speech` makes utterances. Either can be None (that analysis is skipped)."""
+    pipeline by camera name; `faces` (`ingest.faces.Faces`) finds and names faces; `speech` makes utterances. Any
+    can be None (that analysis is skipped)."""
 
     def __init__(
         self,
         *,
         captions: tuple[Any, Callable[[str], Any]] | None = None,
         speech: Speech | None = None,
+        faces: Any = None,
         frames: Callable[[Path, float], Iterator[tuple[np.ndarray, float]]] = video_frames,
         audio: Callable[[Path], Iterator[np.ndarray]] = audio_blocks,
     ) -> None:
-        self.captions, self.speech = captions, speech
+        self.captions, self.speech, self.faces = captions, speech, faces
         self.frames, self.audio = frames, audio
         self._removed: Callable[[], bool] | None = None
 
@@ -498,6 +502,13 @@ class Analyzer:
                 segment_log.ANIMAL_GROUNDING_EMBEDDINGS,
             )
             mark = {s: {cam: cw.segments.position(s, cam)} for s in streams}
+        faces = self.faces.cam(cam) if self.faces is not None else None
+        if faces is not None:
+            from liberational import segment_log
+
+            for s in (segment_log.FACE_MATCHES, segment_log.FACE_EMBEDDINGS, segment_log.FACE_SIGNALS):
+                mark.setdefault(s, {})[cam] = faces.heads.writers.position(s, cam)
+        last_ts: float | None = None
         completed = False
         try:
             last_caption: str | None = None
@@ -508,6 +519,10 @@ class Analyzer:
                 ts = start + offset
                 ns = int(ts * NS)
                 done.frames += 1
+                last_ts = ts
+                if faces is not None:
+                    frame_id = keyed_id(ts, "ingest", "face.frame", chunk, seq)
+                    done.faces += await loop.run_in_executor(None, faces.feed, img, ts, frame_id, seq)
                 if cw is not None and cap_pipe is not None and ts - last_cap >= CAPTION_EVERY_S:
                     if self._halt():
                         return
@@ -528,11 +543,24 @@ class Analyzer:
                     break
             completed = True
         finally:
+            ok = completed and not self._halt()
+            if faces is not None:
+                if ok:
+                    faces.flush(last_ts)
+                else:  # nothing from the unfinished pass is written or taught; its retry looks again
+                    faces.heads.matches, faces.heads.embeddings, faces.heads.signals = [], [], []
+                    faces.heads.tracks.clear()
+                    faces.last = []
             if cw is not None:
-                if completed and not self._halt():
+                if ok:
                     cw.segments.sync()
                 else:
                     cw.segments.rewind(mark)
+            elif faces is not None:
+                if ok:
+                    faces.heads.writers.sync()
+                else:
+                    faces.heads.writers.rewind(mark)
 
 
 def _state(row: dict[str, Any] | None) -> str | None:
@@ -752,11 +780,12 @@ async def sweep(
                 # The delay starts when the pass returns. A pass longer than the delay is not due again immediately.
                 _finish(store, ledger, item, result, clock())
             log.info(
-                "item %s (%s): %d frames, %d captions, %d lines%s",
+                "item %s (%s): %d frames, %d captions, %d faces, %d lines%s",
                 item.id,
                 item.name,
                 result.frames,
                 result.captions,
+                getattr(result, "faces", 0),
                 result.lines,
                 f", errors {result.errors}" if result.errors else "",
             )
@@ -798,7 +827,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         from liberational.see.captions import CaptionPipeline
         from liberational.speech.asr import ASR
 
-        log.info("faces in ingested items aren't analyzed while faces move to see-actions' tracked heads")
         backend = cfg.get("vision.backend")
         backend = backend if backend != "auto" else "mlx-server" if cfg.has_mlx() else "ollama"
         vlm = vlm_backends.make_vlm(backend)
@@ -825,8 +853,11 @@ def main(argv: Sequence[str] | None = None) -> None:
                 references=voices.ReferenceGallery(state),
             )
             speech = Speech(client, transcriber, matcher, gate.VAD, segments=segment_log.root(state))
+            from liberational.ingest.faces import open_faces
+
+            faces = open_faces(cw.segments, state)
             return (
-                Analyzer(captions=(cw, lambda cam: CaptionPipeline(cam, vlm)), speech=speech),
+                Analyzer(captions=(cw, lambda cam: CaptionPipeline(cam, vlm)), speech=speech, faces=faces),
                 transcriber,
             )
         except Exception:
@@ -869,6 +900,10 @@ def main(argv: Sequence[str] | None = None) -> None:
                             break
                         except TimeoutError:
                             pass
+                    if analyzer.faces is not None:  # the visits still open, and the last tracks' teaching
+                        analyzer.faces.close()
+                        if analyzer.captions is not None:
+                            analyzer.captions[0].segments.sync()
             finally:
                 if transcriber is not None:
                     transcriber.close()
