@@ -94,9 +94,9 @@ def review_recordings(folder: Path, day: dt.date) -> list[dict[str, object]]:
             if pet:
                 scenes.dog(mesh, 1.0, 1.0)
             jpg, _, _, _ = scenes.render(mesh)
-            picture = folder / f"review-{hour}.jpg"
+            picture = folder / f"review-scene-{len(encoded)}.jpg"
             picture.write_bytes(jpg)
-            encoded[scene] = folder / f"review-{hour}.mp4"
+            encoded[scene] = picture.with_suffix(".mp4")
             video(picture, encoded[scene], seconds=60)
         clip = folder / f"review-{hour}-{minute}.mp4"
         clip.hardlink_to(encoded[scene])
