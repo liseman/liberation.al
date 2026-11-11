@@ -154,19 +154,21 @@ uv run pack-positions --dry-run
 
 It reads the last day (`--hours` changes that), changes nothing, and prints a line for each fixed camera: how many
 footprints it saw, how many land on the floor and in a room of the plan, whether it is read through its spot
-or its pose in a revision, its fitted tilt, and what it lacks. A camera read through "nothing: no spot and no pose"
-places nobody. What a camera lacks, and what to do:
+or its pose in a revision, its fitted tilt and whether the picture's straight edges confirmed it, and what it lacks.
+A camera read through "nothing: no spot and no pose" places nobody. What a camera lacks, and what to do:
 
 | It lacks | Do this |
 |---|---|
 | Height, facing, or field of view | Fill in that field of its spot ([steps](PLAN-EDITOR.md#give-a-camera-a-spot)) |
 | A held lens and its spot has no field of view | Give its spot a field of view |
-| Tilt: too few people seen walking | Wait: the tilt is fitted by a `pack-positions` run once enough people have walked through the view |
+| Tilt: too few people seen walking, and too few straight edges in the picture | Wait: a `pack-positions` run fits the tilt once enough people have walked through the view, and the picture's edges can confirm it |
 | Check: people come out the wrong height | Check the spot's height and field of view, and the camera's lens |
 
-A line also says how many people and animals the camera left unplaced behind a wall from its spot. A few are
-expected (a pet on a sofa). The run flags a camera with more than a tenth of its people there: its height, tilt,
-lens, or spot is off, or the plan is drawn at another scale.
+A line also says how many people and animals the camera left unplaced behind a wall from its spot. An animal there
+is put at the furniture and marked approximate, so these are the animals the fallback could not place (no spot, no
+plan to read, or a line the spot cannot see from its start), and any people, whose foot behind a wall is pose error.
+The run flags a camera with more than a tenth of its people there: its height, tilt, lens, or spot is off, or the
+plan is drawn at another scale.
 
 The `positions` service places people at 20 past each hour. To place them at once:
 

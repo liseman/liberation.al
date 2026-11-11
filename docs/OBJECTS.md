@@ -69,7 +69,18 @@ You can also ask by voice: "where did I leave my wallet?" answers with the camer
 
 ## Rename or remove an object
 
-The Objects tab has no control to rename or remove an object.
+Under "Remembered objects", find the object's row.
+
+1. To rename it, press the pencil beside its name. The name box opens with the current name; type the new one, then
+   press Enter or the tick. Escape or the cross leaves it as it was. A name, or one of its other names, that another
+   object already goes by is refused, and the box stays open so you can change it.
+2. To remove it, press the bin. A prompt asks first; press **Remove**.
+
+The new name is what Find and Last seen answer for from then on, and a removed object stops being matched and leaves
+the list. Neither touches what was recorded: sightings recorded before a rename still show the name they were
+recorded with, and a removed object's sightings stay. The message after a removal offers **Undo**, which remembers the
+object again as it was, with its picture, note, and other names. Remembering it again from a camera view also puts it
+back.
 
 ## Verify
 
