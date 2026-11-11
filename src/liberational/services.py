@@ -5,17 +5,18 @@
   uv run pack-services restart --cascade   # staged restart of the selected services
   uv run pack-services install [NAME ...]   # follow pack.toml's selection and (re)start what was named
   uv run pack-services uninstall [NAME ...] # stop them
-  uv run pack-services render [--out DIR]   # print (or write) launchd plists / systemd units, for older installs
+  uv run pack-services migrate              # remove the per-service units of an install from before the application
 
-The application (pack-app, supervisor.py) runs the selected services as its own children, using `selected`, `argv`,
-and `environment` from here. While it runs, the verbs above ask it (`_ask_supervisor`): nothing is rendered or
-installed. Which services are selected: each one's `default`, adjusted by [services] enable / disable in pack.toml,
-limited to its platforms. The dashboard's admin sidebar shows snapshot() and turns services on and off through the
-same verbs.
+The application (pack-app, or pack-supervisor run) runs the selected services as its own children, using `selected`,
+`argv`, and `environment` from here. The verbs above ask it (`_ask_supervisor`); with no application running they say
+so and change nothing, since nothing here renders, installs, or uninstalls an operating-system unit any more. Which
+services are selected: each one's `default`, adjusted by [services] enable / disable in pack.toml, limited to its
+platforms. The dashboard's admin sidebar shows snapshot() and turns services on and off through the same verbs.
 
-An install from before the application has a unit per service, which the verbs still manage when no supervisor runs:
-launchd agents labelled pack.<name> in ~/Library/LaunchAgents on macOS, and systemd user units named pack-<name> in
-~/.config/systemd/user on Linux. `pack-services migrate` removes them.
+An install from before the application has one unit per service: launchd agents labelled pack.<name> in
+~/Library/LaunchAgents on macOS, and systemd user units named pack-<name> in ~/.config/systemd/user on Linux.
+`pack-services migrate` (unit_migration.py) finds and removes them; it reads their file names alone, so it never
+needs the rendering this module no longer does.
 """
 
 import argparse
@@ -24,13 +25,10 @@ import hashlib
 import json
 import os
 import pathlib
-import plistlib
 import re
-import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import tomllib
@@ -152,8 +150,7 @@ def _templated_env(svc: Service) -> dict[str, str]:
 
 
 # What a service gets from whoever opened the application (#183): the variables that say which desktop session this
-# is, so PipeWire, D-Bus, and the display can be reached, and the locale. Nothing else is inherited. A unit got
-# these from the desktop's service manager; the supervisor's children get them here.
+# is, so PipeWire, D-Bus, and the display can be reached, and the locale. Nothing else is inherited.
 SESSION = frozenset(
     {
         "XDG_RUNTIME_DIR",
@@ -209,10 +206,9 @@ def _session(launcher: Mapping[str, str]) -> dict[str, str]:
 
 
 def environment(svc: Service, name: str = "", *, launcher: Mapping[str, str] | None = None) -> dict[str, str]:
-    """A service's whole environment. For a unit (`launcher` None) it is what the unit file sets, and the desktop's
-    service manager adds the session's variables. For a child of the supervisor, `launcher` is the environment the
-    application was opened with: the child gets the session variables from it and nothing else (#183), so a
-    terminal's loader paths and packaging variables never reach a service."""
+    """A service's whole environment. `launcher` (the environment the application was opened with) gives the child
+    the session variables from it and nothing else (#183), so a terminal's loader paths and packaging variables
+    never reach a service; with none, the current environment stands in."""
     # The environment's own bin first; in a checkout, mise's shims next (tools like ffmpeg from mise.toml; an
     # installed package has no mise and gets them from the system); then the starting shell's PATH; then the system
     # directories whatever that shell had: capture runs sysctl, which is in /usr/sbin.
@@ -249,203 +245,25 @@ def log_path(name: str) -> pathlib.Path:
     return cfg.path("paths.logs") / f"{name}.log"
 
 
-OWN_LOGS = frozenset({"cascade", "frontend"})  # logs under paths.logs that the pack writes but no service owns
-
-
-def prune_logs() -> list[str]:
-    """Delete the logs, and their older copies, of services services.toml no longer declares. Returns the file
-    names deleted."""
-    keep = set(declared()) | OWN_LOGS
-    directory = log_path("x").parent
-    gone = []
-    for path in sorted([*directory.glob("*.log"), *directory.glob("*.log" + logs.OLDER)]):
-        if path.name.removesuffix(logs.OLDER).removesuffix(".log") not in keep and path.is_file():
-            path.unlink()
-            gone.append(path.name)
-    return gone
-
-
-def render_launchd(name: str, svc: Service) -> dict[str, str]:
-    d: dict[str, Any] = {
-        "Label": f"pack.{name}",
-        "ProgramArguments": argv(svc, startup=True, name=name),
-        "WorkingDirectory": str(cfg.workdir()),
-        "EnvironmentVariables": environment(svc, name),
-        "StandardOutPath": str(log_path(name)),
-        "StandardErrorPath": str(log_path(name)),
-        # Seconds after SIGTERM before launchd kills it, the same as systemd's TimeoutStopSec.
-        "ExitTimeOut": int(svc.get("stop_timeout", 20)),
-    }
-    if svc.get("schedule"):
-        hour, minute = svc["schedule"].split(":")
-        # "*:MM" runs every hour, as systemd reads the same OnCalendar time.
-        d["StartCalendarInterval"] = {"Minute": int(minute)} | ({} if hour == "*" else {"Hour": int(hour)})
-    else:
-        d["RunAtLoad"] = True
-        if svc.get("restart", True):
-            d["KeepAlive"] = True
-            d["ThrottleInterval"] = svc.get("throttle", 10)
-    if svc.get("background"):
-        d["ProcessType"] = "Background"
-        d["LowPriorityIO"] = True
-    return {f"pack.{name}.plist": plistlib.dumps(d).decode()}
-
-
-def render_systemd(name: str, svc: Service) -> dict[str, str]:
-    # systemd opens StandardOutput before ExecStartPre, so mkdir there cannot repair
-    # a removed log directory. Open the log only after mkdir, then exec to preserve signals.
-    log = log_path(name)
-    script = 'mkdir -p -- "$1" && shift && log=$1 && shift && exec "$@" >> "$log" 2>&1'
-    command = ["/bin/sh", "-c", script, "pack-log", str(log.parent), str(log), *argv(svc, startup=True, name=name)]
-    # ':' disables systemd's $ expansion; %% preserves literal % specifiers in paths/args.
-    start = "ExecStart=:" + " ".join(shlex.quote(a).replace("%", "%%") for a in command)
-    env = "\n".join(f"Environment={shlex.quote(f'{k}={v}')}" for k, v in environment(svc, name).items())
-    scheduled = bool(svc.get("schedule"))
-    lines = [
-        "[Unit]",
-        f"Description=Pack: {svc.get('description', name)}",
-        "",
-        "[Service]",
-        f"Type={'oneshot' if scheduled else 'simple'}",
-        start,
-        f"WorkingDirectory={cfg.workdir()}",
-        env,
-        "StandardOutput=journal",
-        "StandardError=journal",
-        # Seconds after SIGTERM before systemd kills it; its 90 s default could hold a stop from Settings' Services.
-        f"TimeoutStopSec={svc.get('stop_timeout', 20)}",
-    ]
-    if not scheduled and svc.get("restart", True):
-        lines += ["Restart=always", f"RestartSec={svc.get('throttle', 10)}"]
-    if svc.get("background"):
-        lines += ["Nice=10", "IOSchedulingClass=idle"]
-    units = {
-        f"pack-{name}.service": "\n".join(lines + ([] if scheduled else ["", "[Install]", "WantedBy=default.target"]))
-        + "\n"
-    }
-    if scheduled:
-        units[f"pack-{name}.timer"] = (
-            "\n".join(
-                [
-                    "[Unit]",
-                    f"Description=Pack: {svc.get('description', name)} (schedule)",
-                    "",
-                    "[Timer]",
-                    f"OnCalendar=*-*-* {svc['schedule']}:00",
-                    "Persistent=true",
-                    "",
-                    "[Install]",
-                    "WantedBy=timers.target",
-                ]
-            )
-            + "\n"
-        )
-    return units
-
-
-def render(name: str, svc: Service) -> dict[str, str]:
-    return render_launchd(name, svc) if DARWIN else render_systemd(name, svc)
-
-
-def unit_dir() -> pathlib.Path:
-    return pathlib.Path.home() / ("Library/LaunchAgents" if DARWIN else ".config/systemd/user")
-
-
-def _run(*cmd: str, check: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, check=check)
-
-
-def _systemctl(verb: Sequence[str], units: Sequence[str]) -> dict[str, str | None]:
-    """Run one systemctl verb on every unit in a single call (they stop or start in parallel), and say per unit
-    whether it worked: None, or the error. Only when the batch fails is each unit looked at, to tell which: start and
-    restart ask whether it's running (running them again would restart the healthy ones twice), and the rest are
-    tried one at a time.
-    One call matters: enable and disable each reload the whole manager unless told not to (about 0.7 s apiece on
-    the Linux machine), which per unit made All off take about 8 s for nine services."""
-    if not units:
-        return {}
-    batch = _run("systemctl", "--user", *verb, *units)
-    if batch.returncode == 0:
-        return dict.fromkeys(units)
-    out: dict[str, str | None] = {}
-    for unit in units:
-        if verb[0] in ("start", "restart"):  # don't run it again: that would restart the healthy ones twice
-            up = _run("systemctl", "--user", "is-active", unit).returncode == 0
-            out[unit] = None if up else (batch.stderr or "").strip() or "failed"
-        else:  # enable and disable are all or nothing as a batch; one at a time is harmless
-            r = _run("systemctl", "--user", *verb, unit)
-            out[unit] = None if r.returncode == 0 else (r.stderr or "").strip() or "failed"
-    return out
-
-
-def checkout_note() -> str:
-    """Why services must not be installed from here: a git worktree or a temporary directory isn't the checkout they
-    should run from (their units would point at files that go away). Empty for a real checkout."""
-    root = cfg.workdir().resolve()
-    if (root / ".git").is_file():  # a linked worktree: .git is a pointer file, not the repository
-        return f"{root} is a git worktree"
-    tmp = pathlib.Path(tempfile.gettempdir()).resolve()
-    if root == tmp or tmp in root.parents or root.parts[:2] == ("/", "tmp"):
-        return f"{root} is under a temporary directory"
-    return ""
-
-
-def _check_checkout(anywhere: bool) -> None:
-    if (why := checkout_note()) and not anywhere:
-        raise SystemExit(
-            f"not touching services: {why}. Liberational's services run from the checkout they're installed from;"
-            " run this from the real checkout, or pass --anywhere if you mean it."
-        )
-
-
-def preflight(names: Sequence[str]) -> None:
-    """Warn about system packages these services need and this machine is missing (config/system-packages.toml),
-    with the command that installs them. It doesn't stop the install: some packages matter only to some features."""
-    from liberational import system_packages
-
-    try:
-        gone = system_packages.missing(system_packages.load(), services=names)
-    except (OSError, ValueError) as e:
-        print(f"warning: can't check system packages: {e}")
-        return
-    if gone:
-        print(
-            "warning: missing system packages these services use:\n"
-            + system_packages.describe(gone)
-            + "\nOr run `uv run pack-system install`, which asks before installing."
-        )
-
-
-def _bootstrap(name: str) -> str | None:
-    """Load a launchd job from its plist: None, or the error. A bootout returns before the job is gone; a bootstrap in
-    that window fails with "Input/output error" (5) and the service stays down (ambient died this way after an
-    owner-voice merge). So wait for the label to disappear, then retry the bootstrap a few times."""
-    domain = f"gui/{os.getuid()}"
-    for _ in range(40):
-        if _run("launchctl", "print", f"{domain}/pack.{name}").returncode != 0:
-            break
-        time.sleep(0.25)
-    r = None
-    for attempt in range(6):
-        r = _run("launchctl", "bootstrap", domain, str(unit_dir() / f"pack.{name}.plist"))
-        if r.returncode == 0 or "already" in (r.stderr or "").lower():
-            return None
-        time.sleep(0.5 * (attempt + 1))
-    return (r.stderr or "").strip() if r else "not tried"
+APPLICATION = "the application isn't running: open it with pack-app (or pack-supervisor run, without the window)"
 
 
 def _supervised() -> dict[str, Any] | None:
-    """The running application's services (supervisor.py), or None when no supervisor runs here: the verbs below
-    then talk to it (#165) instead of the service manager."""
+    """The running application's services (supervisor.py), or None when the application isn't open."""
     from liberational import supervisor
 
     status = supervisor.read_status()
     return status["services"] if status is not None else None
 
 
+def _needs_application() -> None:
+    """Refuse a verb only the application can carry out, plainly: nothing here renders or installs a unit."""
+    raise SystemExit(APPLICATION)
+
+
 def _ask_supervisor(op: str, names: Sequence[str] = (), timeout: float = 120.0) -> None:
-    """Send the running supervisor one request, and print a line a name as the unit verbs did. Exits nonzero with
-    its reason when it refuses or doesn't answer."""
+    """Send the running supervisor one request, and print one line a name (or for the whole set). Exits nonzero
+    with its reason when it refuses or doesn't answer."""
     from liberational import supervisor
 
     said = {"start": "running", "stop": "stopped", "restart": "restarted", "reload": "reloaded"}[op]
@@ -459,222 +277,63 @@ def _ask_supervisor(op: str, names: Sequence[str] = (), timeout: float = 120.0) 
         raise SystemExit(1)
 
 
-def install(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
-    if _supervised() is not None:
-        # Under the application there is nothing to install: follow pack.toml's selection, then (re)start what was
-        # named, or everything through the staged cascade with no names or --cascade.
-        from liberational import service_cascade
+def install(names: Sequence[str], *, cascade: bool = False) -> None:
+    """Have the application follow pack.toml's selection, then (re)start what was named, or everything through the
+    staged cascade with no names or --cascade. There is nothing to install: the application runs the services."""
+    if _supervised() is None:
+        _needs_application()
+    from liberational import service_cascade
 
-        _ask_supervisor("reload")
-        _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
-        return
-    _check_checkout(anywhere)
-    log_path("x").parent.mkdir(parents=True, exist_ok=True)
-    for gone in prune_logs():
-        print(f"removed {gone}: no service by that name is declared")
-    services = selected()
-    full = not names
-    names = names or list(services)
-    missing = [n for n in names if n not in services]
-    if missing:
-        raise SystemExit(f"not selected for this machine: {', '.join(missing)} (see `pack-services list`)")
-    if cascade or {"continuum-broker", "continuum-capture"}.intersection(names):
-        from liberational import service_cascade
-
-        service_cascade.run_selected(list(names), install=True, anywhere=anywhere, start_stopped=full or cascade)
-        return
-    preflight(names)
-    log_path("x").parent.mkdir(parents=True, exist_ok=True)
-    unit_dir().mkdir(parents=True, exist_ok=True)
-    for name in names:
-        for fname, text in render(name, services[name]).items():
-            (unit_dir() / fname).write_text(text)
-        if DARWIN:
-            _run("launchctl", "bootout", f"gui/{os.getuid()}/pack.{name}")
-            err = _bootstrap(name)
-            print(f"pack.{name}: {'loaded' if err is None else 'FAILED ' + err}")
-    if not DARWIN:
-        _run("systemctl", "--user", "daemon-reload", check=True)  # once, so enable needn't reload per unit
-        unit = {n: f"pack-{n}.timer" if services[n].get("schedule") else f"pack-{n}.service" for n in names}
-        enabled = _systemctl(["enable", "--no-reload"], list(unit.values()))
-        ok = [u for u in unit.values() if enabled[u] is None]
-        # A timer starts its schedule; a service restarts, not just starts, so a reinstall picks up new settings.
-        ran = _systemctl(["start"], [u for u in ok if u.endswith(".timer")])
-        ran |= _systemctl(["restart"], [u for u in ok if u.endswith(".service")])
-        for u in unit.values():
-            err = enabled[u] or ran.get(u)
-            print(f"{u}: {'running' if err is None else 'FAILED ' + err}")
-        if _run("loginctl", "show-user", os.environ.get("USER", ""), "-p", "Linger", "--value").stdout.strip() == "no":
-            print("note: user services only run while you're logged in; to start them at boot: loginctl enable-linger")
+    _ask_supervisor("reload")
+    _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
 
 
 def installed() -> list[str]:
-    supervised = _supervised()
-    if supervised is not None:
-        return list(supervised)  # what the application runs
-    pat = "pack.*.plist" if DARWIN else "pack-*.service"
-    return sorted(re.sub(r"^pack[.-]|\.(plist|service)$", "", p.name) for p in unit_dir().glob(pat))
+    """The services the running application runs, by name (empty while it isn't open)."""
+    return list(_supervised() or {})
 
 
-def uninstall(names: Sequence[str], anywhere: bool = False) -> None:
-    if _supervised() is not None:
-        if not names:
-            raise SystemExit("under the application, quit it to stop everything (pack-supervisor quit)")
-        return _ask_supervisor("stop", names)
-    _check_checkout(anywhere)
-    names = list(names) or installed()  # before any unit file goes
-    for name in names:
-        if DARWIN:
-            _run("launchctl", "bootout", f"gui/{os.getuid()}/pack.{name}")
-            (unit_dir() / f"pack.{name}.plist").unlink(missing_ok=True)
-            print(f"removed {name}")
-    if not DARWIN:
-        # Every unit at once: one stop (in parallel), one disable without a reload, then one reload.
-        units = [
-            u for name in names for u in (f"pack-{name}.timer", f"pack-{name}.service") if (unit_dir() / u).exists()
-        ]
-        stopped = _systemctl(["stop"], units)
-        disabled = _systemctl(["disable", "--no-reload"], units)
-        for u in units:
-            (unit_dir() / u).unlink(missing_ok=True)
-        for name in names:
-            err = next(
-                (e for u in units if u.startswith(f"pack-{name}.") for e in (stopped[u], disabled[u]) if e), None
-            )
-            print(f"removed {name}" if err is None else f"pack-{name}: FAILED {err}")
-        _run("systemctl", "--user", "daemon-reload")
+def uninstall(names: Sequence[str]) -> None:
+    """Stop services now: the application starts them again the next time it opens. With no names, quit the
+    application, which stops everything."""
+    if _supervised() is None:
+        _needs_application()
+    if not names:
+        raise SystemExit("under the application, quit it to stop everything (pack-supervisor quit)")
+    return _ask_supervisor("stop", names)
 
 
-def _installed_only(names: Sequence[str]) -> list[str]:
-    """names, refusing any service that isn't installed (stop and start act on an installed unit; install adds one)."""
-    have = set(installed())
-    missing = [n for n in names if n not in have]
-    if not missing:
-        return list(names)
-    if not have:
-        raise SystemExit(
-            f"not installed: {', '.join(missing)}. No per-service units are installed. "
-            "Open the application: pack-app (or pack-supervisor run, without the window)."
-        )
-    raise SystemExit(f"not installed: {', '.join(missing)} (turn it on with `pack-services install`)")
+def stop(names: Sequence[str]) -> None:
+    """Stop services now, leaving them selected: they start again on the application's next start, on Repair, or on
+    `start`. A stop lasts while one application runs."""
+    if _supervised() is None:
+        _needs_application()
+    return _ask_supervisor("stop", names)
 
 
-def stop(names: Sequence[str], anywhere: bool = False) -> None:
-    """Stop services now, leaving them installed and enabled: they start again when the computer restarts
-    (systemd starts the user's units at boot with lingering on, else at the first login; launchd loads the kept plist
-    at the next login), on Repair, or on `start`. `uninstall` is what keeps one off."""
-    if _supervised() is not None:
-        return _ask_supervisor("stop", names)
-    _check_checkout(anywhere)
-    names = _installed_only(names)
-    if DARWIN:
-        for name in names:
-            # Unloaded, with its plist kept: launchd loads it again at the next login. (A kill would only make
-            # KeepAlive start it again at once.)
-            r = _run("launchctl", "bootout", f"gui/{os.getuid()}/pack.{name}")
-            print(f"pack.{name}: {'stopped' if r.returncode == 0 else 'FAILED ' + r.stderr.strip()}")
-        return
-    units = [u for n in names for u in (f"pack-{n}.timer", f"pack-{n}.service") if (unit_dir() / u).exists()]
-    done = _systemctl(["stop"], units)
-    for n in names:  # a scheduled job is named by its timer, which is what brings it back
-        u = f"pack-{n}.timer" if (unit_dir() / f"pack-{n}.timer").exists() else f"pack-{n}.service"
-        err = done.get(u) or done.get(f"pack-{n}.service")
-        print(f"{u}: {'stopped' if err is None else 'FAILED ' + err}")
+def start(names: Sequence[str]) -> None:
+    """Start selected services that were stopped (a scheduled job's timer starts its schedule)."""
+    if _supervised() is None:
+        _needs_application()
+    return _ask_supervisor("start", names)
 
 
-def start(names: Sequence[str], anywhere: bool = False) -> None:
-    """Start installed services that were stopped (a scheduled job's timer starts its schedule)."""
-    if _supervised() is not None:
-        return _ask_supervisor("start", names)
-    _check_checkout(anywhere)
-    names = _installed_only(names)
-    if DARWIN:
-        domain = f"gui/{os.getuid()}"
-        for name in names:
-            if _run("launchctl", "print", f"{domain}/pack.{name}").returncode == 0:
-                # Still loaded (between KeepAlive restarts, or a calendar job waiting): a bootstrap would fail with
-                # "Input/output error", so start it where it is.
-                r = _run("launchctl", "kickstart", f"{domain}/pack.{name}")
-                err = None if r.returncode == 0 else (r.stderr or "").strip()
-            else:
-                err = _bootstrap(name)
-            print(f"pack.{name}: {'running' if err is None else 'FAILED ' + err}")
-        return
-    units = [f"pack-{n}.timer" if (unit_dir() / f"pack-{n}.timer").exists() else f"pack-{n}.service" for n in names]
-    done = _systemctl(["start"], units)
-    for u in units:
-        print(f"{u}: {'running' if done.get(u) is None else 'FAILED ' + str(done[u])}")
-
-
-def restart(names: Sequence[str], anywhere: bool = False, *, cascade: bool = False) -> None:
-    """Restart installed services. Core changes always use the same strict selected/installed cascade as install."""
-    if _supervised() is not None:
-        from liberational import service_cascade
-
-        return _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
+def restart(names: Sequence[str], *, cascade: bool = False) -> None:
+    """Restart services. Core changes always use the same strict staged cascade, with the same readiness checks and
+    recovery, as the application's own start and quit."""
+    if _supervised() is None:
+        _needs_application()
     from liberational import service_cascade
 
-    _check_checkout(anywhere)
-    chosen, have = selected(), set(installed())
-    missing = set(names) - (chosen.keys() & have)
-    if missing:
-        raise SystemExit("not selected and installed: " + ", ".join(sorted(missing)))
-    if cascade:
-        names = [name for name in chosen if name in have]
-    elif not names:
+    if not names and not cascade:
         raise SystemExit("restart needs service names or --cascade")
-    if cascade or {service_cascade.BROKER, service_cascade.CAPTURE}.intersection(names):
-        service_cascade.run_selected(list(names), anywhere=anywhere, start_stopped=cascade)
-        return
-    # Leaf-only changes remain selective and do not cycle capture or the broker.
-    deadline = time.monotonic() + service_cascade.DEFAULT_TIMEOUT
-    manager = service_cascade.ServiceManager(chosen)
-    try:
-        before = manager.snapshot(names, deadline)
-        manager.stop(names, deadline)
-        manager.wait_stopped(before, deadline)
-        manager.start(names, deadline)
-        service_cascade.wait_running_snapshot(manager, names, deadline)
-    except Exception as error:
-        # Start them again before failing, so a stop that half worked doesn't leave them unloaded.
-        retry = time.monotonic() + service_cascade.RECOVERY_WAIT
-        failures = service_cascade.start_each(manager, names, retry)
-        detail = str(error) + "".join(f"; recovery start failed: {f}" for f in failures)
-        raise service_cascade.CascadeError("restart " + ", ".join(names), detail) from error
-    for name in names:
-        print(f"pack-{name}: running")
+    return _ask_supervisor("restart", [] if cascade else names, timeout=service_cascade.subprocess_timeout())
 
 
 def states() -> dict[str, str]:
-    """The service manager's state for each installed service (systemd: active, failed, ...; launchd: running, ...)."""
+    """The application's state for each service it runs (running, stopped, failed, ...; empty while it isn't open)."""
     supervised = _supervised()
-    if supervised is not None:
-        return {name: str(service["state"]) for name, service in supervised.items()}
-    names = installed()
-    if DARWIN:
-        out: dict[str, str] = {}
-        for name in names:
-            r = _run("launchctl", "print", f"gui/{os.getuid()}/pack.{name}")
-            out[name] = next(
-                (l.split("=", 1)[1].strip() for l in r.stdout.splitlines() if l.strip().startswith("state =")),
-                "not loaded",
-            )
-        return out
-    # Poll every unit in one manager request instead of spawning a process per service. A scheduled job's service
-    # is idle between runs, so ask about its timer. Missing replies stay unknown rather than implying inactivity.
-    units = {
-        (timer.name if (timer := unit_dir() / f"pack-{name}.timer").exists() else f"pack-{name}.service"): name
-        for name in names
-    }
-    out = dict.fromkeys(names, "unknown")
-    if not units:
-        return out
-    r = _run("systemctl", "--user", "show", "-p", "Id", "-p", "ActiveState", *units)
-    for block in r.stdout.split("\n\n"):
-        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
-        if (name := units.get(props.get("Id", ""))) is not None:
-            out[name] = props.get("ActiveState") or "unknown"
-    return out
+    return {name: str(service["state"]) for name, service in supervised.items()} if supervised else {}
 
 
 LOG_TAIL_BYTES = 64 * 1024  # how much of the end of a service's log last_error reads
@@ -685,86 +344,15 @@ ERROR_LINE = re.compile(STAMP + r" \[[^\]]*\] ERROR (.*)")
 TIMED = re.compile(r"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d) |(\d\d:\d\d:\d\d) \[")
 
 
-def _launchd(name: str) -> dict[str, str]:
-    """`launchctl print`'s key = value lines for one service, stripped."""
-    r = _run("launchctl", "print", f"gui/{os.getuid()}/pack.{name}")
-    out = {}
-    for line in r.stdout.splitlines():
-        if " = " in line:
-            k, v = line.split(" = ", 1)
-            out.setdefault(k.strip(), v.strip())  # the first: nested blocks repeat keys
-    return out
-
-
 def runs() -> dict[str, dict[str, Any]]:
-    """How each installed daemon has run: {"restarts": how often the service manager restarted it, "up_s": how
-    long its current run has lasted, or None}. A crash loop is restarts climbing with a short current run; restarts
-    alone can't tell one, since systemd's count only resets when the unit is started by hand. run_id identifies the
-    current run without changing as uptime advances, so acknowledging its history cannot hide a later run.
+    """How each service the application runs has run: {"restarts": how often the application restarted it, "up_s":
+    how long its current run has lasted, or None}. A crash loop is restarts climbing with a short current run.
+    run_id identifies the current run without changing as uptime advances, so acknowledging its history cannot hide
+    a later run. Scheduled jobs are left out: their runs are by design."""
+    from liberational import supervisor
 
-    systemd: NRestarts and ActiveEnterTimestampMonotonic for every unit in one systemctl call. launchd: its runs after
-    the first, and the age of its pid. Scheduled jobs, and services with restart = false, are left out: their runs
-    are by design."""
-    if _supervised() is not None:
-        from liberational import supervisor
-
-        status = supervisor.read_status()
-        return supervisor.managed(status, time.time())[1] if status is not None else {}
-    spec = declared()
-    names = [n for n in installed() if not spec.get(n, {}).get("schedule") and spec.get(n, {}).get("restart", True)]
-    if not names:
-        return {}
-    if DARWIN:
-        import psutil
-
-        out: dict[str, dict[str, Any]] = {}
-        for name in names:
-            info = _launchd(name)
-            if not info.get("runs", "").isdigit():
-                continue
-            up, started = None, None
-            if info.get("pid", "").isdigit():
-                try:
-                    started = psutil.Process(int(info["pid"])).create_time()
-                    up = max(0.0, time.time() - started)
-                except psutil.Error, OSError:
-                    up = None
-            out[name] = {
-                "restarts": max(0, int(info["runs"]) - 1),
-                "up_s": up,
-                "run_id": f"launchd:{info['runs']}:{info.get('pid', '')}:{started}",
-            }
-        return out
-    units = [f"pack-{n}.service" for n in names]
-    r = _run(
-        "systemctl",
-        "--user",
-        "show",
-        "-p",
-        "Id",
-        "-p",
-        "NRestarts",
-        "-p",
-        "ActiveEnterTimestampMonotonic",
-        "-p",
-        "ActiveEnterTimestamp",
-        *units,
-    )
-    if r.returncode != 0:
-        return {}
-    out = {}
-    for block in r.stdout.split("\n\n"):  # one block per unit; the properties in whatever order systemd prints them
-        props = dict(line.split("=", 1) for line in block.splitlines() if "=" in line)
-        unit, n, since = props.get("Id", ""), props.get("NRestarts", ""), props.get("ActiveEnterTimestampMonotonic", "")
-        if unit not in units or not n.isdigit():
-            continue
-        up = time.monotonic() - int(since) / 1e6 if since.isdigit() and int(since) > 0 else None
-        out[unit[len("pack-") : -len(".service")]] = {
-            "restarts": int(n),
-            "up_s": up,
-            "run_id": f"systemd:{n}:{since}:{props.get('ActiveEnterTimestamp', '')}",
-        }
-    return out
+    status = supervisor.read_status()
+    return supervisor.managed(status, time.time())[1] if status is not None else {}
 
 
 # Public systemd lifecycle identifiers: src/systemd/sd-messages.h. Read manager metadata only, never MESSAGE.
@@ -1033,7 +621,7 @@ def history(state: pathlib.Path, hours: int = 24) -> HistoryView:
 
 TRACEBACK = "Traceback (most recent call last):"
 CLOCK_SLACK_S = 120  # threads can write lines a little out of order; a bigger step back in time is a new day
-UP_STATES = {"active", "running"}  # systemd's and launchd's word for a service that's running
+UP_STATES = {"active", "running"}  # the application's and systemd's word for a service that's running
 RESTARTED_RECENTLY_S = 600  # the frontend's CRASH_RECENT_S: a restart this recent is a crash loop's
 CRASH_LOOP_RESTARTS = 3  # the frontend's CRASH_LOOP: fewer restarts don't establish a loop
 
@@ -1288,7 +876,7 @@ def _rescan(*, background: bool = False) -> None:
 
 
 def processes(fresh: bool = False, *, nonblocking: bool = False) -> dict[str, list[int]]:
-    """Pids of running services by name (as _scan_processes finds them), whether the service manager started them or a
+    """Pids of running services by name (as _scan_processes finds them), whether the application started them or a
     person did.
 
     fresh=False (the sidebar's poll): the last scan's answer, scanning only on the first call. A scan older than
@@ -1319,18 +907,18 @@ def processes(fresh: bool = False, *, nonblocking: bool = False) -> dict[str, li
         return {name: list(pids) for name, pids in _scan["pids"].items()}
 
 
-# What the service manager said of every unit (states() and runs(), one systemctl call each), kept for a few seconds:
-# several pages poll /services at once, and a state changes only when a service starts, stops, or fails.
+# What the application said of its services (states() and runs()), kept for a few seconds: several pages poll
+# /services at once, and a state changes only when a service starts, stops, or fails.
 MANAGER_TTL_S = 5.0
 _manager_lock = threading.Lock()
 _manager: dict[str, Any] = {"at": None, "states": {}, "runs": {}}
 
 
 def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
-    """(states(), runs()) for a status poll: the last answer when it is under MANAGER_TTL_S old, with each run's
-    `up_s` moved on by the answer's age. fresh=True (an action's reply) asks the manager now. Polls that arrive
-    together wait for one read instead of each starting their own. While a supervisor runs the services (#155), the
-    answer is its own record of them, not the service manager's."""
+    """(states(), runs()) for a status poll: the application's own record of its services (#155). The last answer
+    under MANAGER_TTL_S old is reused, with each run's `up_s` moved on by the answer's age; fresh=True (an action's
+    reply) asks now. Polls that arrive together wait for one read instead of each starting their own; with no
+    application open there is nothing to ask."""
     from liberational import supervisor
 
     status = supervisor.read_status()
@@ -1351,8 +939,8 @@ def _managed(fresh: bool = False) -> tuple[dict[str, str], dict[str, dict[str, A
 
 def snapshot(fresh: bool = False) -> list[dict[str, Any]]:
     """Every service declared for this platform: selected for this machine, installed, its state, and running pids
-    (fresh as in processes()). A poll reuses the service manager's last answer for MANAGER_TTL_S (`_managed`) and
-    opens only the logs written to since the last one (`_newest_error`)."""
+    (fresh as in processes()). A poll reuses the application's last answer for MANAGER_TTL_S (`_managed`) and opens
+    only the logs written to since the last one (`_newest_error`)."""
     # A cold poll reports pending before asking the manager or reading logs; actions still get a fresh truth.
     procs = processes(fresh, nonblocking=not fresh)
     state, ran = _managed(fresh)
@@ -1380,8 +968,12 @@ def snapshot(fresh: bool = False) -> list[dict[str, Any]]:
 
 
 def status() -> None:
-    for name, state in states().items():
+    """The application's state for each service it runs; with none open, plainly that, and nothing else."""
+    running = states()
+    for name, state in running.items():
         print(f"{name:16} {state}")
+    if not running:
+        print(APPLICATION)
 
 
 def choose(names: Sequence[str], *, enable: bool | None) -> tuple[list[str], list[str]]:
@@ -1404,9 +996,9 @@ def choose(names: Sequence[str], *, enable: bool | None) -> tuple[list[str], lis
 def exec_service(name: str) -> None:
     """Resolve current settings at startup, then replace the launcher with a selected service's command.
 
-    Installed units keep this launcher rather than a snapshot of policy flags. Use the ordinary command here,
-    without startup wrappers, so this cannot recurse through fresh_config or repeat the readiness wait. The
-    service's templated env is filled in again too, over what the unit was installed with (the tier worker's
+    A service with `fresh_config` starts through this launcher rather than a snapshot of policy flags. Use the
+    ordinary command here, without startup wrappers, so this cannot recurse through fresh_config or repeat the
+    readiness wait. The service's templated env is filled in again too, over what was already set (the tier worker's
     video_archive settings).
     """
     cfg.load.cache_clear()
@@ -1422,25 +1014,20 @@ def exec_service(name: str) -> None:
 
 
 def main() -> None:
-    from liberational.service_cascade import CascadeError
-
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else "")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list")
-    sub.add_parser("installed", help="the services installed here, one name a line")
+    sub.add_parser("installed", help="the services the running application runs, one name a line")
     execute = sub.add_parser("exec", help="start one selected service using current settings (internal launcher)")
     execute.add_argument("name")
-    r = sub.add_parser("render")
-    r.add_argument("--out", type=pathlib.Path)
     for c in ("enable", "disable", "reset"):
         p = sub.add_parser(c, help=f"{c} services in pack.toml's [services] (changes no running service)")
         p.add_argument("names", nargs="+")
     for c in ("install", "uninstall", "stop", "start", "restart"):
         p = sub.add_parser(c)
         p.add_argument("names", nargs="+" if c in ("stop", "start") else "*")  # never every service by default
-        p.add_argument("--anywhere", action="store_true", help="even from a git worktree or a temporary directory")
         if c in {"restart", "install"}:
-            p.add_argument("--cascade", action="store_true", help="stage the whole selected installed set")
+            p.add_argument("--cascade", action="store_true", help="stage the whole selected set")
     sub.add_parser("status")
     move = sub.add_parser("migrate", help="remove the per-service units of an earlier install (see MIGRATING.md)")
     move.add_argument("--dry-run", action="store_true", help="print exactly what would be done, and do nothing")
@@ -1464,39 +1051,21 @@ def main() -> None:
         for name, svc in declared().items():
             print(f"{'*' if name in chosen else ' '} {name:16} {svc.get('description', '')}")
         print("\n* = selected on this machine")
-    elif a.cmd == "render":
-        for name, svc in selected().items():
-            for fname, text in render(name, svc).items():
-                if a.out:
-                    a.out.mkdir(parents=True, exist_ok=True)
-                    (a.out / fname).write_text(text)
-                else:
-                    print(f"# --- {fname}\n{text}")
-        if a.out:
-            print(f"wrote {a.out}")
     elif a.cmd in ("enable", "disable", "reset"):
         on, off = choose(a.names, enable={"enable": True, "disable": False, "reset": None}[a.cmd])
         print(f"pack.toml [services]: enable = {on}, disable = {off}")
     elif a.cmd == "install":
-        try:
-            install(a.names, a.anywhere, cascade=a.cascade)
-        except CascadeError as error:
-            print(f"cascade: FAILED {error}", file=sys.stderr)
-            raise SystemExit(1) from error
+        install(a.names, cascade=a.cascade)
     elif a.cmd == "uninstall":
-        uninstall(a.names, a.anywhere)
+        uninstall(a.names)
     elif a.cmd == "stop":
-        stop(a.names, a.anywhere)
+        stop(a.names)
     elif a.cmd == "start":
-        start(a.names, a.anywhere)
+        start(a.names)
     elif a.cmd == "restart":
         if not a.names and not a.cascade:
             ap.error("restart needs service names or --cascade")
-        try:
-            restart(a.names, a.anywhere, cascade=a.cascade)
-        except CascadeError as error:
-            print(f"cascade: FAILED {error}", file=sys.stderr)
-            raise SystemExit(1) from error
+        restart(a.names, cascade=a.cascade)
     else:
         status()
 

@@ -1,5 +1,5 @@
-"""Nothing installs or restarts real services by accident: the suite's guard, and pack-services refusing to run
-from a git worktree or a temporary directory."""
+"""Nothing installs or restarts real services by accident: the suite's guard, and what pack-services does with no
+application open (nothing, and it says so)."""
 
 import os
 import pathlib
@@ -62,65 +62,17 @@ def test_moving_a_file_into_a_real_data_path_is_refused(tmp_path):
     assert "moved-in" in conftest.hits.pop()[0]
 
 
-class Elsewhere:
-    """The config module as it is, but for a working directory of `root`."""
-
-    def __init__(self, root: pathlib.Path) -> None:
-        self.workdir = lambda: root
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(cfg, name)
-
-
-@pytest.fixture
-def temp_root(tmp_path, monkeypatch):
-    """The working directory is a temp dir with nothing selected to install; returns the service-manager commands sent."""
-    sent = []
-
-    def run(*cmd, check=False):
-        sent.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, "", "")
-
-    # Only the checkout guard sees this root: services' view of the config has its working directory here and every
-    # other setting as it is. Mutating the shared config module let lazy imports keep a temp manifest path after
-    # monkeypatch restored it.
-    monkeypatch.setattr(services, "cfg", Elsewhere(tmp_path))
-    monkeypatch.setattr(services, "preflight", lambda names: None)
-    monkeypatch.setattr(services, "DARWIN", False)
-    monkeypatch.setattr(services, "_run", run)
-    monkeypatch.setattr(services, "selected", dict)
-    monkeypatch.setattr(services, "unit_dir", lambda: tmp_path / "units")
-    monkeypatch.setattr(services, "log_path", lambda name: tmp_path / "logs" / f"{name}.log")
-    return sent
-
-
-@pytest.mark.parametrize("action", [services.install, services.uninstall], ids=["install", "uninstall"])
-def test_a_temporary_directory_is_refused_unless_asked(temp_root, action):
-    assert "temporary directory" in services.checkout_note()
-    with pytest.raises(SystemExit, match="--anywhere"):
-        action([])
-    assert temp_root == []
-    action([], anywhere=True)
-    assert ("systemctl", "--user", "daemon-reload") in temp_root
-
-
-def test_a_git_worktree_is_refused(temp_root, tmp_path, monkeypatch):
-    with monkeypatch.context() as m:
-        m.setattr(services.cfg, "workdir", lambda: pathlib.Path("/srv/liberational"))
-        assert services.checkout_note() == ""  # a plain checkout passes
-    (tmp_path / ".git").write_text("gitdir: /somewhere/.git/worktrees/x\n")  # checked before the temp dir
-    assert "worktree" in services.checkout_note()
-    with pytest.raises(SystemExit, match="worktree"):
-        services.install([])
-
-
-def test_checkout_guard_root_does_not_redirect_package_readers(temp_root, monkeypatch):
-    from liberational import system_packages
-
-    opened = []
-    monkeypatch.setattr(pathlib.Path, "read_text", lambda path: opened.append(path) or "")
-    system_packages.load()
-    assert opened == [cfg.DEFAULTS.with_name("system-packages.toml")]
+@pytest.mark.parametrize(
+    "action",
+    [services.install, services.uninstall, services.stop, services.start, services.restart],
+    ids=["install", "uninstall", "stop", "start", "restart"],
+)
+def test_a_verb_with_no_application_open_touches_nothing(monkeypatch, action):
+    """No verb renders, installs, or uninstalls an operating-system unit any more, from any directory: the suite's own
+    guard (conftest refuses systemctl, launchctl, and pack-services) would fail this test if one shelled out."""
+    monkeypatch.setattr(services, "_supervised", lambda: None)
+    with pytest.raises(SystemExit, match="pack-app"):
+        action(["listen"])
 
 
 def test_temp_files_go_under_the_session_root():

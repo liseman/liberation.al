@@ -41,20 +41,15 @@ def pack_toml(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def ran(tmp_path, monkeypatch):
-    """The pack-services arguments of each service reinstall; ambient and vision are installed."""
+def ran(monkeypatch):
+    """Each pack-services reinstall a save asked for, which should stay empty: ambient and vision are what runs here."""
     calls = []
 
     def run(cmd, **kw):
         calls.append(cmd[cmd.index("liberational.services") + 1 :])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    units = tmp_path / "units"
-    units.mkdir()
-    for name in ("ambient", "vision"):
-        (units / f"pack-{name}.service").touch()
-    monkeypatch.setattr(services, "DARWIN", False)
-    monkeypatch.setattr(services, "unit_dir", lambda: units)
+    monkeypatch.setattr(services, "installed", lambda: ["ambient", "vision"])
     monkeypatch.setattr(devices.subprocess, "run", run)
     return calls
 

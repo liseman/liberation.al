@@ -606,7 +606,6 @@ def test_pack_services_verbs_talk_to_the_supervisor_while_one_runs(monkeypatch, 
     status = {"pid": os.getpid(), "services": {"listen": {"state": "running", "restarts": 0, "since": 5.0, "pid": 9}}}
     monkeypatch.setattr(supervisor, "read_status", lambda: status)
     monkeypatch.setattr(supervisor, "request", lambda message, timeout=0: asked.append(message) or {"ok": True})
-    monkeypatch.setattr(services, "_run", lambda *a, **k: pytest.fail("asked the service manager"))
     assert services.installed() == ["listen"] and services.states() == {"listen": "running"}
     services.stop(["listen"])
     services.start(["listen"])
