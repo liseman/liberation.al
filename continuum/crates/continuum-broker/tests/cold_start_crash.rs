@@ -186,6 +186,23 @@ enum Op {
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
+    ops_from_picks(0usize..128)
+}
+
+/// Id picks cover the whole catalog. The parallel crash test seeds past 4,096 rows, then adds a colliding
+/// chunk, and a `0..128` pick never reaches that chunk or anything written after the seed.
+fn wide_op_strategy() -> impl Strategy<Value = Op> {
+    ops_from_picks(any::<usize>())
+}
+
+fn ops_from_picks<S>(pick: S) -> impl Strategy<Value = Op>
+where
+    S: Strategy<Value = usize> + Clone + 'static,
+{
+    let derived_pick = pick.clone();
+    let clear_pick = pick.clone();
+    let id_pick = pick.clone();
+    let age_pick = pick;
     prop_oneof![
         3 => (any::<bool>(), 1u8..=5, any::<bool>(), 0u8..6, any::<bool>(), any::<bool>()).prop_map(
             |(rated, count, instant, loc_kind, also_warm, same_time_seq)| Op::IngestSensor {
@@ -198,7 +215,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
             }
         ),
         2 => (
-            any::<usize>(),
+            derived_pick,
             prop::option::of(any::<bool>()),
             prop::option::of(1u32..=2),
             any::<bool>(),
@@ -224,13 +241,13 @@ fn op_strategy() -> impl Strategy<Value = Op> {
             |(chunk_pick, take, cut_mask, cold)| Op::ExtendChunk { chunk_pick, take, cut_mask, cold }
         ),
         1 => (0usize..32, any::<bool>()).prop_map(|(chunk_pick, cold)| Op::RewriteChunk { chunk_pick, cold }),
-        1 => (any::<usize>(), 0u8..=2).prop_map(|(payload_pick, tier)| Op::ClearLocation { payload_pick, tier }),
+        1 => (clear_pick, 0u8..=2).prop_map(|(payload_pick, tier)| Op::ClearLocation { payload_pick, tier }),
         2 => prop_oneof![
             (0u64..400, 10u64..160, any::<bool>())
                 .prop_map(|(start, len, all_streams)| Op::StartPurge(PurgeKind::Range { start, len, all_streams })),
             any::<bool>().prop_map(|which| Op::StartPurge(PurgeKind::Entity(which))),
-            proptest::collection::vec(any::<usize>(), 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::Ids(picks))),
-            proptest::collection::vec(any::<usize>(), 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::AgeOut(picks))),
+            proptest::collection::vec(id_pick, 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::Ids(picks))),
+            proptest::collection::vec(age_pick, 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::AgeOut(picks))),
         ],
         3 => (0usize..16, 1usize..=5, any::<bool>())
             .prop_map(|(purge_pick, budget, finish)| Op::StepPurge { purge_pick, budget, finish }),
@@ -856,7 +873,7 @@ proptest! {
 
     #[test]
     fn parallel_threshold_crashes_with_a_cut_collision_match_full_rebuild(
-        ops in proptest::collection::vec(op_strategy(), 4..12),
+        ops in proptest::collection::vec(wide_op_strategy(), 4..12),
         page in prop_oneof![Just(1usize), Just(64usize), Just(1024usize)],
     ) {
         let dir = tempfile::tempdir().unwrap();
