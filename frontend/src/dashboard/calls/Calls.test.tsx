@@ -459,6 +459,12 @@ describe('a call in progress', () => {
 
   it('ends the clicked record once, keeps it while pending, and refreshes live and history after success', async () => {
     let on = true;
+    const ended: Call = {
+      day: '2026-10-28',
+      dir: 'call-live',
+      direction: 'out',
+      to: { name: 'Dana', number: '+14155550123' },
+    };
     let gets = 0;
     let liveGets = 0;
     const sent: unknown[] = [];
@@ -469,7 +475,7 @@ describe('a call in progress', () => {
     server.use(
       http.get('/calls', () => {
         gets++;
-        return HttpResponse.json(CALLS);
+        return HttpResponse.json(on ? CALLS : [ended, ...CALLS]);
       }),
       http.get('/calls/live', () => {
         liveGets++;
@@ -483,6 +489,7 @@ describe('a call in progress', () => {
       }),
     );
     renderPage(<Calls people={[]} />);
+    await screen.findByRole('button', { name: named('Unknown caller') });
     await userEvent.click(await screen.findByRole('button', { name: 'Hang up' }));
     const busy = screen.getByRole('button', { name: 'Hanging up…' });
     expect(busy).toBeDisabled();
@@ -492,8 +499,11 @@ describe('a call in progress', () => {
     const before = gets;
     const liveBefore = liveGets;
     answer();
-    expect(await screen.findByText('Call ended.')).toBeInTheDocument();
+    // The live refetch replaces the row and its status with a status-only render. Wait for that transition
+    // before reading the message, or findByText can return the old node just before React detaches it.
     await waitFor(() => expect(screen.queryByText('On a call with Dana')).not.toBeInTheDocument());
+    expect(screen.getByText('Call ended.')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: named('Called Dana') })).toBeInTheDocument();
     expect(gets).toBeGreaterThan(before);
     expect(liveGets).toBeGreaterThan(liveBefore);
   });

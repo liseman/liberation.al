@@ -24,16 +24,17 @@ Use these words in code, docs, and the dashboard. Each has one meaning.
 | Presence episode | A per-camera stretch with someone in view. Not an entry, a headcount, or an identity |
 | Activity event | A typed span of time with measured attributes |
 | Evidence reference | A stable pointer to the source of a claim: a recording and offset, an utterance, or a frame |
-| Place | An indoor place, mapped from what the cameras see. Not a camera's view: a camera is an angle, not a room |
+| Place | An indoor place with revisions and an optional owner plan. Not a camera's view: a camera is an angle, not a room |
 | Visit | A span of time the rig spent in one place |
 | Event | A record that something happened, in the envelope below |
 | Projection | A view computed from events, such as "who said this line". Can be rebuilt |
 | Interpretation | A derived result (a summary, a vector, a measurement) with its sources, producer, and shape |
-| Promotion | Moving an interpretation into layer 2 as a typed record, once it is proven |
+| Promotion | Accepting an activity span for typed answers through the owner-feedback gate |
 
 ## Contexts
 
-Each context owns its words and records. Contexts share only the kernel and talk through events.
+Each context owns its words and records. The pure context modules in `domain/` share only the kernel; application
+modules also call one another directly.
 
 | Context | Owns | Code |
 |---|---|---|
@@ -47,20 +48,21 @@ Each context owns its words and records. Contexts share only the kernel and talk
 
 | Layer | Holds | Rule | Stored in |
 |---|---|---|---|
-| 1. Raw priors | What devices sensed: utterances, captions, detections, recordings, and calls | Immutable. Never reinterpreted in place | Segment streams, broker recordings, and call files |
-| 2. Decisions and projections | What must be answered the same way every time: people, assertions, encounters, authorization, and forgetting | Typed and rebuildable. Never reads layer 3 unless promoted | The knowledge store and reader projections |
-| 3. Interpretations | Anything derived for a question or a job: summaries, facts, embeddings, and analyses | Records its sources, producer, and shape. Purged with its sources | The broker's memory log |
+| 1. Raw priors | What devices sensed: utterances, captions, detections, recordings, and calls; human questions | Immutable. Never reinterpreted in place | Segment streams, broker recordings, call files, and `ask.question` |
+| 2. Decisions and projections | People, assertions, encounters, authorization, forgetting, and saved Ask answers and state | Identity and authorization use raw evidence and owner decisions; saved answers can cite interpretations | The knowledge store, reader projections, and `ask.answer` and `ask.state` in the broker |
+| 3. Interpretations | Derived summaries, facts, embeddings, and analyses | Records its sources, producer, and shape. Purged with its sources | The broker's memory log, derived segment streams, and place revision files |
 
 The split follows what each concern needs:
 
 - **Identity, owner checks, and authorization are layer 2.** They must be fast, deterministic, and auditable. No
   model call decides who the owner is.
-- **Questions over history are layer 3.** Their shape is not known in advance, so answers are derived from raw
-  records and stored with provenance.
-- **Activity measurements start in layer 3** and are promoted when proven. The gate is the owner's ratings
-  ([ANSWERS.md](ANSWERS.md#activities)), which is agreement, not held-out accuracy.
-- **Embeddings are per model.** Vectors from different models are never compared; a model change starts a new
-  index. An index is a cache that can be rebuilt.
+- **Questions over history use derived evidence.** The memory log stores the human question at layer 1 and its
+  saved answer and state at layer 2; journal interpretations are layer 3.
+- **Activity answers use a promotion gate.** The owner's ratings determine which model spans count
+  ([ANSWERS.md](ANSWERS.md#activities)); eligible crossings count by default until enough feedback demotes them.
+  This measures owner agreement, not held-out accuracy, and does not move the source rows out of the segment store.
+- **Journal embeddings are indexed by model digest.** Stored batches check the digest before and after embedding.
+  Query digest lookups use a cache, which can lag a model replacement. An index is a cache that can be rebuilt.
 
 ## Records
 
@@ -68,15 +70,17 @@ The split follows what each concern needs:
   rename touches one record. It also carries aliases, role, organization, phone, and whether the owner added it by
   hand.
 - **Voiceprint** and **faceprint** are reference data for matching. They belong to a person only through
-  assertions, so a wrong match can be undone without losing the cluster.
+  assertions, so a wrong match can be undone without losing the cluster. `Voiceprint` has a domain record;
+  faceprints are represented by `SubjectRef` with kind `faceprint`, not a separate domain record.
 - **Identity assertion** is the one place identity is decided. Its basis is an owner tag, a spoken introduction, a
   name badge, an embedding match, a cluster merge, a backfill match, or a correction. Its subject is a voiceprint, a
   faceprint, or a single observation.
 - **Encounter** is derived from face visits and utterances that resolve to the same person, with short gaps merged
   (`memory/timeline.py`).
 
-Only these have domain types. Observations and interpretations are rows in the segment store and the broker's
-streams, with their schemas there.
+The domain also defines `SubjectRef`, `Decision`, evidence references, producers, the event envelope, and the event
+log's filter, selector, stored-event, and purge records. Observations and interpretations are rows in the segment
+store and the broker's streams, with their schemas there.
 
 ## Rules
 
@@ -92,20 +96,28 @@ streams, with their schemas there.
 7. **Forgetting is explicit and complete.** Forgetting a person is a recorded event, and no copy may remain.
 8. **A projection can always be rebuilt from the log.**
 9. **Layer 1 payloads are never reinterpreted in place.** A new meaning is a new interpretation.
-10. **Every interpretation names its sources, producer, and shape.** An output without them can be shown but not
-    stored.
-11. **Layer 2 never reads an unpromoted interpretation.** Owner checks, identity, the timeline, and forgetting use
-    only layers 1 and 2.
+10. **Interpretations carry provenance.** Memory payloads have a stream shape and parent ids; their producer is
+    optional in the codec. Finest journal entries keep segment source references in their evidence, not as broker
+    parents.
+11. **Model output does not grant owner authority.** Saved Ask answers can cite journal interpretations; storing an
+    answer at layer 2 does not make its claims owner decisions.
 12. **Interpretations are purged with their sources.** A summary covering several people is purged when any of them
     is forgotten, or rebuilt without them.
 13. **Model output is labeled as model output,** with its producer and its uncertainty where one exists.
 
 ## Identity precedence
 
-`domain/identity.py` holds the deciding rule: a retraction, then an owner tag, then a confirmed assertion, then a
-system match by confidence, with the newer `asserted_at` breaking ties. A rematch supersedes earlier system matches
-for the subject but never beats an owner tag, confirmation, or retraction. Only the owner replaces owner-taught
-attributes; an unconfirmed introduction fills blanks. A model output cannot grant owner authorization.
+`domain/identity.py` holds the deciding rule. Superseded assertions do not count. A standing retraction withdraws
+assertions for the same resolved person: earlier ones of every tier, and later ones unless they are owner tags or
+corrections. Superseding a retraction lifts it; retracting a retraction withdraws nothing else.
+
+Of the remaining assertions, an owner tag or correction beats a confirmed assertion, which beats a system match.
+System matches compare by confidence; ties go to the newer `asserted_at`, then the assertion id. A rematch excludes
+earlier system matches for the subject even after that rematch is superseded or retracted. It leaves owner and
+confirmed assertions alone. Assertions about a forgotten person do not count.
+
+Only the owner replaces owner-taught attributes; an unconfirmed introduction fills blanks. Badge text stays pending
+until the owner confirms it. A model output cannot grant owner authorization.
 
 ## Forgetting
 
@@ -114,15 +126,16 @@ age-out removes old footage and keeps what was derived.
 
 `PersonForgotten` outlives the person's purged events, so a replay cannot revive an old assertion or give the
 forgotten person's lines to someone who later takes the same name. `people/forgotten.py` keeps a keyed hash of each
-forgotten name, so a question about one is recognized without storing the name.
+forgotten name in the knowledge store when `assistant.forgotten_reply` is enabled. A question about one is recognized
+without storing the name; the owner's and assistant's names, and names held by a living person, are excluded.
 [PEOPLE.md](PEOPLE.md#changing-and-forgetting-people) and [CONTINUUM-BROKER.md](CONTINUUM-BROKER.md#forgetting)
 cover what each store does.
 
 ## Events
 
 Every event has the same envelope: `event_id`, `type` (a past-tense name), `schema_version`, `occurred_at`,
-`recorded_at`, `stream` (the ordering key), `source`, and optionally `producer`, `subject` (a person id),
-`causation_id`, `correlation_id`, `evidence`, and the type's `payload`.
+`recorded_at`, `stream` (the ordering key), `source`, and the type's required `payload`. Optional fields are
+`producer`, `subject` (a person id), `causation_id`, and `correlation_id`; `evidence` defaults to an empty tuple.
 
 ### Catalog
 
@@ -153,6 +166,8 @@ Every event has the same envelope: `event_id`, `type` (a past-tense name), `sche
 | `InterpretationPromoted` | Memory | Declared; nothing writes it |
 
 `tests/test_domain.py` checks this table against `domain/kernel.py`'s `EventType`.
+The catalog names domain concepts; the corresponding segment and broker records do not all use the `Event`
+envelope. For example, a speech row uses the schema in `segment_log.py`.
 
 ## Event log port
 
@@ -160,24 +175,27 @@ Contexts depend on a small interface (`domain/eventlog.py`), not a product.
 
 | Operation | Meaning |
 |---|---|
-| `append(events)` | Write events durably and return their positions |
+| `append(events)` | Write events durably and return their positions; an identical retry keeps its position |
 | `read(stream, after, limit)` | Return events in order after a position |
 | `subscribe(consumer, filter)` | Deliver events to a named consumer, in order per stream |
-| `ack(consumer, position)` | Record how far a consumer got |
+| `ack(consumer, position)` | Record how far a consumer got, without moving backward |
 | `purge(selector, reason)` | Remove matching events, and record that it did |
-| `purges()` | List every purge so far. A record never names the person |
+| `purges()` | List purge records oldest first; an adapter may omit a purge that removed nothing. A record never names the person |
 
 Guarantees: delivery at least once (consumers ignore duplicates by `event_id`), order within one stream only, and
 replay from the start. Events are small; media stays in files and is referenced by evidence.
 
 The adapter is `knowledge_eventlog.SQLiteEventLog` over `knowledge.sqlite3`, so identity works without the broker.
+Its `subscribe` returns a finite snapshot of unacknowledged events; later appends appear on the next subscription.
+Positions belong to that log and are never reused after a purge.
 
 ## Answering a question
 
 1. Parse the question into people, a time range, and a shape (a count, a list, a summary, or free text).
 2. Answer from layer 2 when the shape is typed: encounters and counts need no model.
-3. Otherwise retrieve evidence from layers 1 and 2, by person and time, then by similarity.
-4. Derive an interpretation from that evidence, with its sources and producer.
+3. Otherwise retrieve observations and journal interpretations, using the question's people, time range, text,
+   and similarity search.
+4. Derive an answer from that evidence, and save its source references with the answer history.
 5. Answer with evidence references, and mark what a model produced.
 
 [ANSWERS.md](ANSWERS.md) describes the implementation.
