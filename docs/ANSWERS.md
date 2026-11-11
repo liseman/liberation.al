@@ -17,11 +17,13 @@ How the pack answers questions about what happened, and how it writes its own re
 whether the question is about recorded history, the measure, the people named, and its time words. The form is
 schema-constrained and checked against the question's own words.
 
-`memory/history_qa.py:parse` turns that reading into a query and works out the time window itself, so the model
-never computes a time. "Last night" is 18:00 the previous local day to 05:00. Weeks begin Monday. Cameras,
-activities, zones, pets, and linked devices are looked up from what the owner configured
-(`question.Vocabulary`), not read by the model. Ask, the voice loop, and the forgotten-person check share the one
-reading.
+`memory/history_qa.py:parse` turns that reading into a query and works out the time window itself, so the model never
+computes a time. "Last night" is 18:00 the previous local day to 05:00. Weeks begin Monday. Open-ended phrases are read
+the same way (`open_window`): the whole history (since recording started, ever, so far), since a day or a month, in a
+month, between two days, and the last N weeks, months, or years. A question with no time, or with a time that can't be
+read, is answered over the whole history, and every answer says the window it looked through. Cameras, activities,
+zones, pets, and linked devices are looked up from what the owner configured (`question.Vocabulary`), not read by the
+model. Ask, the voice loop, and the forgotten-person check share the one reading.
 
 ## Ask
 
@@ -65,6 +67,7 @@ section is reference: each row names the question, where its numbers come from, 
 | Usual counts ("how often does the cat usually use the litter box") | The median and range of per-day or per-night counts over periods with enough coverage | `memory/typical_counts.py` |
 | When and what ("what was I doing at 3") | `action.span` times; top classes of `action.window`, as guesses | `memory/activity_questions.py` |
 | An animal's last visit to a zone | Its newest `zone.visit` | `memory/subject_activity.py` |
+| How many times someone said a word or phrase | The transcript's lines in the window; a single word counts its plain forms too | `memory/history_qa.py` (`said_count`) |
 | Who was here, last seen | Encounters from face visits and resolved speech | `memory/timeline.py` |
 | Device presence and arrivals | Linked devices' sightings, with coverage | `memory/device_answers.py` |
 | What a camera shows now | Its newest caption of the last ten minutes | `vision/camera_history.py` |
