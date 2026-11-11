@@ -56,7 +56,9 @@ Square = Callable[[str], object]
 
 class Clouds:
     """Decides, a sampled picture at a time, whether a camera's cloud is due and which picture it's made from.
-    `look` is called from the sampler's one thread; the cloud itself is made on `submit`'s."""
+    `look` is called from the sampler's one thread; the cloud itself is made on `submit`'s, which by default is one
+    thread for every camera (a pass loads the model, so two at once would not both fit on the GPU): a slow or stuck
+    pass delays the other cameras' clouds, not just its own."""
 
     def __init__(
         self,
@@ -79,6 +81,7 @@ class Clouds:
         self._squared: dict[str, float] = {}  # when a camera's squaring was last checked
         self._pool: concurrent.futures.ThreadPoolExecutor | None = None
         if submit is None:
+            # One pass at a time, for every camera (see the class docstring).
             pool = self._pool = concurrent.futures.ThreadPoolExecutor(1, "camera-cloud")
             self._submit: Callable[[Callable[[], None]], object] = lambda job: pool.submit(job)
         else:
@@ -142,9 +145,13 @@ class Clouds:
         self._drop(camera)
         picture = np.median(np.stack(stack), axis=0).astype(np.uint8)
         self._making.add(camera)
-        self._submit(
-            lambda: self._make(camera, picture, now, len(stack), tuple(float(v) for v in self.thumbnail(picture)))
-        )
+        try:
+            self._submit(
+                lambda: self._make(camera, picture, now, len(stack), tuple(float(v) for v in self.thumbnail(picture)))
+            )
+        except RuntimeError:  # the pool is shut down (the service is stopping): give the camera back, then say so
+            self._making.discard(camera)
+            raise
         return "made"
 
     def _make(self, camera: str, picture: np.ndarray, now: float, frames: int, thumb: Sequence[float]) -> None:
