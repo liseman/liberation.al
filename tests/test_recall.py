@@ -350,6 +350,58 @@ def test_someone_new_who_takes_a_forgotten_persons_name_doesnt_get_their_entries
     assert found(state, "Gus") == []
 
 
+def count_entry_reads(state, monkeypatch):
+    """Every span read of the journal entries during a search, as (start, end) pairs."""
+    read = []
+    log = memory_log.at(state)
+    original = type(log).entries
+
+    def entries(self, start, end, *args, **kwargs):
+        read.append((start, end))
+        return original(self, start, end, *args, **kwargs)
+
+    monkeypatch.setattr(type(log), "entries", entries)
+    return read
+
+
+def test_hits_that_sit_together_are_one_read(state, monkeypatch):
+    for n in range(6):
+        put(state, f"Garden note {n}.", YESTERDAY + 30 * n)
+    read = count_entry_reads(state, monkeypatch)
+    with cfg.override({"recall": {"per_level": 20}}):
+        assert len(found(state, None)) == 6
+    assert len(read) == 1, "six hits across three minutes are one read"
+
+
+def test_hits_spread_over_a_year_read_per_hit_once_past_the_cluster_bound(state, monkeypatch):
+    month = 31 * 86400
+    for n in range(12):
+        put(state, f"Garden note in month {n}.", YESTERDAY - n * month)
+    read = count_entry_reads(state, monkeypatch)
+    with cfg.override({"recall": {"per_level": 20}}):
+        got = recall.search("garden", YESTERDAY - 11 * month, YESTERDAY + 60, rank=False, state=state)
+    # A dozen separate months are more clusters than the bound: the per-hit read the search has always made.
+    assert len(got) == 12
+    assert len(read) == 12
+
+
+def test_a_search_reads_hits_spread_over_a_year_for_hits_that_cluster(state, monkeypatch):
+    month = 31 * 86400
+    entries = [put(state, f"Garden note {n}.", YESTERDAY - n * month) for n in range(6)]
+    read = count_entry_reads(state, monkeypatch)
+    with cfg.override({"recall": {"per_level": 20}}):
+        got = recall.search("garden", YESTERDAY - 5 * month, YESTERDAY + 60, rank=False, state=state)
+    assert sorted(r["interpretation"] for r in got) == sorted(entries)
+    assert len(read) == 6, "six months apart is six clusters, read one each"
+
+
+def test_a_purged_entry_is_not_evidence_when_its_cluster_is_read(state, fake):
+    put(state, "We planned the garden.", YESTERDAY, 30)
+    gone = put(state, "The garden was flooded.", YESTERDAY + 60, 30)
+    memory_log.at(state).purge([gone], "forgotten")
+    assert found(state, None) == ["We planned the garden."]
+
+
 def test_a_superseded_entry_or_a_quiet_marker_is_never_evidence(state, fake):
     old = put(state, "We planned the garden.", YESTERDAY, 30)
     put(state, "We planned the garden and the shed.", YESTERDAY, 30, supersedes=old)
