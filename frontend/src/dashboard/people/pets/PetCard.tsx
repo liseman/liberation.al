@@ -44,7 +44,11 @@ export function learningText(learning: Learning): string {
     learning.automatic_percent == null
       ? `No time-separated check is available within the last ${learning.days} days.`
       : `Checked ${span(learning.start ?? 0, learning.end ?? 0)}: ${learning.automatic_percent}% correctly named automatically in ${learning.tested} held-out sightings: ${learning.wrong} wrong, ${learning.unknown} unsure.`;
-  return `${measured} ${learning.references} usable teaching examples.${learning.stranded ? ` ${learning.stranded} earlier taught sightings have no usable reference.` : ''}`;
+  const stranded = learning.stranded ? ` ${learning.stranded} earlier taught sightings have no usable reference.` : '';
+  // A taught sighting whose picture was never saved keeps its label and example, but only the picture would let a
+  // change of embedding model rebuild the example (tools/restore_pet_references.py).
+  const unphotographed = learning.no_photo ? ` ${learning.no_photo} taught sightings keep no saved picture.` : '';
+  return `${measured} ${learning.references} usable teaching examples.${stranded}${unphotographed}`;
 }
 
 export function PetCard({
