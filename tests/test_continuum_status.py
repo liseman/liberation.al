@@ -47,6 +47,13 @@ def test_the_manifest_names_a_stream_per_device(tmp_path: pathlib.Path) -> None:
     assert cs.manifest_streams(manifest) == {"wave3.audio", "facecam.video"}
 
 
+def test_an_xvf3800_array_names_its_audio_stream(tmp_path: pathlib.Path) -> None:
+    # Its audio is a stream like a microphone's; leaving the kind out silently skipped the check.
+    manifest = tmp_path / "devices.toml"
+    manifest.write_text('[[device]]\nname = "array1"\nkind = "xvf3800"\n')
+    assert cs.manifest_streams(manifest) == {"array1.audio"}
+
+
 def test_the_arena_name_is_the_second_line_beside_the_socket(tmp_path: pathlib.Path) -> None:
     socket = tmp_path / "broker.sock"
     assert cs.arena_name(socket) is None
