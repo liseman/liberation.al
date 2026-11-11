@@ -263,8 +263,11 @@ def camera_views(state: Path, place: str) -> list[dict[str, Any]]:
 def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any], views: list[dict[str, Any]]) -> Reply:
     """The scene of one camera's own cloud, in the cloud's level frame (spatial/camera_clouds.py): its points, the
     floor at z = 0, and the camera where it stands in it. No plan is laid on it and no splat goes with it: the cloud
-    is that camera's view alone, not the place's map."""
-    from liberational.spatial import camera_clouds
+    is that camera's view alone, not the place's map. `view` says what the cloud was levelled by, and the camera's
+    tilt and roll by that."""
+    import numpy as np
+
+    from liberational.spatial import camera_clouds, cloud_align
 
     store = camera_clouds.Store(camera_clouds.root(state))
     cloud = store.current(camera)
@@ -275,6 +278,7 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
         size = store.file(cloud).stat().st_size
     except FileNotFoundError:  # replaced since it was read
         return 200, {**base, "revision": None, "view": {"camera": camera}}
+    tilt, roll = cloud_align.tilt_roll(np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4))
     pose = {
         "pose": list(cloud.pose),
         "focal": cloud.focal,
@@ -300,6 +304,9 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
             "floor_found": cloud.floor_found,
             "points": cloud.points,
             "at": cloud.at,
+            "level": cloud.levelled,
+            "tilt_deg": round(tilt, 1),
+            "roll_deg": round(roll, 1),
         },
     }
 
@@ -311,7 +318,7 @@ def _scene_of(state: Path, held: places.Place) -> Any:
 
     spots = cloud_scene.spots_of(state)
     mirrored = next((s.mirrored for s in spots.values() if s.place == held.id), False)
-    rooms = cloud_scene.rooms_of(held.plan if held.plan_source == "owner" else None, mirrored)
+    rooms = cloud_scene.plan_rooms(state, held.id, mirrored)
     return cloud_scene.scene(camera_clouds.Store(camera_clouds.root(state)), held.id, spots, rooms)
 
 

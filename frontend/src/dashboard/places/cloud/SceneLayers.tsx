@@ -2,7 +2,8 @@
 // that shows or hides its points, its colour (its outline in the scene, and its points' tint when coloured by camera),
 // its name, its state in a word (Placed, Adjusted, Moved, Not placed, No spot), and at the right what can be done:
 // look from it, move its spot to where its pictures put it, or set its spot in the plan editor. The sentence behind
-// the word, what its pair's pictures said, and how many of its points are left out open under the row on demand.
+// the word, how its cloud was levelled and squared to the plan, what its pair's pictures said, when its picture was
+// taken, and how many of its points are left out open under the row on demand.
 // Moving a spot changes the owner's plan, so it asks first and says how to take it back.
 import { ActionIcon, Badge, Button, Checkbox, Collapse, ColorSwatch, Group, Stack, Text } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
@@ -14,7 +15,18 @@ import { Toast } from '../../lib/Toast';
 import { viewName } from '../../review/views';
 import { acceptSpot, type ScenePair, type ScenePlaced, undoSpot } from '../api';
 import { tintCss } from './layers';
-import { APPROXIMATE, moveSpotQuestion, pairLine, placedLine, placedState, SCENE_LIMITS } from './status';
+import {
+  APPROXIMATE,
+  bendLine,
+  levelLine,
+  moveSpotQuestion,
+  pairLine,
+  pictureLine,
+  placedLine,
+  placedState,
+  SCENE_LIMITS,
+  squareLine,
+} from './status';
 
 /** A spot that was moved, and the plan version to put back to undo it. */
 interface Moved {
@@ -93,10 +105,15 @@ export function SceneLayers({
           const name = viewName(camera.camera);
           const state = placedState(camera.how);
           const shown = open.has(camera.camera);
-          const lines = pairs
-            .filter(pair => pair.a === camera.camera || pair.b === camera.camera)
-            .map(pair => pairLine(pair, viewName))
-            .filter((line): line is string => !!line);
+          const lines = [
+            squareLine(camera),
+            levelLine(camera.level, camera.tilt_deg, camera.roll_deg),
+            bendLine(camera),
+            ...pairs
+              .filter(pair => pair.a === camera.camera || pair.b === camera.camera)
+              .map(pair => pairLine(pair, viewName)),
+            pictureLine(camera),
+          ].filter((line): line is string => !!line);
           return (
             <li key={camera.camera}>
               <Group gap="xs" wrap="nowrap" align="center">

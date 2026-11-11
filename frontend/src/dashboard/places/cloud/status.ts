@@ -5,7 +5,7 @@
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
 import { dayWords, hm, isoDay } from '../../lib/format';
-import type { CameraView, Scene, ScenePair, ScenePlaced, ViewWhy } from '../api';
+import type { CameraView, CloudLevel, Scene, ScenePair, ScenePlaced, ViewWhy } from '../api';
 
 const when = (at: number) =>
   new Date(at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -81,7 +81,24 @@ export function viewNote(scene: Scene, name?: string, now = new Date()): string 
   if (!view || !scene.revision) return null;
   const facts = [view.points ? `${view.points.toLocaleString()} points` : null, view.at ? made(view.at, now) : null];
   const counted = facts.filter(Boolean).join(', ');
-  return `What ${name ?? view.camera} sees on its own. ${counted ? `${counted}. ` : ''}${APPROXIMATE}`;
+  const level = levelLine(view.level, view.tilt_deg, view.roll_deg);
+  return `What ${name ?? view.camera} sees on its own. ${counted ? `${counted}. ` : ''}${level ? `${level} ` : ''}${APPROXIMATE}`;
+}
+
+/** How a cloud was stood upright, and the camera's tilt and roll by that; null when the scene doesn't say. */
+export function levelLine(level?: CloudLevel, tilt = 0, roll = 0): string | null {
+  const rolled = Math.round(Math.abs(roll)) >= 1 ? ` and is rolled ${Math.round(Math.abs(roll))}°` : '';
+  const camera = `the camera looks ${Math.round(tilt)}° down${rolled}`;
+  switch (level) {
+    case 'floor':
+      return `Levelled from its own floor: ${camera}.`;
+    case 'walls':
+      return `No floor in view, so levelled from its walls: ${camera}.`;
+    case 'none':
+      return 'No floor or wall in view to level it by: it stands as if the camera were upright, so it may lean.';
+    default:
+      return null;
+  }
 }
 
 // ---- the scene of all the cameras' clouds (#445)
@@ -111,6 +128,52 @@ export function placedLine(camera: ScenePlaced, name: (camera: string) => string
   }
 }
 
+/** How a camera's cloud was squared to the plan's walls, or why it wasn't; null when nothing was tried (no spot) or
+ *  the camera is placed some other way (it moved). */
+export function squareLine(camera: ScenePlaced): string | null {
+  const square = camera.square;
+  if (!square) return null;
+  switch (square.state) {
+    case 'squared': {
+      if (!camera.squared) return null;
+      const slid = Math.hypot(square.right_m, square.ahead_m);
+      const turned = Math.abs(square.turn_deg) >= 0.5;
+      const moves = [
+        turned ? `turned ${Math.abs(square.turn_deg).toFixed(1)}°` : null,
+        slid >= 0.01 ? `moved ${metres(slid)}` : null,
+      ].filter(Boolean);
+      const what = moves.length
+        ? `Squared to your plan by its walls: ${moves.join(' and ')}.`
+        : "Its walls already run along your plan's.";
+      const held =
+        square.slide === 'beyond'
+          ? " Not slid onto the plan's walls: they are farther off than a slide goes, because its size is an estimate."
+          : '';
+      return `${what}${held}`;
+    }
+    case 'beyond':
+      return `Not squared: its walls line up with your plan only ${Math.round(Math.abs(square.turn_deg))}° from the facing you set, farther than a cloud is turned. Check which way its spot faces.`;
+    case 'no_walls':
+      return 'No wall in view to square it to your plan by: it faces the way its spot says.';
+    case 'no_plan':
+      return 'No wall of your plan near it to square it to: it faces the way its spot says.';
+  }
+}
+
+/** The honest part, where it applies: walls of one cloud that are out with each other by `BEND_DEG` or more. */
+export function bendLine(camera: ScenePlaced): string | null {
+  const bend = camera.square?.bend_deg ?? 0;
+  return bend >= BEND_DEG
+    ? `Walls in this cloud bend by about ${Math.round(bend)}°: that is the depth estimate, not the placement.`
+    : null;
+}
+const BEND_DEG = 2;
+
+/** When a camera's cloud's picture was taken. */
+export function pictureLine(camera: ScenePlaced, now = new Date()): string | null {
+  return camera.at ? `From a picture taken ${made(camera.at, now)}.` : null;
+}
+
 /** What two cameras' pictures said of each other, for the pairs worth a line; null for the rest (different space, a
  *  pair one of which has moved, a measurement from another spot). */
 export function pairLine(pair: ScenePair, name: (camera: string) => string = c => c, now = new Date()): string | null {
@@ -123,6 +186,8 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
         : '';
       return `${both} see the same space and are adjusted to what their pictures share${when}: the spots were ${metres(pair.off_m)} and ${degrees(pair.off_deg)} from it.${kept}`;
     }
+    case 'checked':
+      return `${both} see the same space. Both are squared to your plan, which their pictures don't move: the pictures put the two ${metres(pair.off_m)} and ${degrees(pair.off_deg)} from where they stand.`;
     case 'unsure':
       return `${both} see some of the same space, but their pictures don't agree well enough to adjust them. They are placed from their spots only.`;
     case 'disagrees':

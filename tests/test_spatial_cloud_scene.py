@@ -149,6 +149,130 @@ def test_a_page_drawn_spot_facing_up_the_page_looks_along_the_scenes_y_and_east_
     assert (ahead.x, ahead.y) == pytest.approx((2.0, -2.0)) and (east.x, east.y) == pytest.approx((3.0, -3.0))
 
 
+# ---- square to the plan
+
+#: A room 4 m by 5 m on the plan, in the scene's frame.
+HOUSE = ((0.0, 0.0), (4.0, 0.0), (4.0, 5.0), (0.0, 5.0))
+
+
+def corner_seen_from(truth: scenes.At) -> np.ndarray:
+    """What a camera really standing at `truth` sees of the room's floor, far wall, and right wall, as its own
+    levelled cloud."""
+    rng = np.random.default_rng(3)
+
+    def wall(a, b, n=3000):
+        foot = np.asarray(a) + rng.random(n)[:, None] * (np.asarray(b) - np.asarray(a))
+        return np.c_[foot, rng.random(n) * 2.4]
+
+    ground = np.c_[rng.random(4000) * 4.0, rng.random(4000) * 5.0, np.zeros(4000)]
+    every = np.concatenate([ground, wall(HOUSE[3], HOUSE[2]), wall(HOUSE[1], HOUSE[2])])
+    move = scenes._transform(truth)
+    return (every - move[:3, 3]) @ move[:3, :3]
+
+
+def rooms_of_the_plan(place: str, mirrored: bool):
+    return (HOUSE,)
+
+
+def test_a_cloud_whose_walls_are_off_the_plan_is_turned_and_slid_onto_it_and_says_so(store, tmp_path):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", at(1.15, 0.9, 24.0))}
+    keep(store, "hall", points=corner_seen_from(truth))
+    before = scenes.scene(store, PLACE, spots, (HOUSE,))
+    assert xyb(stands(before, "hall")) == pytest.approx(xyb(where(spots["hall"])))  # not squared yet: at its spot
+    assert scenes.align(store, "hall", spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    hall = placed(found, "hall")
+    assert (hall.how, hall.squared) == ("spot", True)
+    assert hall.square is not None and hall.square["state"] == "squared"
+    assert hall.square["turn_deg"] == pytest.approx(-4.0, abs=0.3)
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
+    assert (hall.shift_m, hall.turn_deg) == (pytest.approx(0.18, abs=0.03), pytest.approx(4.0, abs=0.3))
+    assert found.id != before.id  # what is drawn changed
+    # its far wall is drawn on the plan's far wall
+    rows = drawn(store, found)
+    far = rows[(rows["z"] > 0.3) & (rows["x"] < 3.5)]
+    assert far["y"] == pytest.approx(5.0, abs=0.03)
+    # nothing but the camera's own folder was written
+    assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]
+    assert not scenes.align(store, "hall", spots, rooms_of_the_plan)  # and it is made once
+
+
+def test_a_squaring_is_dropped_when_the_spot_the_plan_or_the_cloud_is_another(store):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", at(1.0, 1.0, 24.0))}
+    keep(store, "hall", points=corner_seen_from(truth))
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    assert placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall").squared
+    turned = {"hall": spot("hall", at(1.0, 1.0, 30.0))}
+    assert not placed(scenes.scene(store, PLACE, turned, (HOUSE,)), "hall").squared
+    assert xyb(stands(scenes.scene(store, PLACE, turned, (HOUSE,)), "hall")) == pytest.approx(xyb(at(1.0, 1.0, 30.0)))
+    redrawn = (((0.0, 0.0), (4.5, 0.0), (4.5, 5.0), (0.0, 5.0)),)
+    assert not placed(scenes.scene(store, PLACE, spots, redrawn), "hall").squared
+    keep(store, "hall", n=2, points=corner_seen_from(truth))
+    assert not placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall").squared
+    assert scenes.align(store, "hall", spots, rooms_of_the_plan)  # made again for the new cloud
+    assert placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall").squared
+
+
+def test_walls_that_line_up_only_past_the_bound_leave_the_camera_at_its_spot_and_say_so(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 45.0))}
+    keep(store, "hall", points=corner_seen_from(at(1.0, 1.0, 20.0)))
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    hall = placed(found, "hall")
+    assert (hall.squared, (hall.square or {})["state"]) == (False, "beyond")
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(at(1.0, 1.0, 45.0)))
+
+
+def test_a_camera_with_no_spot_has_nothing_to_be_squared_from(store):
+    keep(store, "hall", points=corner_seen_from(at(1.0, 1.0, 20.0)))
+    assert not scenes.align(store, "hall", {}, rooms_of_the_plan)
+    assert not scenes.align(store, "hall", {"hall": spot("hall", None)}, rooms_of_the_plan)
+
+
+def test_between_two_squared_cameras_the_pictures_are_a_check_that_moves_neither(store):
+    truth = {"hall": at(1.0, 1.0, 20.0), "porch": at(3.0, 1.5, -10.0)}
+    spots = {"hall": spot("hall", at(1.0, 1.0, 23.0)), "porch": spot("porch", at(3.0, 1.5, -13.0))}
+    scenes.record(store, keep(store, "hall", points=corner_seen_from(truth["hall"])), {}, spots)
+    cloud = keep(store, "porch", points=corner_seen_from(truth["porch"]))
+    # the pictures say the porch is 0.2 m farther right than it is
+    scenes.record(store, cloud, {"hall": seen(truth["hall"], truth["porch"].step(0.2, 0.0, 0.0))}, spots)
+    for camera in spots:
+        scenes.align(store, camera, spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    (pair,) = found.pairs
+    assert pair.state == "checked"
+    assert pair.off_m == pytest.approx(0.2, abs=0.05)
+    for camera in spots:
+        assert placed(found, camera).how == "spot"
+        assert xyb(stands(found, camera)) == pytest.approx(xyb(truth[camera]), abs=0.04)
+
+
+def test_a_squared_camera_holds_and_its_unsquared_partner_takes_the_pairs_correction(store):
+    truth = {"hall": at(1.0, 1.0, 20.0), "porch": at(3.0, 1.5, -10.0)}
+    spots = {"hall": spot("hall", at(1.0, 1.0, 23.0)), "porch": spot("porch", at(3.2, 1.4, -14.0))}
+    scenes.record(store, keep(store, "hall", points=corner_seen_from(truth["hall"])), {}, spots)
+    scenes.record(store, keep(store, "porch"), {"hall": seen(truth["hall"], truth["porch"])}, spots)  # no wall in it
+    for camera in spots:
+        scenes.align(store, camera, spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    assert (placed(found, "hall").squared, placed(found, "porch").squared) == (True, False)
+    assert (placed(found, "porch").square or {})["state"] == "no_walls"
+    assert found.pairs[0].state == "tightened"
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth["hall"]), abs=0.04)
+    assert xyb(stands(found, "porch")) == pytest.approx(xyb(truth["porch"]), abs=0.04)
+    assert placed(found, "porch").how == "adjusted"
+
+
+def test_a_placed_camera_says_what_levelled_its_cloud_its_tilt_and_when_its_picture_was_taken(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 0.0))}
+    cloud = keep(store, "hall")
+    hall = placed(scenes.scene(store, PLACE, spots), "hall")
+    assert (hall.at, hall.level, hall.tilt_deg, hall.roll_deg) == (cloud.at, "floor", 0.0, 0.0)
+    assert (hall.square, hall.squared) == (None, False)
+
+
 # ---- 2. tighten
 
 
