@@ -10,6 +10,7 @@
 //! thread. Nothing reads a clock: a call that records a time is given it (`now_ns`).
 
 mod availability;
+pub use availability::fold_availability_copies;
 mod codec;
 mod coverage;
 mod memory;

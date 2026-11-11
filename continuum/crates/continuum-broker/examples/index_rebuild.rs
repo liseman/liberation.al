@@ -12,11 +12,12 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use clap::Parser;
 use continuum_broker::{index, tier0::Tier0};
-use continuum_catalog::{Catalog, CoverageMark, NewPayload, RedbCatalog, StreamInfo, StreamKind};
+use continuum_catalog::{Catalog, ChunkFrame, CoverageMark, NewChunk, NewPayload, RedbCatalog, StreamInfo, StreamKind};
 use continuum_core::{
     DomainLayer, HeaderBuf, HeaderSpec, Interval, PAGE_ALIGN, PayloadFormat, StageId, StorageLocator, StorageTier, Uuid,
 };
@@ -52,6 +53,10 @@ struct Args {
     /// Payloads per seed transaction in --startup-phases mode.
     #[arg(long, default_value_t = 4096)]
     batch_size: u32,
+    /// After seeding, commit one worker-cut chunk that overwrites the first payload's time key.
+    /// Cold start then takes the `TIME_INDEX` fallback. Segment expectations change with that row.
+    #[arg(long, requires = "startup_phases")]
+    cut_collision: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -205,6 +210,32 @@ fn profile_startup(args: &Args) -> Result<(), Box<dyn Error>> {
     if !batch.is_empty() {
         seed.insert(batch)?;
     }
+    if args.cut_collision {
+        // The first seeded row (n = 0) is an instant at 1_000_000 ns on stream 0, seq 0, with a Tier 0 copy.
+        // A one-frame worker-cut chunk takes that `(stream, start_ns, seq)` key. The frame's payload row stays,
+        // so `TIME_INDEX` is one row shorter than `PAYLOADS` until that frame is purged.
+        let stream = streams[0];
+        let frame_id = id(1);
+        let start_ns = 1_000_000u64;
+        let mut spec = HeaderSpec::raw(id(u32::MAX), stream, start_ns, start_ns);
+        spec.seq = 0;
+        seed.commit_chunk(
+            NewChunk {
+                payload: NewPayload {
+                    header: HeaderBuf::build(&spec)?,
+                    location: Some(StorageLocator::Chunk {
+                        tier: StorageTier::Tier1Warm,
+                        uri: "synthetic-cut-collision".into(),
+                        offset: 0,
+                        length: 64,
+                    }),
+                    coverage: None,
+                },
+                frames: vec![ChunkFrame { start_ns, offset: 0, length: 0, cut: true }],
+            },
+            &[frame_id],
+        )?;
+    }
     seed.close(Duration::from_secs(30))?;
     drop(seed);
     let seed_seconds = seconds(seed_start.elapsed());
@@ -212,17 +243,25 @@ fn profile_startup(args: &Args) -> Result<(), Box<dyn Error>> {
 
     let catalog = RedbCatalog::open(&path)?;
     let open = catalog.open_timings();
-    let (index, stats, load) = index::load_profiled(&catalog, args.page)?;
+    let loaded = load_with_rss_peak(&catalog, args.page)?;
+    let index = loaded.index;
+    let stats = loaded.stats;
+    let load = loaded.timings;
+    let index_peak_rss_bytes = loaded.peak_rss_bytes;
     assert_eq!(stats.streams, usize::try_from(args.streams)?);
     assert_eq!(stats.payloads, usize::try_from(args.payloads)?);
+    // A cut collision hides the first row (a stale Tier 0 copy, so it was never a segment) and adds a chunk whose
+    // only frame is cut, which removes the chunk's own span. Segment count is unchanged. The hidden row leaves
+    // the visible stale set.
+    let expect_stale = if args.cut_collision { stale.saturating_sub(1) } else { stale };
     assert_eq!(u64::try_from(stats.segments)?, u64::from(args.payloads) - header_only - stale);
-    assert_eq!(u64::try_from(stats.stale_tier0.len())?, stale);
+    assert_eq!(u64::try_from(stats.stale_tier0.len())?, expect_stale);
     assert_eq!(stats.coverage_intervals, 0);
 
     let start = Instant::now();
     let cleared = index::clear_stale_tier0(&catalog, &stats.stale_tier0)?;
     let clear_seconds = seconds(start.elapsed());
-    assert_eq!(u64::try_from(cleared)?, stale);
+    assert_eq!(u64::try_from(cleared)?, expect_stale);
     let start = Instant::now();
     let pending = catalog.pending_purges()?.len();
     let pending_seconds = seconds(start.elapsed());
@@ -257,6 +296,8 @@ fn profile_startup(args: &Args) -> Result<(), Box<dyn Error>> {
             "stale_tier0_seeded": stale, "stale_tier0_cleared": cleared, "pending_purges": pending, "keepers": keepers},
         "bytes": {"catalog_after_seed": file_bytes, "serialized_headers": header_bytes,
             "inline_payloads": inline_bytes, "arena": arena_bytes},
+        "index_peak_rss_bytes": index_peak_rss_bytes,
+        "cut_collision": args.cut_collision,
         "seconds": {"seed_and_clean_close": seed_seconds,
             "open": {"scrub_recovery": seconds(open.scrub_recovery), "database_open": seconds(open.database_open),
                 "schema_setup": seconds(open.schema_setup), "recording_repair": seconds(open.recording_repair), "total": seconds(open.total)},
@@ -268,6 +309,49 @@ fn profile_startup(args: &Args) -> Result<(), Box<dyn Error>> {
     temporary.close()?;
     println!("{}", serde_json::to_string(&output)?);
     Ok(())
+}
+
+/// Resident set of this process, from the Linux `VmRSS` line. `None` where `/proc` has no such file.
+fn process_rss_bytes() -> Option<u64> {
+    let text = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in text.lines() {
+        let Some(rest) = line.strip_prefix("VmRSS:") else { continue };
+        let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+        return Some(kb.saturating_mul(1024));
+    }
+    None
+}
+
+/// One profiled index load and the resident-set peak sampled while it ran.
+struct ProfiledLoad {
+    index: index::AvailabilityIndex,
+    stats: index::LoadStats,
+    timings: index::LoadTimings,
+    /// High `VmRSS` during the load. `None` where `/proc` has no resident-set line.
+    peak_rss_bytes: Option<u64>,
+}
+
+/// Runs [`index::load_profiled`] while sampling resident set size. The peak is the high `VmRSS` during the load,
+/// not the process lifetime high-water mark (seeding sits outside this window).
+fn load_with_rss_peak(catalog: &RedbCatalog, page: usize) -> Result<ProfiledLoad, Box<dyn Error>> {
+    let stop = AtomicBool::new(false);
+    let peak = AtomicU64::new(process_rss_bytes().unwrap_or(0));
+    let loaded = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !stop.load(Ordering::Relaxed) {
+                if let Some(rss) = process_rss_bytes() {
+                    peak.fetch_max(rss, Ordering::Relaxed);
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+        });
+        let loaded = index::load_profiled(catalog, page);
+        stop.store(true, Ordering::Relaxed);
+        loaded
+    });
+    let (index, stats, timings) = loaded?;
+    let peak_rss_bytes = process_rss_bytes().map(|rss| peak.load(Ordering::Relaxed).max(rss)).filter(|&n| n > 0);
+    Ok(ProfiledLoad { index, stats, timings, peak_rss_bytes })
 }
 
 fn profile_checkpoint(
@@ -408,5 +492,14 @@ mod tests {
         assert!(!args.startup_phases);
         assert!(args.scratch.is_none());
         assert!(!args.restart_checkpoint);
+        assert!(!args.cut_collision);
+    }
+
+    #[test]
+    fn cut_collision_requires_startup_phases() {
+        assert!(Args::try_parse_from(["index_rebuild", "--cut-collision"]).is_err());
+        assert!(
+            Args::try_parse_from(["index_rebuild", "--startup-phases", "--scratch", ".", "--cut-collision"]).is_ok()
+        );
     }
 }

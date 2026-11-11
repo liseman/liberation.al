@@ -809,6 +809,62 @@ fn overlapping_rate_expanded_cut_slots_match_full_rebuild_in_both_seq_orders() {
     }
 }
 
+#[test]
+fn purged_colliding_chunk_above_parallel_threshold_matches_paged_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("purged_collision.redb");
+    let catalog = RedbCatalog::open(&path).unwrap();
+    let mut harness = Harness::new(&catalog);
+    seed_bulk_catalog(&catalog, &mut harness);
+    harness.apply(
+        &catalog,
+        Op::CommitChunk { rated: true, take: 4, cut_mask: 0b0001, collide_first_key: true, cold: false },
+    );
+    let chunk_id = harness.chunks[0].id;
+    let purge_id = uid(0xf0, 1);
+    catalog.mark_commit_clock(2_000).unwrap();
+    catalog.start_purge(PurgeSelector::Ids(vec![chunk_id]), "crash-prop", "{}", purge_id, 2_000).unwrap();
+    while matches!(catalog.purge_step(purge_id, 64), Ok(PurgeProgress::Running { .. })) {}
+    drop(catalog);
+
+    let check = RedbCatalog::open(&path).unwrap();
+    let (snap, used_fallback) = check.availability_snapshot_for_test(4_096).unwrap();
+    assert!(used_fallback, "purging the holder leaves the orphan payload, so the scan cannot prove a full index");
+    assert!(snap.payloads > 4_096, "production load must take the parallel path, got {}", snap.payloads);
+    drop(check);
+    assert_crash_parity(&path, 64);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(8))]
+
+    #[test]
+    fn parallel_threshold_crashes_with_a_cut_collision_match_full_rebuild(
+        ops in proptest::collection::vec(op_strategy(), 4..12),
+        page in prop_oneof![Just(1usize), Just(64usize), Just(1024usize)],
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prop_parallel.redb");
+        let catalog = RedbCatalog::open(&path).unwrap();
+        let mut harness = Harness::new(&catalog);
+        seed_bulk_catalog(&catalog, &mut harness);
+        harness.apply(
+            &catalog,
+            Op::CommitChunk { rated: true, take: 4, cut_mask: 0b0001, collide_first_key: true, cold: false },
+        );
+        prop_assert!(!harness.chunks.is_empty(), "the colliding chunk must commit");
+        for op in ops {
+            harness.apply(&catalog, op);
+        }
+        drop(catalog);
+        let check = RedbCatalog::open(&path).unwrap();
+        let (snap, _) = check.availability_snapshot_for_test(4_096).unwrap();
+        prop_assert!(snap.payloads > 4_096, "production load must take the parallel path, got {}", snap.payloads);
+        drop(check);
+        assert_crash_parity(&path, page);
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(64))]
 

@@ -15,14 +15,14 @@ mod restart_projection;
 pub use restart_projection::{MAX_RESTART_PROJECTION_BYTES, RestartProjectionError};
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use continuum_catalog::{
-    AvailabilityCopy, AvailabilityCutChunk, AvailabilitySnapshot, Catalog, CatalogError, CoverageSet, PurgeDelta,
-    RangeCursor, StreamKind as CatalogKind, frame_slots,
+    AvailabilityCopy, AvailabilityCutChunk, AvailabilityRun, AvailabilitySnapshot, Catalog, CatalogError, CoverageSet,
+    PurgeDelta, RangeCursor, StreamKind as CatalogKind, fold_availability_copies, frame_slots, rate_expanded_span,
 };
 use continuum_core::{Interval, StageId, StorageTier, StreamId, Uuid};
 use continuum_sched::{Covered, StreamKind};
@@ -234,12 +234,7 @@ pub struct StreamMeta {
 /// period, so a range of frames reads as captured and a decode over it can be planned. Anything with a
 /// duration, or a stream with no rate, covers its own span.
 fn frame_span(meta: &StreamMeta, span: Interval) -> Interval {
-    if span.len_ns() > 1 || !(meta.rate_hz > 0.0 && meta.rate_hz.is_finite()) {
-        return span;
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let period = (1e9 / meta.rate_hz).round().max(1.0) as u64;
-    Interval::new(span.start_ns(), span.start_ns().saturating_add(period)).unwrap_or(span)
+    rate_expanded_span(meta.rate_hz, span)
 }
 
 /// The availability index (see the module docs).
@@ -608,72 +603,39 @@ pub fn load_paged_profiled(
 const PARALLEL_APPLY_MIN_COPIES: usize = 4_096;
 const MAX_APPLY_WORKERS: usize = 16;
 
-/// Builds a normalized [`CopySet`] from durable Tier 1 and Tier 2 copies on one stream in a single sweep, packing
-/// sorted segments directly into its `BTreeMap` instead of splitting and normalizing per payload.
-fn build_copy_set(meta: &StreamMeta, mut copies: Vec<AvailabilityCopy>) -> CopySet {
-    if copies.is_empty() {
-        return CopySet::new();
-    }
-    if !copies.is_sorted_by_key(|c| c.span.start_ns()) {
-        copies.sort_unstable_by_key(|c| c.span.start_ns());
-    }
-    let mut runs: Vec<(u64, (u64, Counts))> = Vec::with_capacity(copies.len());
-    let mut active: BinaryHeap<Reverse<(u64, [u64; 2])>> = BinaryHeap::with_capacity(4);
-    let mut cur = [0u64; 2];
-    let mut cursor = 0u64;
+/// Builds a normalized [`CopySet`] from durable Tier 1 and Tier 2 copies on one stream.
+///
+/// The sweep lives in [`fold_availability_copies`] so the catalog can fold the same way while it scans, and this
+/// function only packs the runs. It does not reserve one output slot per copy.
+fn build_copy_set(meta: &StreamMeta, copies: Vec<AvailabilityCopy>) -> CopySet {
+    copy_set_from_runs(fold_availability_copies(meta.rate_hz, copies))
+}
 
-    let emit = |runs: &mut Vec<(u64, (u64, Counts))>, from: u64, to: u64, cur: [u64; 2]| {
-        if from >= to || cur == [0, 0] {
-            return;
-        }
-        let counts: Counts = [0, u32::try_from(cur[0]).unwrap_or(u32::MAX), u32::try_from(cur[1]).unwrap_or(u32::MAX)];
-        if let Some(last) = runs.last_mut()
-            && last.1.0 == from
-            && last.1.1 == counts
-        {
-            last.1.0 = to;
-            return;
-        }
-        runs.push((from, (to, counts)));
-    };
-
-    for copy in copies {
-        let add = [u64::from(copy.warm), u64::from(copy.cold)];
-        if add == [0, 0] {
+fn copy_set_from_runs(runs: Vec<AvailabilityRun>) -> CopySet {
+    let mut segs = BTreeMap::new();
+    for run in runs {
+        if run.start_ns >= run.end_ns || (run.warm == 0 && run.cold == 0) {
             continue;
         }
-        let span = frame_span(meta, copy.span);
-        let (a, b) = (span.start_ns(), span.end_ns());
-        while let Some(&Reverse((end, dec))) = active.peek() {
-            if end > a {
-                break;
-            }
-            active.pop();
-            if end > cursor {
-                emit(&mut runs, cursor, end, cur);
-                cursor = end;
-            }
-            cur[0] -= dec[0];
-            cur[1] -= dec[1];
-        }
-        if a > cursor {
-            emit(&mut runs, cursor, a, cur);
-            cursor = a;
-        }
-        cur[0] += add[0];
-        cur[1] += add[1];
-        active.push(Reverse((b, add)));
+        segs.insert(run.start_ns, (run.end_ns, [0, run.warm, run.cold]));
     }
-    while let Some(Reverse((end, dec))) = active.pop() {
-        if end > cursor {
-            emit(&mut runs, cursor, end, cur);
-            cursor = end;
-        }
-        cur[0] -= dec[0];
-        cur[1] -= dec[1];
+    CopySet { segs }
+}
+
+fn apply_stream(
+    meta: &StreamMeta,
+    copies: Vec<AvailabilityCopy>,
+    runs: Vec<AvailabilityRun>,
+    cuts: Vec<AvailabilityCutChunk>,
+) -> CopySet {
+    if !cuts.is_empty() {
+        debug_assert!(runs.is_empty(), "a cut stream is not folded");
+        build_stream_copies(meta, copies, cuts)
+    } else if !runs.is_empty() {
+        copy_set_from_runs(runs)
+    } else {
+        build_copy_set(meta, copies)
     }
-    debug_assert_eq!(cur, [0, 0]);
-    CopySet { segs: runs.into_iter().collect() }
 }
 
 fn build_stream_copies(
@@ -775,29 +737,37 @@ fn load_from_snapshot(
         }
     }
 
-    let total_copies: usize =
-        snap.stream_copies.iter().zip(&per_stream_cuts).map(|(copies, cuts)| copies.len() + cuts.len()).sum();
-    if total_copies < min_parallel_copies || metas.len() <= 1 {
-        for (((stream, meta), copies), cuts) in metas.iter().zip(snap.stream_copies).zip(per_stream_cuts) {
-            if !copies.is_empty() || !cuts.is_empty() {
-                let set = build_stream_copies(meta, copies, cuts);
+    let total_work: usize = snap
+        .stream_runs
+        .iter()
+        .zip(&snap.stream_copies)
+        .zip(&per_stream_cuts)
+        .map(|((runs, copies), cuts)| runs.len() + copies.len() + cuts.len())
+        .sum();
+    if total_work < min_parallel_copies || metas.len() <= 1 {
+        for ((((stream, meta), copies), runs), cuts) in
+            metas.iter().zip(snap.stream_copies).zip(snap.stream_runs).zip(per_stream_cuts)
+        {
+            if !copies.is_empty() || !runs.is_empty() || !cuts.is_empty() {
+                let set = apply_stream(meta, copies, runs, cuts);
                 if let Some((_, dst)) = index.streams.get_mut(stream) {
                     *dst = set;
                 }
             }
         }
     } else {
-        type StreamWork = (usize, StreamMeta, Vec<AvailabilityCopy>, Vec<AvailabilityCutChunk>);
+        type StreamWork = (usize, StreamMeta, Vec<AvailabilityCopy>, Vec<AvailabilityRun>, Vec<AvailabilityCutChunk>);
         let mut order: Vec<StreamWork> = metas
             .iter()
             .enumerate()
             .zip(snap.stream_copies)
+            .zip(snap.stream_runs)
             .zip(per_stream_cuts)
-            .filter(|((_, copies), cuts)| !copies.is_empty() || !cuts.is_empty())
-            .map(|(((idx, &(_, meta)), copies), cuts)| (idx, meta, copies, cuts))
+            .filter(|((((_, _), copies), runs), cuts)| !copies.is_empty() || !runs.is_empty() || !cuts.is_empty())
+            .map(|((((idx, &(_, meta)), copies), runs), cuts)| (idx, meta, copies, runs, cuts))
             .collect();
         // Schedule largest streams first so a single dense stream never starts after small ones finish.
-        order.sort_unstable_by_key(|(_, _, copies, cuts)| Reverse(copies.len() + cuts.len()));
+        order.sort_unstable_by_key(|(_, _, copies, runs, cuts)| Reverse(copies.len() + runs.len() + cuts.len()));
         let slots: Vec<OnceLock<(usize, CopySet)>> = (0..order.len()).map(|_| OnceLock::new()).collect();
         let inputs: Vec<std::sync::Mutex<Option<StreamWork>>> =
             order.into_iter().map(|item| std::sync::Mutex::new(Some(item))).collect();
@@ -815,12 +785,12 @@ fn load_from_snapshot(
                     loop {
                         let i = next_ref.fetch_add(1, Ordering::Relaxed);
                         let Some(cell) = inputs_ref.get(i) else { break };
-                        let Some((stream_idx, meta, copies, cuts)) =
+                        let Some((stream_idx, meta, copies, runs, cuts)) =
                             cell.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
                         else {
                             continue;
                         };
-                        let set = build_stream_copies(&meta, copies, cuts);
+                        let set = apply_stream(&meta, copies, runs, cuts);
                         let _ = slots_ref[i].set((stream_idx, set));
                     }
                 });

@@ -722,6 +722,38 @@ pub struct AvailabilityCopy {
     pub cold: u8,
 }
 
+/// What a copy over `span` holds of its stream's time.
+///
+/// A camera frame is an instant (one nanosecond), yet it stands for its stream until the next frame: an instant on
+/// a stream with a finite `rate_hz` above zero covers one period (`1e9 / rate_hz`, at least one nanosecond).
+/// Anything with a longer span, or a stream with no positive finite rate, covers `span` unchanged.
+#[must_use]
+pub fn rate_expanded_span(rate_hz: f64, span: Interval) -> Interval {
+    if span.len_ns() > 1 || !(rate_hz > 0.0 && rate_hz.is_finite()) {
+        return span;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let period = (1e9 / rate_hz).round().max(1.0) as u64;
+    Interval::new(span.start_ns(), span.start_ns().saturating_add(period)).unwrap_or(span)
+}
+
+/// One merged run of durable copies on a stream that has no cut chunks.
+///
+/// Runs are half-open `[start_ns, end_ns)`, disjoint, in time order, and two runs that touch never share the same
+/// warm and cold counts. Copy addition on these streams commutes, so a cold start folds each shard into runs and
+/// merges the runs instead of keeping one [`AvailabilityCopy`] per payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AvailabilityRun {
+    /// First nanosecond of the run.
+    pub start_ns: u64,
+    /// First nanosecond after the run.
+    pub end_ns: u64,
+    /// Copies in `StorageTier::Tier1Warm`.
+    pub warm: u32,
+    /// Copies in `StorageTier::Tier2Cold`.
+    pub cold: u32,
+}
+
 /// A chunk with cut frames whose availability needs cut-slot subtraction during startup reconstruction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailabilityCutChunk {
@@ -747,7 +779,14 @@ pub struct AvailabilitySnapshot {
     /// Visible payloads with a valid span.
     pub payloads: usize,
     /// Durable Tier 1 and Tier 2 copies per stream, indexed in the same order as `streams`.
+    ///
+    /// Populated only for a stream that has a cut chunk. Every other stream is folded into [`Self::stream_runs`].
     pub stream_copies: Vec<Vec<AvailabilityCopy>>,
+    /// Merged durable-copy runs per stream, in the same order as `streams`.
+    ///
+    /// Empty when that stream has a cut chunk (those copies stay in [`Self::stream_copies`], because cut removal
+    /// does not commute) and empty when the stream has no durable copies.
+    pub stream_runs: Vec<Vec<AvailabilityRun>>,
     /// Chunks with cut frames, in id order.
     pub cut_chunks: Vec<AvailabilityCutChunk>,
     /// Visible payloads that still hold an obsolete `StorageTier::Tier0Hot` locator, in id order.
