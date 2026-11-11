@@ -121,7 +121,8 @@ This is research. Building the right thing directly beats preserving what exists
 
 ## Tracking and merging
 
-Work is tracked as GitHub issues on the [project board](https://github.com/liseman/liberation.al/projects).
+Work is tracked as GitHub [issues](https://github.com/liseman/liberation.al/issues). The maintainers also keep
+them on a project board, which only they can open; its columns are:
 
 | Column | Meaning | Who moves cards here |
 |---|---|---|

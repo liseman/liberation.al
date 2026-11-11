@@ -37,7 +37,7 @@ If you need a real value to explain a bug, describe its shape instead ("a camera
 
 ## The board
 
-The project board has five columns.
+The maintainers track the issues on a project board, which only they can open. It has five columns.
 
 | Column | Meaning | Who moves cards here |
 |---|---|---|
