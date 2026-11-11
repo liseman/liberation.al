@@ -53,7 +53,7 @@ function CrossingCamera({ name, cam }: { name: string; cam: Rec }) {
       </p>
       {!!motion?.uncertain && (
         <p className={classes.error}>
-          {`Camera motion was detected in ${list(motion.flagged_files).length} recordings, so a fixed line is unreliable there. Treat this count with extra caution.`}
+          {`Camera motion was detected in ${list(motion.flagged_files).length} of these crossings, so a fixed line is unreliable there. Treat this count with extra caution.`}
         </p>
       )}
       <Histogram bins={cam.histogram} label="Times walked past, over the window" />

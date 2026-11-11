@@ -147,6 +147,9 @@ def from_spans(state: Any, start: float, end: float, cameras: Sequence[str] = ()
                 verified=bool((r.get("attributes") or {}).get("followed", True)),
                 crossings=int((r.get("attributes") or {}).get("crossings") or 1),
                 id=r.get("id"),
+                # The producer judged this walk-by while the camera moved or its motion was unknown, so the line it
+                # crossed was not fixed (see/action_movement.py).
+                camera_moved=bool(r.get("camera_moved")),
             )
             for r in mine
         ]
@@ -181,7 +184,10 @@ def from_spans(state: Any, start: float, end: float, cameras: Sequence[str] = ()
             scanned_seconds=round(scanned_s, 3),
             scanned_intervals=scanned,
             unrecorded_or_unscanned_intervals=gaps,
-            camera_motion=dict(uncertain=False, flagged_files=[]),
+            camera_motion=dict(
+                uncertain=any(w["camera_moved"] for w in walks),
+                flagged_files=[w["id"] for w in walks if w["camera_moved"] and w["id"]],
+            ),
             histogram=X.histogram([w["ts"] for w in walks], start, end),
             times=[w["ts"] for w in walks[:MAX_TIMES]],
             examples=[
