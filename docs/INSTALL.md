@@ -165,7 +165,7 @@ explains how voices and faces are named.
 | The application refuses to start | It names the services that run outside it: stop those (a dashboard started by hand, for one) |
 | "missing system package" | `uv run pack-system check`, then `mise run system` |
 | A model is missing | `uv run pack-models --list`, then `mise run models` |
-| No answers or captions | The `ollama` service isn't running (`uv run pack-services status`), or another Ollama holds port 11434 |
+| No answers or captions | `uv run pack-services status` shows the `ollama` service stopped: start it with `uv run pack-services start ollama`. Or another Ollama holds port 11434 |
 | A camera or microphone doesn't appear | Its `[[device]]` match in `config/devices.toml` (`lsusb` for a USB ID), then `uv run pack-services restart continuum-capture` |
 | Continuum won't start | `mise run continuum-status`; build it with `mise run continuum-release` if the binaries are missing |
 | Services fail after an update | A plain `uv sync` removes optional packages. Run `mise run setup` again, and read [MIGRATING.md](../MIGRATING.md) |

@@ -47,7 +47,8 @@ Show each service's state, restart count, and last transition timestamp from the
 pack-supervisor status
 ```
 
-List every declared service (`*` marks the ones selected on this machine), or print only the active selection:
+List every declared service (`*` marks the ones selected on this machine), or print only what the open application
+runs (nothing while it isn't open):
 
 ```sh
 pack-services list
