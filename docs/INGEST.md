@@ -65,7 +65,7 @@ belongs in capture directly instead ([NETWORK.md](NETWORK.md#network-cameras)).
 
 3. List the camera names, spelled as the bridge page at `http://localhost:5000` shows them, in `ingest.wyze_cameras`.
 4. Add `"wyze"` to `ingest.sources` in `pack.toml`, then turn on the `ingest` service in Settings, Services (or add
-   `"ingest"` to `services.enable` and run `uv run pack-services install ingest`).
+   `"ingest"` to `services.enable` and, with the application open, run `uv run pack-supervisor reload`).
 
 One FFmpeg process per camera copies its RTSP stream without re-encoding into segments of `ingest.wyze_segment_s`
 seconds. Each closed segment enters the pipeline; the newest segment is held back until a newer one appears so a
