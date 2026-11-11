@@ -1262,12 +1262,8 @@ def _visit_evidence(v: Mapping[str, Any]) -> dict[str, Any]:
 def _who(state: pathlib.Path, query: Mapping[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """(answer, evidence) for "who was here [at T]" from the backfill's visits, on the cameras the question named (any
     camera when it named none)."""
-    if query["at"] is not None:
-        found = _all_visits(state, query["start"], query["end"])
-        when = "around " + _clock(query["at"])
-    else:
-        found = _all_visits(state, query["start"], query["end"])
-        when = _during(query["window"])
+    found = _all_visits(state, query["start"], query["end"])
+    when = "around " + _clock(query["at"]) if query["at"] is not None else _during(query["window"])
     found = [v for v in found if not query["cameras"] or v["cam"] in query["cameras"]]
     # A rematch names every visit by the face gallery now, even one from before its person was tagged, so a visit's
     # name is resolved as of now, not as of the visit (as timeline._visits does). Before the next rematch, an old name
