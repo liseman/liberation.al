@@ -1,5 +1,7 @@
 """Broker fixture discovery never skips a compatible local build or hides startup errors."""
 
+import os
+import pathlib
 import sys
 from pathlib import Path
 
@@ -190,23 +192,35 @@ else:
     assert "exit=None" in str(caught.value) and "stderr:" in str(caught.value)
 
 
-def test_a_missing_build_never_skips_a_server_thread(checkout):
-    """A skip raised while a request is being answered has no test to skip: it dropped the connection (a dashboard
-    page asking for camera status on a runner with no broker build). On a server thread that becomes an ordinary
-    error, so the page answers as it does on an install with no broker; a test's own thread still skips."""
+def test_a_missing_build_only_skips_on_the_thread_running_the_test(checkout):
+    """A skip can only be reported on the thread the test runs on. Every other thread a test has going (a request
+    being answered, a worker doing broker work for the test) gets an ordinary error: a skip there ended a connection
+    or a worker instead of the test."""
     import threading
 
-    seen: list[BaseException] = []
+    def from_that_thread(name: str) -> list[BaseException]:
+        seen: list[BaseException] = []
 
-    def answer_a_request() -> None:
-        try:
-            helper.broker_or_skip()
-        except BaseException as error:  # which signal comes out is the whole point
-            seen.append(error)
+        def run() -> None:
+            try:
+                helper.broker_or_skip()
+            except BaseException as error:  # which signal comes out is the whole point
+                seen.append(error)
 
-    server = threading.Thread(target=answer_a_request, name="a-request")
-    server.start()
-    server.join()
-    assert [type(error) for error in seen] == [RuntimeError]
+        thread = threading.Thread(target=run, name=name)
+        thread.start()
+        thread.join()
+        return seen
+
+    for name in ("a-request", "a-worker-the-test-started"):
+        assert [type(error) for error in from_that_thread(name)] == [RuntimeError]
     with pytest.raises(pytest.skip.Exception, match="no compatible continuum-broker"):
-        helper.broker_or_skip()  # a test that needs the broker still skips
+        helper.broker_or_skip()  # the test's own thread: a test that needs the broker still skips
+
+
+def test_a_test_that_works_on_a_thread_resolves_the_broker_up_front(needs_broker):
+    """`needs_broker` finds the binary on the test's own thread and gives every later start its path, so a thread
+    that starts a broker never searches, and never skips."""
+    env = os.environ["CONTINUUM_BROKER"]
+    assert env == needs_broker
+    assert helper._candidates()[0][0] == pathlib.Path(needs_broker)  # the first candidate: no search for a build
