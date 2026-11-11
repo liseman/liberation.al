@@ -313,3 +313,135 @@ it("says when the splat's file can't be fetched at all", async () => {
   expect((await screen.findByRole('alert')).textContent).toMatch(/^Couldn't show the splat: the server answered 500\./);
   await waitFor(() => expect(lastSplat()).toBeNull());
 });
+
+it('turns Floor, Cameras, and Plan on and off without building the view again, including before it is ready', async () => {
+  const pending: Array<(built: Built) => void> = [];
+  let open = false;
+  const built: Built = {
+    view: () => LOOKING,
+    home: () => {},
+    lookFrom: () => {},
+    show: s => {
+      shown.push(s);
+    },
+    splatLoaded: Promise.resolve(),
+    cameraNames: ['Hall', 'Study'],
+    dispose: () => {},
+  };
+  build.mockImplementation(
+    () =>
+      new Promise<Built>(resolve => {
+        if (open) resolve(built);
+        else pending.push(resolve);
+      }),
+  );
+  serve(withSplat({ cameras: { Hall: {}, Study: {} } }), () => bytes(SOG));
+  renderPage(<CloudView place="p1" />);
+  const floor = await screen.findByRole('checkbox', { name: 'Floor' });
+  const cameras = await screen.findByRole('checkbox', { name: 'Cameras (2)' });
+  const plan = await screen.findByRole('checkbox', { name: 'Plan' });
+  // before the viewer exists: the choice is kept and applied once it does, and the view is still built once
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  expect(shown).toEqual([]);
+  expect(floor).not.toBeChecked();
+  expect(cameras).not.toBeChecked();
+  expect(plan).not.toBeChecked();
+  const before = build.mock.calls.length;
+  expect(before).toBeGreaterThan(0);
+  open = true;
+  for (const resolve of pending.splice(0)) resolve(built);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: false, cameras: false, plan: false }));
+  const settled = build.mock.calls.length;
+
+  await userEvent.click(floor);
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  await userEvent.click(plan);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: false, cameras: false, plan: false }));
+  expect(build.mock.calls.length).toBe(settled);
+  expect(screen.queryByRole('alert')).toBeNull();
+
+  // the same checkboxes in the points view
+  await userEvent.click(screen.getByText('Points'));
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ splat: false, floor: true, cameras: true, plan: true }));
+  expect(build.mock.calls.length).toBe(settled);
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps Floor, Cameras, and Plan across a newer map replacing the one on screen', async () => {
+  const newer = '/places/splat?place=p1&revision=r3&format=sog';
+  let reply = withSplat({ cameras: { Hall: {} } });
+  let release = () => {};
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  server.use(
+    http.get('/places/scene', () => HttpResponse.json(reply)),
+    http.get('/places/map', () => bytes(MAP)),
+    http.get('/places/splat', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('revision') === 'r3') await held;
+      return bytes(SOG);
+    }),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Floor' }));
+  await waitFor(() => expect(shown.at(-1)?.floor).toBe(false));
+  const before = build.mock.calls.length;
+
+  reply = withSplat({
+    revision: 'r3',
+    map: '/places/map?place=p1&revision=r3',
+    splat: newer,
+    splat_revision: 'r3',
+    cameras: { Hall: {} },
+  });
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  expect(await screen.findByText(/^A newer version of this map is loading/)).toBeTruthy();
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Plan' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Cameras (1)' }));
+  expect(build.mock.calls.length).toBe(before);
+
+  release();
+  await waitFor(() => expect(build.mock.calls.length).toBe(before + 1));
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ splat: true, floor: false, cameras: false, plan: false }));
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('shows the shared error and Retry when the view fails, then builds it again', async () => {
+  let fail = true;
+  build.mockImplementation(
+    async (): Promise<Built> => ({
+      view: () => LOOKING,
+      home: () => {},
+      lookFrom: () => {},
+      show: s => {
+        if (fail) throw new Error('the overlay could not be drawn');
+        shown.push(s);
+      },
+      splatLoaded: Promise.resolve(),
+      cameraNames: [],
+      dispose: () => {},
+    }),
+  );
+  serve(withSplat(), () => bytes(SOG));
+  renderPage(<CloudView place="p1" />);
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toMatch(/Couldn't show the map/);
+  expect(alert.textContent).toMatch(/Nothing was lost/);
+  await userEvent.click(screen.getByText('Show details'));
+  expect(screen.getByText('the overlay could not be drawn')).toBeTruthy();
+  const before = build.mock.calls.length;
+  fail = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: true, cameras: true, plan: true }));
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(build.mock.calls.length).toBe(before + 1);
+});
