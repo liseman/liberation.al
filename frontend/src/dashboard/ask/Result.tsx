@@ -170,6 +170,8 @@ export function Result({
       : [];
   const coverage = recorded && isRec(result.coverage) && Object.keys(result.coverage).length ? result.coverage : null;
   const paths = recorded ? list(result.paths) : [];
+  // The range it read ("today", "since 2026-10-03", "all your recordings"), so the person can narrow it.
+  const window = recorded && isRec(result.query) && typeof result.query.window === 'string' ? result.query.window : '';
   // The forgotten-person reply is not a history answer (no evidence), but it is a new answer path with a switch.
   const forgotten = list(result.paths).includes('forgotten');
   return (
@@ -180,6 +182,7 @@ export function Result({
           {!bare && !!result.status && result.status !== 'ok' && <StatusBadge status={plain(result.status)} />}
           <TextBlock value={evidence.length ? citeLinks(plain(result.answer), evidence) : result.answer} />
           {after}
+          {window && <p className={classes.muted}>Looked through {window}.</p>}
           {paths.includes('timeline') && (
             <p className={classes.muted}>
               From the timeline: who was seen and heard. <NewTag setting="timeline.enabled" />

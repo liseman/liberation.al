@@ -197,7 +197,7 @@ def card_state(tmp_path, monkeypatch, vision):
     ]
     speech_fake.fake().write(lines)
     shot(vision, time.time() - 5, 0.0, cam="cam1")  # in view now (quality 0, so never a card shot)
-    # The clip labels' model, faked: it replies in the first person, as the journal would, for the clip at DAY1 + 25.
+    # The clip labels' model, faked: it replies with invalid first-person narration, for the clip at DAY1 + 25.
     replies = {"A woman pours coffee. The kettle is on.": "Pouring coffee, kettle on."}
     labels = clip_labels.Labels(tmp, lambda text: replies.get(text, "I poured my coffee."), background=False)
     monkeypatch.setitem(clip_labels._labels, str(tmp), labels)

@@ -237,6 +237,12 @@ changed). A cloud made earlier that found no floor is stood up by its walls once
 service starting, with no new picture. A camera that has not moved keeps its cloud when a later one, from a dark
 picture for instance, would be worse. It needs no setting.
 
+A cloud whose walls can be matched to walls of your plan is fitted to the room: resized and slid so its walls land
+on the plan's, the plan's dimensions being the measurement. The 3D view then draws its floor and those walls flat
+("Flat walls and floor", on by default; clear it to see every point where the cloud has it). Stored clouds are stood
+up, squared, and fitted when the 3D view is opened, so Learn surroundings does not have to be on to see them. Your
+spots and plan are not changed. It needs no setting.
+
 `pack-reset-places` deletes the clouds with the rest of what the machine made; they are made again.
 
 ### One application instead of a service per daemon
@@ -392,6 +398,20 @@ voice commands, and `pack-ask-friends` are removed.
 1. **Delete `friends_agent`** from `[agent]` in `pack.toml` if it is set. `pack-config --check` lists it.
 2. **Leave or delete `friends_performance.json`** in the state directory. It is no longer read.
 3. **Restart every config-reading service**, as in "Every upgrade".
+
+### The journal is written in the third person
+
+Journal entries at every level are written in the third person and the past tense, with the owner named by
+`owner.name`. Entries stored before this narrate as "I". To correct them:
+
+1. **See what it would do**: `uv run --no-sync pack-journal --rewrite-third-person --dry-run`. It counts the entries
+   to correct, estimates the time and the added storage, and changes nothing.
+2. **Run it**: `uv run --no-sync pack-journal --rewrite-third-person`. Add `--days N` to correct only entries of the
+   last N days.
+
+Each corrected entry is added beside its original and supersedes it; the original and its evidence are kept. The
+command can be stopped and run again: it skips what is already corrected. It exits with an error when a correction
+fails, and leaves those originals as they are.
 
 ## Model changes
 

@@ -1065,15 +1065,13 @@ def test_presence_read_failure_never_falls_back_to_the_model(tmp_path, monkeypat
 
 @pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.parametrize("clock", ["3", "3pm", "15:30"])
-def test_presence_unsupported_time_refuses(tmp_path, enabled, clock):
+def test_presence_with_an_unread_time_says_what_it_needs_or_reads_the_whole_day(tmp_path, enabled, clock):
     with cfg.override({"presence": {"enabled": enabled}}):
         result = p.execute(f"how many times did someone come into view before {clock} today?", tmp_path)
-    assert result["answer"].startswith("Unsupported time phrase;")
-    if enabled:
-        assert result["paths"] == ["presence"]
-        assert result["model"] == "local-history-evidence"
+    if result.get("needs"):
+        assert result["needs"] == result["answer"] and result["needs"] not in result["warnings"]
     else:
-        assert "presence" not in result.get("paths", [])
+        assert result["query"]["window"].startswith("all your recordings (")
 
 
 def history_call(path="", **kwargs):

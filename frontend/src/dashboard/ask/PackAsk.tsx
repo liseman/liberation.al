@@ -1,13 +1,16 @@
 // The one Ask's box: a question about your recordings, answered quickly right there with its evidence, or, with Deep
 // research on, looked into slowly in the background with its report delivered to the Inbox. It lives in Ask's floating
-// window (Ask.tsx) and is the same wherever Ask was opened from: a page can only hand it a starting question, Deep
-// research switched on, or a hint (the day Review shows, or a report to follow up on), which shows as a chip over the
-// box and goes when the person closes it.
+// window (Ask.tsx) and is the same wherever Ask was opened from: a page can only hand it a starting question or a hint
+// (the day Review shows, or a report to follow up on), which shows as a chip over the box and goes when the person
+// closes it.
 //
-// Deep research is off again after each question it sends: it takes minutes of the GPU, so a question is quick unless
-// the person asks for more that time. The Mantine conventions have nothing on it either way; the Inbox's "Research a
-// question" switches it on for the one question that follows. Its limits (rounds, time, model) are settings, not words
-// here: the toggle says one plain line, the same on or off, so the box doesn't jump when it flips.
+// Deep research is switched on only with its toggle, and is off again after each question it sends and whenever Ask
+// is opened: it takes minutes of the GPU, so a question is quick unless the person asks for more that time. Its limits
+// (rounds, time, model) are settings, not words here: the toggle says one plain line, the same on or off, so the box
+// doesn't jump when it flips.
+//
+// What the question needs from the person (a time Ask couldn't read, a camera it couldn't tell apart) is a notice
+// with the Deep research offer, never an answer with a rating.
 import {
   Anchor,
   Badge,
@@ -51,10 +54,13 @@ const markable = (r: unknown): boolean =>
   isRec(r) && typeof r.answer === 'string' && (r.status === 'ok' || r.status === 'partial') && r.is_history !== false;
 
 /** How a quick answer falls short, or null when it stands: Ask then offers deep research. `none` is no answer at
- *  all (an error, or the server's `found` false: nothing in the recordings), which shows only the offer; `thin` keeps
+ *  all (what the question needs from the person, an error, or the server's `found` false: nothing in the
+ *  recordings), which shows only that line and the offer; `thin` keeps
  *  the answer above it. A recorded count is an answer even without an evidence list, so `found` decides, not the list. */
 export function thin(result: unknown): { kind: 'none' | 'thin'; why: string } | null {
-  if (!isRec(result) || result.is_history === false) return null;
+  if (!isRec(result)) return null;
+  if (typeof result.needs === 'string' && result.needs) return { kind: 'none', why: result.needs };
+  if (result.is_history === false) return null;
   if (result.status === 'error') return { kind: 'none', why: "Ask couldn't answer this quickly." };
   if (result.found === false) return { kind: 'none', why: 'Nothing in your recordings answered this quickly.' };
   if (result.status === 'partial')
@@ -147,9 +153,9 @@ export function PackAsk() {
     if (!requested) return;
     const taken = useAsk.getState().take();
     if (!taken) return;
-    if (taken.hint !== undefined || taken.draft !== undefined || taken.deep !== undefined) {
+    if (taken.hint !== undefined || taken.draft !== undefined) {
       setHint(taken.hint ?? null);
-      setDeep(!!taken.deep);
+      setDeep(false);
       setSent(null);
       setDeepError('');
     }

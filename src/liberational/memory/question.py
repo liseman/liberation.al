@@ -13,8 +13,9 @@ then checked here, so a reading is never guessed at:
   number, a date's day, an amount, or a name the question doesn't hold is dropped, and so is an action, a movement,
   or a "usual" none of whose words the question has. That is a containment check on the model's values, not a
   second reading of the question.
-- A time the form can't hold, or one left with nothing after the check, is carried as other_time and refused. It is
-  never dropped, since dropping it would widen the search to everything.
+- A time the form can't hold, or one left with nothing after the check, is carried as other_time. It is never
+  dropped silently: history_qa.open_window reads the open-ended ones (since recording started, since October, in
+  March, the last 3 weeks), and anything else is read as the whole history, with its words saying so.
 
 The model never computes a date or a window. It copies "yesterday", "3pm", or "the last 2 hours" into fields, and
 history_qa.parse works out the window from them (clock halves, parts of the day, clock changes), so time arithmetic
@@ -35,6 +36,7 @@ chosen.
 
 import dataclasses
 import json
+import re
 from typing import Any
 
 from liberational import config as cfg
@@ -127,6 +129,16 @@ PARTS = (
     "night",
 )
 UNITS = ("", "seconds", "minutes", "hours", "days")
+# The ranges the form can't hold that history_qa.open_window reads from the phrase itself.
+# A two-date range counts only with a month or a full date in it and no clock, so "between 2 and 4pm" (on a date)
+# stays a clock range.
+OPEN_RANGE = re.compile(
+    r"^(?:(?:in|during|over|for|within) )?(?:the )?(?:(?:last|past) \w+ (?:weeks?|months?|years?)"
+    r"|\w+ (?:weeks?|months?|years?) ago"
+    r"|(?:between|from) (?!.*(?:\d\s*(?:am|pm)\b|\d:\d\d|\bnoon\b|\bmidnight\b))"
+    r"(?=.*(?:\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b|\d{4}-\d\d-\d\d)).+"
+    r" (?:and|to|until) .+)$"
+)
 SPAN_KINDS = ("", "last", "ago")
 READ_TIMEOUT_S = 30.0  # the one call; a question that can't be read in this long is refused, not guessed at
 REPLY_TOKENS = 200  # a filled form is about 100 to 130 tokens
@@ -629,6 +641,11 @@ def from_reply(reply: object, question: str) -> Reading:
     if isinstance(span, bool) or not isinstance(span, int | float):
         raise Unreadable("span is not a number")
     phrase, kind = text("time_phrase"), one("time_kind", TIME_KINDS)
+    asked_since = kind == "since"
+    if OPEN_RANGE.match(" ".join(phrase.lower().split())):
+        # Weeks, months, years, and two-date ranges have no fields in the form (a small model files "the last 3
+        # weeks" as 3 days): the phrase goes whole to history_qa.open_window, which reads it.
+        kind = "other"
     usual = flag("usual")
     day = text("date").lower() or one("day", DAYS)
     part, clock, clock_end, unit = one("part", PARTS), text("clock"), text("clock_end"), ""
@@ -657,7 +674,9 @@ def from_reply(reply: object, question: str) -> Reading:
             # model said "other", and when it filed the phrase as a time and the word check left nothing of it.
             usual = True
         else:
-            other = phrase or "a time that can't be read"
+            # "since Monday" copied as "Monday": the since is the reading's, so it stays with the phrase.
+            since_words = asked_since and phrase and not phrase.lower().startswith(("since", "from"))
+            other = (f"since {phrase}" if since_words else phrase) or "a time that can't be read"
     # People walking by or coming in are counted from the cameras. A small model files "how many people came in"
     # under people, and marks "who was here" as coming in: the first is a camera count, the second no movement.
     source, measure, movement = one("source", SOURCES), one("measure", MEASURES), one("movement", MOVEMENTS)

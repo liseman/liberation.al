@@ -22,6 +22,10 @@ from liberational import config as cfg
 from liberational.dashboard import server, transcript_lines
 from liberational.demo import dataset, scenes
 
+RESEARCH_REASON = (
+    "New research needs a running model. This offline demo has prepared reports; its waiting example will not run."
+)
+
 JOBS: dict[str, dict[str, Any]] = {}
 STOP = threading.Event()
 
@@ -446,6 +450,10 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
                     "updated": now,
                 }
             )
+        if path == "/research/jobs":
+            from liberational.dashboard import research
+
+            return self._json({**research.view(), "available": False, "reason": RESEARCH_REASON})
         if path == "/review/summary":
             import datetime as dt
 
@@ -527,11 +535,7 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
             try:
                 body = self.demo_body()
                 if body.get("deep") is True:
-                    # Deep research goes the real way (memory/ask.py): queued for the Inbox where research can run,
-                    # else refused with why. The demo runs no research worker, so a queued report stays waiting.
-                    from liberational.memory import ask
-
-                    return ask._deep_http(self, body, ask.validate_day(body.get("day")))
+                    return self._json({"error": RESEARCH_REASON}, 409)
                 question = str(body.get("question", "")).strip()
                 if not question or len(question) > 8192:
                     raise ValueError("Ask a question of 1 to 8192 characters")

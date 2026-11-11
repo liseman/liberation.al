@@ -3,7 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
-import type { ScenePair, ScenePlaced, SceneSquare } from '../api';
+import type { SceneFit, ScenePair, ScenePlaced, SceneSquare } from '../api';
 import { buildScene } from '../scene/build';
 import CloudView from './CloudView';
 import { collisionMesh, glb, glbUrl } from './collision';
@@ -23,6 +23,7 @@ import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layer
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import {
   bendLine,
+  fitLine,
   learningNote,
   levelLine,
   loadingText,
@@ -562,11 +563,78 @@ it.each([
   [squareOf({ turn_deg: 0.2 }), "Its walls already run along your plan's."],
   [
     squareOf({ turn_deg: -2.73, slide: 'beyond' }),
-    "Squared to your plan by its walls: turned 2.7°. Not slid onto the plan's walls: they are farther off than a slide goes, because its size is an estimate.",
+    "Squared to your plan by its walls: turned 2.7°. Not slid onto the plan's walls: they are farther off than a slide goes.",
   ],
   [squareOf({ turn_deg: 1.9, slide: 'no_counterpart' }), 'Squared to your plan by its walls: turned 1.9°.'],
 ])('says how a cloud was squared to the plan: %#', (square, line) => {
   expect(squareLine(placedAs('spot', { square, squared: true }))).toBe(line);
+});
+
+const fitOf = (more: Partial<SceneFit> = {}): SceneFit => ({
+  state: 'fitted',
+  scale: 1,
+  up: 1,
+  dx: 0,
+  dy: 0,
+  walls: [{ off_deg: 0.2, before_m: 0.02, after_m: 0.0 }],
+  seen: 1,
+  ...more,
+});
+
+it.each([
+  [
+    fitOf({
+      scale: 0.966,
+      dx: 0.01,
+      dy: 0.012,
+      walls: [
+        { off_deg: 0.3, before_m: 0.241, after_m: 0.04 },
+        { off_deg: 7.6, before_m: -0.06, after_m: -0.13 },
+      ],
+    }),
+    "Fitted to the room: resized by 3 percent (smaller), moved 2 cm, matched to 2 walls. Before, its walls stood up to 24 cm from your plan's and ran up to 8° off them.",
+  ],
+  [
+    fitOf({ scale: 1.042 }),
+    'Fitted to the room: resized by 4 percent (larger), matched to 1 wall. One wall gives its size, not where it stands across it.',
+  ],
+  [
+    fitOf({
+      scale: 0.998,
+      walls: [
+        { off_deg: 0.2, before_m: 0.04, after_m: 0 },
+        { off_deg: 1.7, before_m: -0.026, after_m: 0 },
+      ],
+    }),
+    'Fitted to the room: its size kept, matched to 2 walls.',
+  ],
+  [fitOf({ state: 'no_walls', walls: [] }), 'Not fitted to the room: no wall in view.'],
+  [
+    fitOf({ state: 'no_match', walls: [] }),
+    "Not fitted to the room: the wall it sees isn't where a wall of your plan is. It may be an island, a half wall, or furniture that the plan doesn't draw.",
+  ],
+  [
+    fitOf({ state: 'beyond', scale: 1.12, dx: -0.7, dy: 0 }),
+    'Not fitted to the room: its walls ask for it to be resized by 12 percent (larger) and moved 70 cm, more than a fit may do. Check where its spot is.',
+  ],
+])('says how a cloud was fitted to the room, or in plain words why not: %#', (fit, line) => {
+  expect(fitLine(fit)).toBe(line);
+});
+
+it('leaves the slide out of the squaring line of a fitted cloud, which the fit slides instead', () => {
+  const square = squareOf({ turn_deg: -2.7, right_m: 0.2, ahead_m: 0.1, slide: 'beyond' });
+  expect(squareLine(placedAs('spot', { square, squared: true, fitted: true }))).toBe(
+    'Squared to your plan by its walls: turned 2.7°.',
+  );
+});
+
+it("says a fitted camera's own cloud is fitted, in place of calling its size approximate", () => {
+  const now = new Date(2026, 5, 2, 9, 0);
+  const at = new Date(2026, 5, 2, 1, 40).getTime() / 1000;
+  const view = { camera: 'hall', points: 1000, at, fit: fitOf({ scale: 0.966 }) };
+  expect(viewNote({ place: 'p1', revision: 'r1', view }, 'Hall', now)).toBe(
+    'What Hall sees on its own. 1,000 points, today 01:40. Fitted to the room: resized by 3 percent (smaller), matched to 1 wall. One wall gives its size, not where it stands across it.',
+  );
 });
 
 it('says why a cloud was not squared, and nothing for a camera placed some other way', () => {

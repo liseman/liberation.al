@@ -83,33 +83,51 @@ def test_time_values_the_question_doesnt_hold_are_dropped(asked, fields, kept):
 
 
 @pytest.mark.parametrize(
-    ("asked", "fields", "phrase"),
+    ("asked", "fields", "phrase", "words"),
     [
         pytest.param(
             "summarize what happened on October 20",
             dict(time_phrase="on October 20", time_kind="calendar", day="today"),
             "on October 20",
+            'all your recordings ("on October 20" wasn\'t read as a time)',
             id="only-a-day-nobody-said",
         ),
         pytest.param(
             "what happened in the last few hours",
             dict(time_phrase="in the last few hours", time_kind="last", span=3, span_unit="hours"),
             "in the last few hours",
+            'all your recordings ("in the last few hours" wasn\'t read as a time)',
             id="an-amount-nobody-said",
         ),
         pytest.param(
             "did anyone mention the budget in March",
             dict(time_phrase="in March", time_kind="other"),
             "in March",
+            "March 2026",
             id="a-time-the-form-cant-hold",
+        ),
+        pytest.param(
+            "how many times did Dana say thanks since recording started",
+            dict(time_phrase="since recording started", time_kind="since"),
+            "since recording started",
+            "all your recordings",
+            id="the-whole-history",
+        ),
+        pytest.param(
+            "what did Dana say since Monday",
+            dict(time_phrase="Monday", time_kind="since"),
+            "since Monday",
+            "since 2026-10-19",
+            id="since-copied-without-its-since",
         ),
     ],
 )
-def test_a_time_left_with_nothing_is_refused_not_dropped(asked, fields, phrase):
+def test_a_time_left_with_nothing_is_read_open_ended_or_as_the_whole_history(asked, fields, phrase, words):
     r = question.from_reply(reply(**fields), asked)
     assert r.other_time == phrase
-    with pytest.raises(ValueError, match="Unsupported time phrase"):
-        history_qa.window_of(r, NOW)
+    start, end, said, _ = history_qa.window_of(r, NOW)
+    assert said == words
+    assert start < end <= NOW
 
 
 @pytest.mark.parametrize("kind", ["calendar", "other"])
@@ -232,7 +250,7 @@ def test_a_usual_phrase_filed_as_a_time_is_no_window_and_not_a_refusal(fields):
         "how often does the cat typically use the litter box per day",
     )
     assert (r.usual, r.other_time, r.day) == (True, "", "")
-    assert history_qa.window_of(r, NOW)[2] == "all available retained history"
+    assert history_qa.window_of(r, NOW)[2] == "all your recordings"
 
 
 HOUSE = question.Vocabulary(
@@ -445,18 +463,25 @@ def test_a_readings_time_fields_give_one_window(reading, window, first, last):
     ("reading", "message"),
     [
         pytest.param(question.Reading(part="this morning", clock="3pm"), "isn't in the morning", id="wrong-half"),
-        pytest.param(question.Reading(day="last week", clock="3pm"), "single time window", id="a-week-and-a-clock"),
-        pytest.param(question.Reading(clock_end="4pm"), "complete time range", id="half-a-range"),
-        pytest.param(question.Reading(day="02-30"), "valid calendar date", id="no-such-date"),
-        pytest.param(question.Reading(day="next tuesday"), "Unsupported time phrase", id="not-a-date"),
-        pytest.param(
-            question.Reading(span=2.5, span_unit="days", span_kind="ago"), "Unsupported time phrase", id="half-days-ago"
-        ),
+        pytest.param(question.Reading(day="last week", clock="3pm"), "one stretch of time", id="a-week-and-a-clock"),
+        pytest.param(question.Reading(clock_end="4pm"), "both ends", id="half-a-range"),
+        pytest.param(question.Reading(day="02-30"), "date doesn't exist", id="no-such-date"),
     ],
 )
 def test_time_fields_that_name_no_single_window_are_refused(reading, message):
     with pytest.raises(ValueError, match=message):
         history_qa.window_of(reading, NOW)
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        pytest.param(question.Reading(day="next tuesday"), id="not-a-date"),
+        pytest.param(question.Reading(span=2.5, span_unit="days", span_kind="ago"), id="half-days-ago"),
+    ],
+)
+def test_time_fields_that_cant_be_read_fall_back_to_the_whole_history_and_say_so(reading):
+    assert history_qa.window_of(reading, NOW) == (0.0, NOW, "all your recordings (that time wasn't read)", None)
 
 
 @pytest.mark.parametrize(
@@ -482,3 +507,39 @@ def test_the_asker_is_the_owner_in_a_transcript_query():
     query = history_qa.parse("what did I say", NOW, reading=question.Reading(people=("me",)))
     assert query["first_person"] is True
     assert query["person"] == query["participants"][0] == history_qa.cfg.owner_or()
+
+
+@pytest.mark.parametrize(
+    ("asked", "fields", "words"),
+    [
+        pytest.param(
+            "what did Dana say over the last 3 weeks",
+            dict(time_phrase="over the last 3 weeks", time_kind="last", span=3, span_unit="days"),
+            "last 3 weeks",
+            id="weeks-filed-as-days",
+        ),
+        pytest.param(
+            "what did Dana say between October 1 and October 15",
+            dict(time_phrase="between October 1 and October 15", time_kind="calendar", date="10-01"),
+            "between 2026-10-01 and 2026-10-15",
+            id="two-dates",
+        ),
+        pytest.param(
+            "what did Dana say two weeks ago",
+            dict(time_phrase="two weeks ago", time_kind="ago", span=2, span_unit="days"),
+            "the week starting 2026-10-09",
+            id="weeks-ago",
+        ),
+    ],
+)
+def test_ranges_the_form_cant_hold_go_whole_to_the_range_reader(asked, fields, words):
+    r = question.from_reply(reply(**fields), asked)
+    assert history_qa.window_of(r, NOW)[2] == words
+
+
+def test_a_clock_range_stays_a_clock_range():
+    asked = "what did Dana say between 2 and 4pm"
+    r = question.from_reply(
+        reply(time_phrase="between 2 and 4pm", time_kind="calendar", clock="2", clock_end="4pm"), asked
+    )
+    assert (r.other_time, r.clock, r.clock_end) == ("", "2", "4pm")

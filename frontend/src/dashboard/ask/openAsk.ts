@@ -18,8 +18,6 @@ export interface AskRequest {
   /** null: start from no hint (the top bar off Review); left out: keep the hint the box has */
   hint?: AskHint | null;
   draft?: string;
-  /** Deep research switched on for the next question (the Inbox's "Research a question") */
-  deep?: boolean;
 }
 
 interface AskState {

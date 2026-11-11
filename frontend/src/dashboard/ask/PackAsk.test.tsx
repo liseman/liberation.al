@@ -478,11 +478,12 @@ describe('Deep research', () => {
     expect(question()).toHaveValue('');
   });
 
-  it('opens switched on from the Inbox, for that question only', async () => {
+  it('is off again whenever Ask is opened, so only the toggle turns it on', async () => {
     researchServer();
     renderAsk();
-    act(() => openAsk({ deep: true }));
-    await waitFor(() => expect(deep()).toBeChecked());
+    await waitFor(() => expect(deep()).toBeEnabled());
+    await user.click(deep());
+    expect(deep()).toBeChecked();
     act(() => openAsk({ hint: null }));
     await waitFor(() => expect(deep()).not.toBeChecked());
   });
@@ -507,6 +508,45 @@ describe('Deep research', () => {
 });
 
 describe('no quick answer: research offered', () => {
+  it('shows what the question needs as one line with the offer: no answer, no repeat in warnings, no rating', async () => {
+    researchServer();
+    const net = jobServer();
+    const needs = 'Ask about one stretch of time at a time, like "this morning", "since Monday", or "in October".';
+    net.replies.push({
+      status: 'completed',
+      result: { status: 'ok', answer: needs, needs, evidence: [], warnings: [], is_history: true, found: true },
+    });
+    renderAsk();
+    await ask('What did we say this morning and last week?');
+    await queued();
+    await wait(1000);
+    const offer = (await screen.findByText(needs)).closest('[data-ask-offer]') as HTMLElement;
+    expect(within(offer).getByRole('button', { name: 'Try Deep research' })).toBeInTheDocument();
+    expect(screen.getAllByText(needs)).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Answer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Mark this answer' })).not.toBeInTheDocument();
+  });
+
+  it('says which range an answer read, so it can be narrowed', async () => {
+    const net = jobServer();
+    net.replies.push({
+      status: 'completed',
+      result: {
+        status: 'ok',
+        answer: 'Dana said "thanks" 4 times in all your recordings.',
+        evidence: [{ id: 'T1', text: 'thanks' }],
+        query: { window: 'all your recordings' },
+        found: true,
+        is_history: true,
+      },
+    });
+    renderAsk();
+    await ask('How many times did Dana say thanks?');
+    await queued();
+    await wait(1000);
+    expect(await screen.findByText('Looked through all your recordings.')).toBeInTheDocument();
+  });
+
   it('says so plainly and researches the same question in one action', async () => {
     researchServer();
     const net = jobServer();

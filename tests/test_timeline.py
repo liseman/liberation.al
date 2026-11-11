@@ -354,7 +354,7 @@ def test_who_was_here_counts_a_face_the_registry_doesnt_know(history):
         ("2026-10-20", "on 2026-10-20"),
         ("last 2 hours", "in the last 2 hours"),
         ("the morning of 2026-10-30", "in the morning of 2026-10-30"),
-        ("all available retained history", "in all available retained history"),
+        ("all your recordings", "in all your recordings"),
     ],
 )
 def test_a_window_reads_as_words(window, words):
@@ -480,11 +480,11 @@ def test_last_seen_keeps_to_the_window_asked_about(history):
 
 
 @pytest.mark.parametrize("phrase", ["after dinner", "before lunch", "3 days ago"])
-def test_a_time_phrase_after_the_name_is_refused_as_with_the_switch_off(history, phrase):
-    """A phrase after the name is never read as part of it: a time phrase gets the same refusal as with the
-    switch off."""
+def test_a_time_phrase_after_the_name_is_read_as_with_the_switch_off(history, phrase):
+    """A phrase after the name is never read as part of it: a time phrase gets the same window as with the switch
+    off, and is never a refusal."""
     on = history.ask(f"when did I last see Dana {phrase}")
-    assert on["query"] == {}  # refused
+    assert "needs" not in on and on["query"]["window"]
     with cfg.override(OFF):
         assert history.ask(f"when did I last see Dana {phrase}") == on
 
@@ -601,7 +601,7 @@ def test_review_chips_skip_the_people_present_section(present_day):
 @pytest.mark.parametrize(
     ("q", "person", "window"),
     [
-        ("when did I last see Alice", "Alice", "all available retained history"),
+        ("when did I last see Alice", "Alice", "all your recordings"),
         ("When did you last see Dana Smith today?", "Dana Smith", "today"),
         ("when did we last see Bob on 2026-10-20", "Bob", "2026-10-20"),
     ],

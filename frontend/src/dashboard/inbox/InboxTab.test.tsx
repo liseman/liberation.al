@@ -193,7 +193,7 @@ it("says why research can't run here", async () => {
   renderPage(<InboxTab />);
   expect(await screen.findByText(/Research needs Ask/)).toBeInTheDocument();
   expect(screen.getByText('No research reports yet')).toBeInTheDocument();
-  expect(screen.getByText(/Ask a question with Deep research on\./)).toBeInTheDocument();
+  expect(screen.getByText(/Turn on Deep research in Ask/)).toBeInTheDocument();
 });
 
 it('shows how many reports are unread on the tab', async () => {
@@ -287,7 +287,7 @@ it('marks a partial report on the list, and says when in 24-hour words', async (
   expect(row).toHaveAccessibleName(/, \d\d:\d\d unread$/);
 });
 
-it('Research a question opens the one Ask here with Deep research on, and the pending report joins the list', async () => {
+it('has no way into Ask of its own: Deep research from the one Ask lands here, and the pending report joins the list', async () => {
   history.replaceState(null, '', '/inbox');
   useAsk.setState({ open: false, request: null });
   const fresh: Job = { ...waiting, id: 'c'.repeat(32), question: 'What changed in the garden?', day: null };
@@ -309,10 +309,13 @@ it('Research a question opens the one Ask here with Deep research on, and the pe
       <InboxTab />
     </>,
   );
-  await userEvent.click(await screen.findByRole('button', { name: 'Research a question' }));
+  await screen.findByRole('button', { name: /What did Dana say/ });
+  expect(screen.queryByRole('button', { name: 'Research a question' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
   const ask = await screen.findByRole('dialog', { name: 'Ask' });
   const toggle = await within(ask).findByRole('switch', { name: /^Deep research/ });
-  await waitFor(() => expect(toggle).toBeChecked());
+  await waitFor(() => expect(toggle).toBeEnabled());
+  await userEvent.click(toggle);
   await userEvent.type(
     within(ask).getByRole('textbox', { name: 'Your question' }),
     'What changed in the garden?{Enter}',

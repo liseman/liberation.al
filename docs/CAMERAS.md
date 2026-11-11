@@ -70,9 +70,10 @@ mount = { height_m = 1.5, outdoor = false }
 ```
 
 `height_m` is the camera's height above the floor, measured to its lens. It checks that the floor found in that camera's
-point cloud is the camera's own ([Places](PLACES.md#look-at-a-cameras-point-cloud)); it does not size the cloud.
-`outdoor = true` marks a camera that looks outdoors. A camera carried on a moving rig takes `rig`, `at`, `turn`, and
-`hfov_deg` instead ([config/devices.example.toml](../config/devices.example.toml) has an example).
+point cloud is the camera's own ([Places](PLACES.md#look-at-a-cameras-point-cloud)); a cloud gets its size from your
+plan's walls, and where it has a floor the height sizes it upwards. `outdoor = true` marks a camera that looks outdoors.
+A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg` instead
+([config/devices.example.toml](../config/devices.example.toml) has an example).
 
 ## Put it on a place's plan
 

@@ -49,13 +49,19 @@ up on the machine ([the steps](../MIGRATING.md#each-cameras-own-point-cloud)); w
 2. Pick a camera under **Camera**. The view opens from that camera's own viewpoint and draws its points.
 3. Press **See it from outside** to step back from the camera and look at the cloud from elsewhere.
 
-![The 3D view of the demo household's front-room camera: the room as a cloud of points, with the camera picker above and the colour, point size, and floor controls below](images/demo-3d-view.png)
+![The 3D view of the demo household's front-room camera: the room as a cloud of points, with the camera picker and the line about its cloud above, and the colour, point size, floor, and Flat walls and floor controls below](images/demo-3d-view.png)
 
 **One camera** shows that camera's cloud by itself. **All cameras** puts every camera's cloud where its camera stands
 on your plan ([See every camera's cloud in one scene](#see-every-cameras-cloud-in-one-scene)).
 
-The line beside the picker says how many points the cloud has and when it was made. "Approximate size" means the
-distances are the model's own estimate, which can be a tenth off or more.
+The line beside the picker says how many points the cloud has, when it was made, how it was levelled, and whether
+it is fitted to the room: resized and slid so that its walls land on your plan's walls, which makes your plan's
+dimensions its measurement. A cloud that isn't fitted says why, and "Approximate size": its distances are the
+model's own estimate, which can be a tenth off or more.
+
+For a fitted camera, **Flat walls and floor** is on: the floor and the walls it was fitted to are drawn as flat
+surfaces on your plan's walls, with what the camera saw painted on them. Furniture stays as points, and where the
+camera saw nothing there is a hole. Clear it to see every point where the cloud has it.
 
 When a camera has no cloud, the view says why:
 
@@ -78,18 +84,34 @@ A cloud is made again when the camera's view changes.
    ([Give a camera a spot on the plan](#give-a-camera-a-spot-on-the-plan)).
 2. In the 3D view, switch from **One camera** to **All cameras**.
 
-![All cameras on the demo household: four cameras' clouds standing on the plan's outline, each where its camera is](images/demo-3d-all-cameras.png)
+![All cameras on the demo household: four cameras' clouds on the plan's outline, each where its camera is, with flat floors and walls and the Flat walls and floor option ticked](images/demo-3d-all-cameras.png)
 
-Each camera's cloud is drawn where its camera stands on your plan. The clouds are separate layers and are never
-blended: each camera shows only what it sees, so expect gaps and seams. Under the view is a row for each camera:
+Each camera's cloud is drawn where its camera stands on your plan, and fitted to the room it is in. The clouds are
+separate layers and are never blended: each camera shows only what it sees, so expect gaps and seams. With **Flat
+walls and floor** on, as it is to begin with, each fitted cloud's floor and walls are drawn flat on your plan's
+walls: a flat wall is your plan's wall with what the camera saw painted on it.
+
+The clouds already made are brought up to date when the view opens, with Learn surroundings off too.
+
+Under the view is a row for each camera:
 
 - The checkbox shows or hides its points.
 - The colour is its outline in the scene, and its points' tint when the points are coloured **By camera**.
 - **Look from** moves the view to where the camera stands.
 - The arrow at the end opens the details: how the camera was placed, whether its cloud was levelled from its floor
-  or its walls and squared to your plan by its walls, when its picture was taken, what its pictures share with
-  another camera's, and how many of its points fall outside your plan's rooms. "Walls in this cloud bend" is the
-  model's depth estimate, not the placement.
+  or its walls and squared to your plan by its walls, how it was fitted to the room, when its picture was taken, what
+  its pictures share with another camera's, and how many of its points fall outside your plan's rooms. "Walls in this
+  cloud bend" is the model's depth estimate, not the placement.
+
+The fitted line reads "Fitted to the room", with how much the cloud was resized, how far it was moved, and how many
+walls it was matched to. One wall gives its size, not where it stands across that wall. A cloud that isn't fitted
+stays as it was, and says why:
+
+| It says | Meaning | Do this |
+|---|---|---|
+| No wall in view | The camera sees no wall to fit by | Nothing: it is placed from its spot |
+| The wall it sees isn't where a wall of your plan is | It may be an island, a half wall, or furniture that the plan doesn't draw | Nothing, or draw the wall on your plan if it is one |
+| Its walls ask for more than a fit may do | The fit would resize or move the cloud too far | Check where the camera's spot is |
 
 The word on each row says how the camera is placed:
 

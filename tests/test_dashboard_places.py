@@ -5,7 +5,7 @@ import json
 import socket
 import threading
 from dataclasses import replace
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import numpy as np
 import pytest
@@ -856,7 +856,7 @@ def test_a_cameras_own_cloud_is_the_scene_asked_for_by_camera(tmp_path, vision, 
     reply = view.scene(tmp_path, place, camera="hall")[1]
     assert (reply["revision"], reply["map_format"], reply["map_bytes"]) == (cloud.id, "ply", len(CLOUD))
     assert reply["view"] == {"camera": "hall", "size": "approximate", "floor_found": True, "points": 1024, "at": T,
-                             "level": "floor", "tilt_deg": 0.0, "roll_deg": 0.0}  # fmt: skip
+                             "level": "floor", "tilt_deg": 0.0, "roll_deg": 0.0, "fit": None, "flat": False}  # fmt: skip
     assert reply["floor"] == [0.0, 0.0, 1.0, 0.0] and reply["splat"] is None and reply["plan"] is None
     assert reply["cameras"]["hall"]["pose"][11] == 1.5  # the camera, where it stands in its own cloud
     assert [(v["camera"], v["cloud"], v["why"]) for v in reply["views"]] == [
@@ -866,6 +866,103 @@ def test_a_cameras_own_cloud_is_the_scene_asked_for_by_camera(tmp_path, vision, 
     query = dict(pair.split("=") for pair in urlsplit(reply["map"]).query.split("&"))
     served = view.map_file(tmp_path, place, query["revision"], query["camera"])
     assert served is not None and served.read_bytes() == CLOUD
+
+
+def room_cloud(state, camera: str, where: tuple[float, float], size: float = 1.0):
+    """Keep a cloud for `camera` of the Den's far and right walls and its floor (the plan's den is 4 m by 6 m, drawn
+    y down), as a camera at plan `where` facing up the page sees them, `size` times too big. Made the old way: with
+    no `level`, so the view has it to bring up to date."""
+    from liberational.spatial import camera_clouds
+
+    rng = np.random.default_rng(2)
+    n = 3000
+    ground = np.c_[rng.random(n) * 4.0, rng.random(n) * 6.0, np.zeros(n)]
+    far = np.c_[rng.random(n) * 4.0, np.full(n, 6.0), rng.random(n) * 2.4]  # the scene's y runs up: the plan's y = 0
+    right = np.c_[np.full(n, 4.0), rng.random(n) * 6.0, rng.random(n) * 2.4]
+    eye = np.array([where[0], 6.0 - where[1], 0.0])
+    own = (np.concatenate([ground, far, right]) - eye) * size
+    cloud = camera_clouds.Cloud(
+        id="00000000-0000-7000-8000-000000000077", camera=camera, at=T + 5, points=len(own), share=0.8,
+        size="approximate", floor_found=True, pose=(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 1.5 * size, 0, 0, 0, 1),
+        focal=300.0, width=512, height=288,
+    )  # fmt: skip
+    store = camera_clouds.Store(camera_clouds.root(state))
+    store.replace(
+        camera_clouds.Made(cloud, ply.dumps(own, np.full((len(own), 3), 120, np.uint8)), np.zeros((4, 4, 3), np.uint8))
+    )
+    return store, cloud
+
+
+def rows_of(data: bytes) -> np.ndarray:
+    rows = ply.vertices(data)
+    assert rows is not None
+    return rows
+
+
+ROOMY = plans.scene(
+    'plan "Home" walls 0.2/0.1\nroom den "Den" living rect 0,0 4x6\nx-camera hall at 1,5 height 1.5 yaw 0\n'
+)
+
+
+@pytest.fixture
+def roomy(tmp_path, vision, learn):
+    """A place whose plan has one room and one camera spot, the camera with a cloud a tenth too big, and Learn
+    surroundings off."""
+    place = places.revise(tmp_path, None, producer="footprints-v1", now=T).place
+    places.correct_plan(tmp_path, place, ROOMY, now=T + 1)
+    learn(False, ())
+    store, cloud = room_cloud(tmp_path, "hall", (1.0, 5.0), size=1.1)
+    return place, store, cloud
+
+
+def test_a_stored_cloud_is_fitted_to_its_room_when_the_view_asks_with_learning_off(tmp_path, roomy):
+    place, _, _ = roomy
+    reply = view.scene(tmp_path, place, combined=True)[1]
+    assert reply["learning"] == {"on": False, "cameras": 0}
+    (hall,) = reply["combined"]["cameras"]
+    assert (hall["placed"], hall["squared"], hall["fitted"], hall["level"]) == (True, True, True, "floor")
+    assert hall["fit"]["scale"] == pytest.approx(1 / 1.1, abs=0.02)
+    assert len(hall["fit"]["walls"]) == 2
+    assert plan_of(tmp_path, place) == ROOMY  # the owner's plan and spots are as they were
+
+
+def test_the_scene_is_drawn_flat_unless_asked_for_as_it_is_and_each_drawing_has_its_own_revision(tmp_path, roomy):
+    place, _, _ = roomy
+    flat = view.scene(tmp_path, place, combined=True)[1]
+    raw = view.scene(tmp_path, place, combined=True, flat=False)[1]
+    assert raw["revision"] == flat["revision"] + "r"
+    assert raw["combined"] == flat["combined"]
+    served = {}
+    for name, reply in (("flat", flat), ("raw", raw)):
+        query = dict(parse_qsl(urlsplit(reply["map"]).query))
+        assert query["scene"] == "1"
+        found = view.scene_file(tmp_path, place, query["revision"])
+        assert found is not None and found.stat().st_size == reply["map_bytes"]
+        served[name] = rows_of(found.read_bytes())
+    walls = served["flat"][served["flat"]["z"] > 0.3]
+    # on the plan's far wall: the top of the page, which is y = 0 in the scene (a page's y runs down, the scene's up)
+    assert walls[walls["x"] < 3.9]["y"] == pytest.approx(0.0, abs=1e-4)
+    assert not np.allclose(served["raw"]["y"], served["flat"]["y"])
+    assert view.scene_file(tmp_path, place, "0" * 32) is None
+
+
+def test_a_fitted_cameras_own_cloud_is_drawn_flat_at_the_rooms_size_unless_asked_for_as_it_is(tmp_path, roomy):
+    place, store, cloud = roomy
+    reply = view.scene(tmp_path, place, camera="hall")[1]
+    assert reply["revision"].startswith("flat-") and reply["view"]["flat"] is True
+    assert reply["view"]["fit"]["state"] == "fitted"
+    assert reply["cameras"]["hall"]["pose"][11] == pytest.approx(1.5, abs=0.04)  # the camera, at the room's size
+    query = dict(parse_qsl(urlsplit(reply["map"]).query))
+    found = view.map_file(tmp_path, place, query["revision"], query["camera"])
+    assert found is not None and found.stat().st_size == reply["map_bytes"]
+    own = rows_of(found.read_bytes())
+    assert own[(own["z"] > 0.3) & (own["x"] < 2.9)]["y"] == pytest.approx(
+        5.0, abs=1e-3
+    )  # the far wall, 5 m ahead, flat
+    assert view.map_file(tmp_path, place, "flat-" + "0" * 32, "hall") is None
+    as_it_is = view.scene(tmp_path, place, camera="hall", flat=False)[1]
+    assert (as_it_is["revision"], as_it_is["view"]["flat"]) == (cloud.id, False)
+    assert view.map_file(tmp_path, place, cloud.id, "hall") == store.file(cloud)
 
 
 def test_with_no_camera_asked_for_the_view_opens_on_the_first_camera_that_has_a_cloud(tmp_path, vision, learn):
