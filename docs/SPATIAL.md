@@ -69,6 +69,13 @@ out at the plan's floor, and the depth is scaled to put it there, since the heig
 model's metres are not. A scale outside 0.75 to 1.35 refuses the view. A place with such a view stands in its
 plan's frame from then on, and a map learned earlier in a frame of its own is started again there.
 
+One scale puts the floor right and leaves far walls short, because the depth model bends with distance. So each
+spot view's depth is then fitted to the plan's walls and floor as seen from its pose (`spatial/plan_depth.py`): a
+scale and a shift in inverse depth, with furniture and people left out. The map's points and the splat use the
+fitted depth; the model's depth image is kept as it was given. A view the plan can't fit keeps the floor's scale, and
+the Places page says which camera has such views. A map learned before its views were fitted is started again from
+the kept frames.
+
 **A spot is checked against the plan, once** (`spatial/spot_check.py`). A view's depth is too rough to measure a spot
 by how near its points fall to the plan's walls, so the check uses what the picture and the plan agree on whatever
 the depth's scale: the directions straight edges vanish in, a floor that is flat and at the plan's level, rays that
