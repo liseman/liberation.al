@@ -161,7 +161,6 @@ def collect(state: Path, start: float, end: float, cameras: Sequence[str]) -> li
     from continuum_py import read_segments
 
     from liberational.see.actions import POSE_SCHEMA
-    from liberational.see.actions_worker import POSES
 
     root = segment_log.root(state)
     out: list[Footprint] = []
@@ -170,7 +169,7 @@ def collect(state: Path, start: float, end: float, cameras: Sequence[str]) -> li
         while at < end:
             upto = min(end, at + HOUR_S)
             lo, hi = round(at * NS), round(upto * NS)
-            out += sample(camera, read_segments(root, POSES, POSE_SCHEMA, lo, hi, [camera]))
+            out += sample(camera, read_segments(root, segment_log.POSE_TRACKS, POSE_SCHEMA, lo, hi, [camera]))
             animals = read_segments(
                 root, segment_log.ANIMAL_DETECTIONS, segment_log.ANIMAL_DETECTION_SCHEMA, lo, hi, [camera]
             )

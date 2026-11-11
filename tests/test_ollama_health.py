@@ -165,9 +165,9 @@ def test_the_caption_vlm_logs_one_line_and_stops_posting_every_frame(capsys, mod
     backend = vlm.OllamaVLM("qwen3-vl:4b-instruct")
     model_server.reply = REFUSED
     with cfg.override({"ollama": {"url": URL}}):
-        assert backend.caption(frame, []) == ""
-        assert backend.caption(frame, []) == ""
-        assert backend.caption(frame, []) == ""
+        assert backend.caption(frame) == ""
+        assert backend.caption(frame) == ""
+        assert backend.caption(frame) == ""
     assert len(model_server.sent) == 1
     err = capsys.readouterr().err
     assert err.count("Ollama isn't running") == 1
@@ -410,7 +410,7 @@ def test_every_vision_model_call_asks_for_the_same_context_so_ollama_never_reloa
     model_server.says("A desk.")
     with cfg.override({"ollama": {"url": URL}}):
         backend.warm()
-        backend.caption(frame, [])
+        backend.caption(frame)
         backend.ground(frame)
     sent = [(s.path, s.payload.get("options", {}).get("num_ctx")) for s in model_server.sent]
     assert sent == [("/api/generate", 4096), ("/api/chat", 4096), ("/api/chat", 4096)]
@@ -418,7 +418,7 @@ def test_every_vision_model_call_asks_for_the_same_context_so_ollama_never_reloa
 
 @pytest.mark.parametrize(
     ("method", "args"),
-    [("warm", ()), ("caption", (np.zeros((32, 32, 3), np.uint8), [])), ("ground", (np.zeros((32, 32, 3), np.uint8),))],
+    [("warm", ()), ("caption", (np.zeros((32, 32, 3), np.uint8),)), ("ground", (np.zeros((32, 32, 3), np.uint8),))],
 )
 def test_background_vision_waits_before_sending_inference(monkeypatch, model_server, method, args):
     from liberational import voice_turn
@@ -476,9 +476,9 @@ def test_inprocess_caption_gate_can_be_bypassed_by_already_gated_server(monkeypa
     backend.thread = threading.get_ident()
     backend.px = 448
     backend.model = backend.processor = None
-    backend._prompt = lambda memory: "Describe this image."
+    backend._prompt = lambda: "Describe this image."
     backend._generate = generate
-    assert backend.caption(np.zeros((32, 32, 3), np.uint8), []) == "A desk."
+    assert backend.caption(np.zeros((32, 32, 3), np.uint8)) == "A desk."
     assert events == (["quiet", "inference"] if background else ["inference"])
 
 
@@ -499,7 +499,7 @@ def test_server_caption_waits_before_queueing_http_request(monkeypatch):
     backend = vlm.MlxServerVLM.__new__(vlm.MlxServerVLM)
     backend.url, backend.timeout = "http://127.0.0.1:9999", 1
     with patch.object(vlm.requests, "post", autospec=True, side_effect=post):
-        assert backend.caption(np.zeros((32, 32, 3), np.uint8), []) == "A desk."
+        assert backend.caption(np.zeros((32, 32, 3), np.uint8)) == "A desk."
     assert events == ["quiet", "inference"]
 
 

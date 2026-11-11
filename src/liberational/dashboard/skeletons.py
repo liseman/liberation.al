@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 from liberational import segment_log
 from liberational.dashboard import routes
 from liberational.see.actions import POSE_SCHEMA, SCALE
-from liberational.see.actions_worker import POSES
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -56,7 +55,9 @@ def poses(state: str | Path, *, cam: str, track_id: str, start: float, end: floa
 
     if not end > start or end - start > MAX_WINDOW_S:
         raise ValueError(f"the window must be positive and at most {MAX_WINDOW_S:.0f} s")
-    rows = read_segments(segment_log.root(state), POSES, POSE_SCHEMA, round(start * NS), round(end * NS), [cam])
+    rows = read_segments(
+        segment_log.root(state), segment_log.POSE_TRACKS, POSE_SCHEMA, round(start * NS), round(end * NS), [cam]
+    )
     frames = []
     for i, tid in enumerate(rows["track_id"]):
         if str(int(tid)) != track_id:

@@ -96,12 +96,13 @@ def _bodies(
     majority of the known faces on their pose track. [] when the segment store can't be read."""
     from liberational import segment_log
     from liberational.see.actions import POSE_SCHEMA
-    from liberational.see.actions_worker import POSES
 
     try:
         from continuum_py import read_segments  # the native store; a machine without it shows faces only
 
-        rows = read_segments(segment_log.root(state), POSES, POSE_SCHEMA, round(start * NS), round(end * NS), [cam])
+        rows = read_segments(
+            segment_log.root(state), segment_log.POSE_TRACKS, POSE_SCHEMA, round(start * NS), round(end * NS), [cam]
+        )
     except Exception as error:  # no pose segments here, or the store unreadable: faces still show
         LOG.debug("Review's body boxes unavailable for %s: %s", cam, error)
         return []

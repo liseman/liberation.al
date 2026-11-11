@@ -2,7 +2,10 @@
 
 see-actions' detector (RF-DETR Small, see/gpu_pose.py) boxes animals too. This path was added when that detector was
 YOLOX-nano, which on the Linux machine gave the household dog 0.04 to 0.11 (its threshold was 0.35) while about one
-caption in six named the dog. So the caption pipeline finds them:
+caption in six named the dog. RF-DETR Small boxes the household's dog, so this path's reason is no longer that the
+detector misses animals; it stays a second, caption-triggered source beside it: a caption that names an animal asks
+directly, and its `animal.grounding` rows and embeddings carry track ids of their own, which pet recognition reads
+alongside see-actions' `animal.detection` and `animal.embedding`. So the caption pipeline finds them:
 
 - Any grounding of the frame (the scheduled one, `see/captions.py`) that boxes an animal species gives its boxes.
 - Otherwise, a fresh caption that names an animal (a species word such as "dog" or "kittens", "pet" or "animal", or a

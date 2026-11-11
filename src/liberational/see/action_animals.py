@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 
 from liberational import logs, segment_log
-from liberational.see.vision_backend import Backend, People
+from liberational.see.vision_backend import Backend, People, detector_model
 from liberational.vision import animal_embedder, crossings
 
 LOG = logs.get("see-actions")
@@ -44,7 +44,6 @@ EMBED_MAX_S = 300.0  # up to this, so a cat asleep in view all afternoon adds a 
 HEAD_SHARE = 0.35  # the top of a person box their head is in
 HEAD_INSIDE = 0.5  # an animal box this much inside a person's head region is that head
 MIN_EMBED_PX = 48  # and only when its box's shorter side has this many pixels
-DETECTOR = "rfdetr_small"  # [models.files.person_detector]
 
 Write = Callable[[str, list[dict[str, Any]]], None]
 
@@ -153,7 +152,7 @@ class Animals:
                     "species": species,
                     "box": list(box),
                     "verified": self.verify,
-                    "model": DETECTOR,
+                    "model": detector_model(),
                 }
                 for track_id, (species, _, box) in zip(ids, confirmed, strict=True)
             ],
