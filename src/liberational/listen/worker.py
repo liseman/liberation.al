@@ -106,6 +106,16 @@ class Candidate:
 class Vad(Protocol):
     def feed(self, block: np.ndarray) -> Any: ...
 
+    def tune(self, margin_db: float, min_dbfs: float) -> None: ...
+
+
+def _tuning(mic: Mic) -> tuple[float, float]:
+    """The energy VAD's margin and floor for this mic, from its sensitivity now (audio/sensitivity.py)."""
+    from liberational.audio import sensitivity
+
+    t = sensitivity.tuning(sensitivity.value(mic.name))
+    return t.margin_db, t.min_dbfs
+
 
 async def ring_batches(
     reader: continuum_py.RingReader, pace_s: float = READ_PACE_S
@@ -143,6 +153,7 @@ class MicPipeline:
         self.mic, self.fmt, self.clock, self.new_vad = mic, fmt, clock, vad
         self.gain, self.monotonic = gain, monotonic
         self.breaks = 0
+        self._tuned_at: float | None = None  # when the VAD last took its sensitivity, so a rewrite lands within 1 s
         self.levels: list[float] = []  # each record's dBFS since the last levels line
         self.levels_clock = logs.Periodic()  # the levels line each minute: INFO every 10 minutes, else DEBUG (#59)
         self.candidates = 0
@@ -152,6 +163,7 @@ class MicPipeline:
         self.continuity = Continuity(self.fmt)
         self.resampler = Resampler(self.fmt.rate_hz)
         self.vad = self.new_vad()
+        self._tuned_at = None  # a fresh VAD has its constructor defaults until the next feed tunes it
         self.idx = 0  # 16 kHz samples fed to this VAD
         # (16 kHz index, UTC ns) at each record's start, for the last minute: a VAD index maps through the nearest
         # earlier mark, so the sample clock's drift against UTC never accumulates past one record.
@@ -172,6 +184,13 @@ class MicPipeline:
             log.info("%s: %s; starting the VAD afresh", self.mic.stream, why)
             self._restart()
             self.continuity.check(host_ns, first)
+        now = self.monotonic()
+        if self._tuned_at is None or now - self._tuned_at >= 1.0:
+            # The sensitivity the owner set applies within about a second without a restart (audio/sensitivity.py),
+            # so re-read it once a second: _local_audio is stat-cached, so this is a stat, not a read.
+            self._tuned_at = now
+            if (tune := getattr(self.vad, "tune", None)) is not None:
+                tune(*_tuning(self.mic))
         if self.gain is not None and (factor := self.gain.factor) != 1.0:
             x = x * np.float32(factor)  # software gain, before everything that hears the mic
         y = self.resampler(x)
@@ -184,7 +203,6 @@ class MicPipeline:
         self.candidates += len(out)
         if self.gain is not None:
             # Gain learns only from confirmed transcriptions in Worker._commit, never raw noise candidates.
-            now = self.monotonic()
             self.gain.tick(now, bool(getattr(self.vad, "in_speech", False)))
             if (changed := self.gain.take_change()) and (shift := getattr(self.vad, "shift", None)) is not None:
                 before = getattr(self.vad, "floor", float("nan"))
@@ -300,16 +318,22 @@ class Heard:
 class Transcriber:
     """The gate, ASR, and embedding for every microphone, on one dedicated thread (MLX models must be used on the
     thread that made them). `gate` (the Silero speech gate) drops a candidate with too little speech; `asr` is
-    `speech.asr.ASR` or a test's stand-in; `embed` makes the ReDimNet2 B3 voiceprint (None to skip it)."""
+    `speech.asr.ASR` or a test's stand-in; `embed` makes the ReDimNet2 B3 voiceprint (None to skip it).
+
+    `gate_for` picks the gate by the microphone's name (`<device>.audio` from the worker, the bare name from
+    ingest), so each mic's own sensitivity sets its threshold; a constant `gate` is the default for a caller that
+    has only one."""
 
     def __init__(
         self,
         asr: Callable[[], Callable[[np.ndarray], str]],
         *,
         gate: Callable[[np.ndarray], bool] | None = None,
+        gate_for: Callable[[str], Callable[[np.ndarray], bool] | None] | None = None,
         embed: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> None:
-        self._make_asr, self.gate, self.embed = asr, gate, embed
+        self._make_asr, self.embed = asr, embed
+        self._gate_for = gate_for or (lambda _device: gate)
         self._asr: Callable[[np.ndarray], str] | None = None
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="listen-asr")
 
@@ -317,9 +341,10 @@ class Transcriber:
         lat: dict[str, int] = {}
         was = dbfs(audio)
         audio = level(audio)
+        gate = self._gate_for(mic)
         t = time.perf_counter()
-        if self.gate is not None and not self.gate(audio):
-            found = getattr(self.gate, "last_speech_s", None)
+        if gate is not None and not gate(audio):
+            found = getattr(gate, "last_speech_s", None)
             log.debug(  # one a clip, so DEBUG (#59)
                 "%s: %.1f s at %.1f dBFS: not speech%s",
                 mic or "a mic",
@@ -737,7 +762,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         return gate.VAD(margin_db=t.margin_db, min_dbfs=t.min_dbfs)
 
     transcriber = Transcriber(
-        ASR, gate=gate.speech_gate(), embed=SpeakerEmbedding(Path(cfg.model_path("speaker_embedding")))
+        ASR, gate_for=gate.Gates(), embed=SpeakerEmbedding(Path(cfg.model_path("speaker_embedding")))
     )
 
     async def run() -> None:

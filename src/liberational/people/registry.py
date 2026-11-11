@@ -1652,23 +1652,6 @@ def _phone(state: str | None, name: str, number: str | None, clear: bool) -> int
     return 0
 
 
-def ambiguous(state: str | pathlib.Path | None = None) -> dict[str, list[str]]:
-    """Each legacy (millisecond-only) line id anything was said under that more than one transcript line starts in,
-    from different devices, with those lines' keys. What was said under such an id counts for all of them.
-    Reads only; with no event log there is nothing to check."""
-    state = pathlib.Path(state if state is not None else cfg.path("paths.state"))
-    if not log_exists(state):
-        return {}
-    legacy = at(state).legacy_lines()
-    keys: dict[str, set[str]] = collections.defaultdict(set)
-    for e in _transcript(state / "transcript.jsonl"):
-        if not isinstance(e.get("ts_start"), int | float) or isinstance(e.get("ts_start"), bool):
-            continue
-        if (old := legacy_of(utterance_of(e))) is not None and old.id in legacy:
-            keys[old.id].add(key_of(e))
-    return {i: sorted(k) for i, k in sorted(keys.items()) if len(k) > 1}
-
-
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="The person registry over the event log (docs/DOMAIN-MODEL.md).")
     ap.add_argument("--state-dir", default=None, help="state directory (paths.state by default)")
@@ -1681,38 +1664,12 @@ def main(argv: list[str] | None = None) -> None:
     phone.add_argument("--clear", action="store_true", help="remove the person's number")
     who = sub.add_parser("who", help="who a subject is, with the assertions behind it")
     who.add_argument("subject", help="such as speaker:4, utterance:elgato-wave-3@1761234567.123, or sighting:812")
-    sub.add_parser(
-        "ambiguous", help="list old line ids (a millisecond alone) that more than one microphone's line starts in"
-    )
-    sub.add_parser(
-        "lines", help="after labels became events: list lines whose name differs from what they showed before"
-    )
-    md = sub.add_parser("transcript", help="rebuild transcript/<day>.md from transcript.jsonl and the log")
-    md.add_argument("days", nargs="*", help="YYYY-MM-DD (every day by default)")
     a = ap.parse_args(argv)
     if a.cmd == "backfill":
         print(json.dumps(backfill(a.state_dir)))
         return
-    if a.cmd in ("lines", "transcript"):
-        from liberational.people import transcript_view
-
-        state = pathlib.Path(a.state_dir) if a.state_dir else cfg.path("paths.state")
-        if a.cmd == "transcript":
-            print(json.dumps({"rebuilt": transcript_view.rebuild_markdown(state, a.days or None)}))
-            return
-        changed = transcript_view.changed_names(state)
-        for ts, before, after in changed:
-            print(f"{ts:.3f}  {before!r} -> {after!r}")
-        print(f"{len(changed)} line(s) read differently")
-        sys.exit(1 if changed else 0)
     if a.cmd == "phone":
         sys.exit(_phone(a.state_dir, a.name, a.number, a.clear))
-    if a.cmd == "ambiguous":
-        found = ambiguous(a.state_dir)
-        for old, keys in found.items():
-            print(f"{old}  {', '.join(keys)}")
-        print(f"{len(found)} old line id(s) name more than one line")
-        return
     reg = at(a.state_dir)
     if a.cmd == "people":
         for p in reg.people():

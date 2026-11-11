@@ -49,7 +49,7 @@ def test_a_reply_thinks_then_speaks_then_goes_idle_and_is_committed(
     heard = {"id": "0190c8e0-0000-7000-8000-000000000009", "ts_start": 5.0, "text": "hey bob what time is it"}
     reply = voice.handle(heard["text"], speaker, heard)  # ty: ignore[invalid-argument-type]
     assert reply == "It's ten past nine."
-    assert on_continuum.turns == ["Listening", "Thinking", "Speaking", "Idle"]
+    assert on_continuum.turns == ["Thinking", "Speaking", "Idle"]
     assert speaker.turn_while_speaking == "Speaking"
     ((stream, line),) = on_continuum.appended
     assert stream == speech_log.REPLIES

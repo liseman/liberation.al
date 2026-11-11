@@ -297,7 +297,7 @@ def test_an_empty_store_reads_as_empty(store: Path) -> None:
         log.close()
 
 
-def test_retained_is_every_utterance_in_time_order_as_copies(
+def test_retained_is_every_utterance_in_time_order_as_read_only_rows(
     broker: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write(
@@ -312,8 +312,10 @@ def test_retained_is_every_utterance_in_time_order_as_copies(
     try:
         got = speech_log.retained()
         assert "seq" not in got[0]
-        got[0]["text"] = "changed by a caller"
-        assert [line["text"] for line in speech_log.retained()] == ["sooner", "later"]
+        assert isinstance(got, tuple), "a caller cannot append to the cache"
+        assert speech_log.retained() is got, "the same rows, no copy per call"
+        transcript_view.View(store).lines(got)  # a projection reads them without changing them
+        assert [line["text"] for line in speech_log.retained()] == ["sooner", "later"], "the projection leaves them"
         write(store, "mic", (speech_log.UTTERANCES, {"ts_start": T + 3, "text": "new"}))
         assert [line["text"] for line in speech_log.retained()] == ["sooner", "new", "later"], "a new line is seen"
     finally:

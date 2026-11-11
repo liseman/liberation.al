@@ -98,17 +98,19 @@ _store_lock = threading.Lock()
 
 
 def store(state: str | pathlib.Path | None = None) -> SQLiteStore:
-    """One adapter per install; every operation reads the SQLite source of truth."""
+    """One adapter per install; every operation reads the SQLite source of truth. The backend is the process-wide
+    `knowledge.at` store for that file, so a forgotten-name read shares its connections and its rebuild after a
+    state reset instead of opening a second `Store` on the same database."""
     path = (pathlib.Path(state) if state is not None else cfg.path("paths.state")) / "knowledge.sqlite3"
     path = path.resolve()
     with _store_lock:
         if path not in _stores:
-            _stores[path] = SQLiteStore(knowledge.Store(path))
+            _stores[path] = SQLiteStore(knowledge.at(path))
         return _stores[path]
 
 
 def reset() -> None:
-    """Drop cached adapters without deleting suppression; the next call reopens its install's database."""
+    """Drop cached adapters without deleting suppression; the next call rewraps its install's `knowledge.at` store."""
     with _store_lock:
         _stores.clear()
 
