@@ -202,3 +202,25 @@ def test_the_dashboard_serves_the_call_on_now(serve_dashboard, monkeypatch, tmp_
     c.close()
     assert response.status == 200
     assert (body["count"], body["live"]["direction"], body["live"]["name"]) == (1, "in", None)
+
+
+def test_a_calls_recording_is_sent_with_one_cache_control_header(serve_dashboard, monkeypatch, tmp_path):
+    """_wav_file read the whole recording into memory and named Cache-Control again on top of the one _media sends,
+    so the reply carried it twice. urllib folds duplicate headers away, so this reads the raw response."""
+    folder = tmp_path / "2026-11-06" / "130200_CA9"
+    folder.mkdir(parents=True)
+    (folder / "mixed.wav").write_bytes(b"RIFF\0\0\0\0WAVEfmt ")
+    monkeypatch.setattr(call_log, "CALLS_DIR", tmp_path)
+    connection = http.client.HTTPConnection(serve_dashboard().removeprefix("http://"), timeout=5)
+    try:
+        connection.request("GET", "/calls/audio?day=2026-11-06&dir=130200_CA9&which=mixed")
+        response = connection.getresponse()
+        body = response.read()
+        assert (response.status, body) == (200, b"RIFF\0\0\0\0WAVEfmt ")
+        assert response.msg.get_all("Cache-Control") == ["no-store"]
+        # A recording the retention pass took is still a 404, now from _media (the read that used to answer it is gone).
+        connection.request("GET", "/calls/audio?day=2026-11-06&dir=130200_CA9&which=bot")
+        missing = connection.getresponse()
+        assert (missing.status, json.loads(missing.read())) == (404, {"error": "not found"})
+    finally:
+        connection.close()

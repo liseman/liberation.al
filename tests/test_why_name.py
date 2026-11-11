@@ -108,6 +108,35 @@ def test_a_request_it_cant_answer_says_why(state, query, code):
     assert why(**query)[1] == code
 
 
+def test_a_time_a_millisecond_and_a_half_off_names_the_line_on_every_route(state):
+    """/clip?ts_start= and /identity/why?ts_start= used two tolerances (2 ms and 1.5 ms), so a client that sent a
+    time the one way could hit one route and miss the other. Both take LINE_MATCH_S now."""
+    from liberational.dashboard import transcript_lines
+
+    assert transcript_lines.LINE_MATCH_S == 0.002
+    assert transcript_lines.find_entry(1000.0 + 0.0018) is not None  # what /clip?ts_start= looks up
+    body, code = why(ts_start=1000.0 + 0.0018)  # what /identity/why?ts_start= looks up
+    assert (code, body["name"]) == (200, "Dana")
+
+
+def test_the_lines_near_a_line_are_read_around_it_not_from_the_newest(state, monkeypatch):
+    """GET /identity/why shows a line's neighbours, where another mic's copy of it is. They are read from the hour
+    around it, not by walking every line newer than it."""
+    from liberational.dashboard import transcript_lines
+
+    rows = [line(1000.0 + i, f"line {i}") for i in range(5)]
+    fake().write(rows)
+    real = transcript_lines.heard_lines
+
+    def counted(start: float = 0.0, end: float | None = None):
+        assert start != 0.0, "the neighbours are read around the line, not from the newest one"
+        return real(start, end)
+
+    monkeypatch.setattr(transcript_lines, "heard_lines", counted)
+    near = people_reads.lines_near(rows[2], n=2)
+    assert [e["text"] for e in near] == ["line 3", "line 4", "line 1", "line 0"]
+
+
 def test_a_recorded_face_is_explained_by_its_match_until_the_owner_corrects_it(state, vision):
     ts = round(time.time() - 60.0, 3)  # shots are looked for over the last 30 days
     row = vision.face(ts, "cam0", "Dana", 0.62)["id"]

@@ -13,6 +13,7 @@ import socket as py_socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -87,9 +88,33 @@ def _startup_error(binary: str, process: subprocess.Popen[bytes], stderr: Binary
     return f"broker {binary}: {reason}; exit={process.poll()}; stderr: {detail or '(empty)'}"
 
 
+#: The thread the test itself runs on (conftest points this at each test): the only thread where pytest's skip can
+#: be reported. Every other thread a test has going (a request being answered, a worker the test started) has no test
+#: to skip, so a missing build there is an ordinary error and the work fails or answers as an install with no broker
+#: does, instead of a skip that ends somebody else's thread.
+TEST_THREAD: threading.Thread | None = None
+
+
+def from_the_test() -> bool:
+    """Whether this is the thread the test runs on, where a skip means "this test needs a broker"."""
+    return TEST_THREAD is not None and threading.current_thread() is TEST_THREAD
+
+
+def broker_or_skip() -> str:
+    """`broker_binary`, but a skip only on the thread the test runs on. A request being answered, or a worker the test
+    started, has no test to skip: raising pytest's Skipped there drops a connection or kills a worker, so a missing
+    build is an ordinary error on those threads."""
+    try:
+        return broker_binary()
+    except pytest.skip.Exception as skip:
+        if from_the_test():
+            raise
+        raise RuntimeError(str(skip)) from None
+
+
 def start_broker(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
     """Yield a bounded tiny broker on a short socket path; always reap it and remove the socket directory."""
-    binary = broker_binary()
+    binary = broker_or_skip()
     die_with_parent = ["setpriv", "--pdeathsig", "KILL"] if sys.platform == "linux" and shutil.which("setpriv") else []
     with tempfile.TemporaryDirectory(prefix="cb-") as short, tempfile.TemporaryFile() as stderr:
         socket = pathlib.Path(short) / "b.sock"

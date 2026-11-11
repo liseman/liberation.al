@@ -1,7 +1,7 @@
-"""Lines to check and voice labels: the uncertain lines the owner confirms or corrects, undoing those labels,
-naming a voice, and the transcript's own corrections (moved out of the server, #61).
+"""Voice labels and the transcript's own corrections: naming a voice from its clips, undoing a label, the label
+log, and reject and undo (moved out of the server, #61).
 
-GET  /speakers, /speakers/refine, /speakers/refine/log, /speaker/<id>/latest, /speaker/<id>/latest-clip
+GET  /speakers, /speakers/refine/log, /speaker/<id>/latest, /speaker/<id>/latest-clip
 POST /speakers/tag, /speakers/label, /speakers/refine, /speakers/refine/undo
 POST /transcript/reject, /transcript/undo, /transcript/media, /transcript/not-media, /transcript/unlabel,
      /voices/unknown/media
@@ -19,13 +19,13 @@ from typing import TYPE_CHECKING, Any
 from liberational import logs, speech_log
 from liberational.dashboard import (
     context,
-    inbox_state,
     known_voices,
     live_status,
     people_list,
     people_reads,
     roster_read,
     routes,
+    shell_status,
     transcript_lines,
     unnamed_groups,
 )
@@ -50,9 +50,7 @@ def reject_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_rejection(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {
-        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
-    }
+    available = transcript_lines.lines_by_key(keys)  # the hours those lines fall in, not the whole history
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -72,9 +70,7 @@ def media_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_media(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {
-        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
-    }
+    available = transcript_lines.lines_by_key(keys)  # the hours those lines fall in, not the whole history
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -147,13 +143,31 @@ def log_mark() -> tuple[int, ...]:
         return ()
 
 
+LOG_MARK_S = 2.0  # how often the live feed asks for the mark: a label changes only when the owner gives one
+
+
+def log_mark_shared() -> tuple[int, ...]:
+    """`log_mark`, read once for every live feed open at the same moment within LOG_MARK_S. It takes the registry's
+    lock (and refreshes the streams) and reads the review revision (a knowledge-store transaction), and each open page
+    asked it twice a second; a label now shows at most LOG_MARK_S later."""
+    return shell_status.shared(("log_mark", str(context.STATE)), LOG_MARK_S, log_mark)
+
+
 def latest_for_speaker(sid: int) -> dict[str, Any] | None:
-    view = transcript_lines._view()
-    for e in transcript_lines.iter_back():
-        # A rejected line, or one with no voice, has no speaker_id.
-        if transcript_lines.has_audio(e) and (e := view.line(e)).get("speaker_id") == sid:
-            return e
+    """The newest line of one voice that has audio, read as the transcript shows it (None for a voice with none).
+    Reads the last hour first and widens to every line only when that held nothing of it: a voice heard today costs
+    an hour's read, and one unheard for months costs that plus one whole read, in one batch through the view."""
+    now = time.time()
+    for since in (now - LATEST_WINDOW_S, 0.0):
+        with_audio = [e for e in transcript_lines.heard_lines(since) if transcript_lines.has_audio(e)]
+        for e in reversed(transcript_lines._view().individual_lines(with_audio)):  # newest first
+            # A rejected line, or one with no voice, has no speaker_id.
+            if e.get("speaker_id") == sid:
+                return e
     return None
+
+
+LATEST_WINDOW_S = 3600.0  # how far back the newest clip of a voice is looked for before reading every line
 
 
 _speakers_shared: tuple[tuple[Any, ...], dict[str, Any]] | None = None
@@ -208,7 +222,7 @@ VOICE_TAGS = context.STATE / "voice_tags.jsonl"  # "this line was <name>" reques
 
 REFINE_LOG = (
     context.STATE / "refine_log.jsonl"
-)  # every label given in "Lines to check", with what it replaced, so it can be undone
+)  # every label given in "Who's this?", with what it replaced, so it can be undone
 
 
 def request_voice_tags(ts_starts: object, name: object, control: bool = False, lines: object = None) -> Reply:
@@ -290,51 +304,6 @@ def label_speaker(sid: object, name: str, control: bool = False) -> Reply:
     ok, out = known_voices._speaker_cmds([["label", str(sid), name]])
     LOG.log(logs.INFO if ok else logs.ERROR, f"label {sid} -> {name!r}: {'ok' if ok else 'FAILED'} {out[-120:]}")
     return (200 if ok else 500), {"ok": ok, "out": out, "speakers": speakers_public()}
-
-
-REFINE_PAGE = 50  # uncertain lines sent at once; "remaining" counts them all
-
-
-def speakers_refine_list() -> dict[str, Any]:
-    """Get ambiguous utterances: clips with low speaker_sim that are borderline between recognized speakers.
-    These are candidates where the auto-labeling was uncertain and manual review would help."""
-    d = known_voices._speakers()
-    spk_map = {s["id"]: s.get("label", "Speaker " + str(s["id"])) for s in d.get("speakers", [])}
-    # Find enrolled speakers (real people with enough data)
-    enrolled = [s for s in d.get("speakers", []) if s.get("enrolled")]
-    if not enrolled:
-        return {"items": [], "remaining": 0, "message": "no enrolled speakers yet"}
-    # Scan transcript for utterances from enrolled speakers that have low similarity. "remaining" counts every
-    # such line, while items holds the first REFINE_PAGE of them.
-    items, remaining = [], 0
-    skipped = set(inbox_state.inbox_skips()["line"])
-
-    def add(cand: dict[str, Any]) -> None:
-        nonlocal remaining
-        remaining += 1
-        if len(items) < REFINE_PAGE:
-            items.append(cand)
-
-    for e in transcript_lines._view().lines(transcript_lines.heard_lines()):
-        sid = e.get("speaker_id")
-        if sid is None or sid not in spk_map:
-            continue
-        if unnamed_groups.put_aside(e, skipped):
-            continue
-        sim = e.get("speaker_sim", 1.0)
-        # Low similarity but still matched the speaker. A line with no speaker id has no voice to name, so it isn't one.
-        if sim is not None and sim < 0.7 and sid in {s["id"] for s in enrolled}:
-            add(
-                {
-                    "ts_start": e.get("ts_start", 0),
-                    "line": registry.key_of(e),
-                    "speaker_id": sid,
-                    "text": (e.get("text") or "")[:200],
-                    "speaker_sim": round(sim, 3),
-                    "sim_hint": f"{sim * 100:.0f}% match to {spk_map[sid]}",
-                }
-            )
-    return {"items": items, "remaining": remaining}
 
 
 REFINE_FIELDS = ("speaker", "speaker_id", "speaker_sim", "multi_speaker", "tagged")  # a line's label, as read
@@ -452,7 +421,7 @@ def _refine_entries() -> list[dict[str, Any]]:
 
 
 def refine_log_list(limit: int = 50) -> dict[str, Any]:
-    """Labels given in Lines to check that haven't been undone, newest first."""
+    """Labels given in "Who's this?" that haven't been undone, newest first."""
     undone = {(e.get("ts_start"), e.get("undone_ts")) for e in _refine_entries() if e.get("action") == "undo"}
     live = [
         e
@@ -620,14 +589,6 @@ def _get_speakers(h: H) -> None:
 @routes.get("/speakers/refine/log")
 def _get_speakers_refine_log(h: H) -> None:
     return h._json(refine_log_list(min(500, max(1, int(h._query().get("limit", 50) or 50)))))
-
-
-@routes.get("/speakers/refine")
-def _get_speakers_refine(h: H) -> None:
-    try:
-        return h._json(speakers_refine_list())
-    except Exception as ex:
-        return h._json({"ok": False, "error": str(ex)}, 500)
 
 
 @routes.post("/speakers/tag")

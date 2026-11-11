@@ -143,8 +143,7 @@ GET  /review/summary?start=&end=  what happened over that stretch, as timeline b
 GET  /places                 Known › Places' places (dashboard/places.py): {places: [{id, name, named, plan (a scene),
                             plan_source, machine_newer, revision, last_visit}]}; a page load with text/html gets the app
 POST /places/plan            {place, plan}: the owner's plan (a scene) as taught state, or "" to withdraw it; a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
-GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn}), and
-                            `previous`, the one Revert plan puts back (or null)
+GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn})
 POST /places/plan/restore    {place, record}: make that earlier owner plan hold again, as a new record (Revert plan);
                             a teaching write like POST /places/plan; {ok, plan, plan_source}
 GET  /places/scene?place=     the Places 3D view's scene: the newest revision with a map, its floor, plan
@@ -936,14 +935,12 @@ class H(http.server.BaseHTTPRequestHandler):
         return self.do_GET()
 
     def _query(self) -> dict[str, str]:
-        q = {}
-        for kv in (self.path.split("?", 1) + [""])[1].split("&"):
-            if "=" in kv:
-                k, v = kv.split("=", 1)
-                # Decoded: the app sends encodeURIComponent values, so a clip's line key arrives with "@" as %40 and
-                # was never found ("no transcript line with that key", so Who's this? clips wouldn't play).
-                q[k] = urllib.parse.unquote(v)
-        return q
+        """The query string's values by key, decoded (the first value of a key that is given twice, a blank value as
+        ""). One reader for every route: urllib.parse.parse_qs, so a `+` is the space URLSearchParams encodes it as,
+        while a literal `+` sent as %2B still arrives as one (a clip's line key is looked up with its own spelling).
+        Hand-splitting on & and = left `+` alone, so a camera named with a space could not be named in a query."""
+        query = self.path.split("?", 1)[1] if "?" in self.path else ""
+        return {k: v[0] for k, v in urllib.parse.parse_qs(query, keep_blank_values=True).items()}
 
     def do_GET(self) -> None:
         p = self.path.split("?")[0]
@@ -980,11 +977,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 raise
 
     def _wav_file(self, path: str | pathlib.Path) -> None:
-        try:
-            b = pathlib.Path(path).read_bytes()
-        except OSError:
-            return self._json({"error": "not found"}, 404)
-        return self._media(b, "audio/wav", {"Cache-Control": "no-store"})
+        """Send a wav from disk: _media streams a file a MiB at a time (a call's recording can be minutes long), sends
+        Cache-Control once, and answers a missing file with its own 404."""
+        return self._media(pathlib.Path(path), "audio/wav")
 
     def do_DELETE(self) -> None:
         found = routes.find("DELETE", self.path.split("?")[0])
@@ -1084,7 +1079,7 @@ class H(http.server.BaseHTTPRequestHandler):
         "hello" event names the services and those with no log file yet. ?services=a,b picks services by their services.toml names; any other name is refused."""
         from liberational.dashboard import logtail
 
-        wanted = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("services", [""])[0]
+        wanted = self._query().get("services", "")
         try:
             tail = logtail.Tailer(logtail.pick([n.strip() for n in wanted.split(",")] if wanted else None))
         except ValueError as ex:
@@ -1211,7 +1206,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 if replies := [e for e in new if e.get("assistant")]:  # the assistant's replies, in the same feed
                     ev("transcript", {"entries": replies, "reset": False})
                 if (
-                    m := speaker_lines.log_mark()
+                    m := speaker_lines.log_mark_shared()
                 ) != mark:  # a label: send the lines it changed again, to replace the old ones
                     mark = m
                     if (review_now := revisions.review_revision(context.STATE)) != review_mark:
