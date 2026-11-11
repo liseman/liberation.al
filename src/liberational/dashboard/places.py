@@ -22,7 +22,9 @@
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
-    GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
+    GET /places/scene?place=[&camera=] the 3D view's scene: the newest revision with a map (with `camera`, the
+                                       newest that registers that camera: a map made from one camera's pictures),
+                                       its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
                                        it was trained from (`splat_from`, as its trainer named it), which state the
@@ -49,9 +51,8 @@
                                        people there (`cameras`: with none, nobody can be, and the page says so); and
                                        each camera of the place with how it's posed and what it lacks
                                        (`camera_notes`: [{camera, by: "spot" | "map", missing}], `missing` any of
-                                       "height", "facing", "lens", "tilt", "check" for a spot, spatial/spots.py,
-                                       and "moving" or "floor" for a learned map's camera,
-                                       spatial/surroundings_positions.py), and whether the place has a map
+                                       "height", "facing", "lens", "tilt", "check" for a spot, spatial/spots.py),
+                                       and whether the place has a map
                                        (`map`); the read stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
@@ -150,11 +151,14 @@ def listing(state: Path, now: float | None = None) -> Reply:
     return 200, {"places": out}
 
 
-def _map_revision(state: Path, place: str, revision: str | None = None) -> places.Revision | None:
-    """The revision whose map the 3D view shows: `revision` if it's one of the place's and its map file is still kept
+def _map_revision(
+    state: Path, place: str, revision: str | None = None, camera: str | None = None
+) -> places.Revision | None:
+    """The revision whose map the 3D view shows: `revision` if it's one of the place's, a producer of today wrote it
+    (`places.SHOWN_PRODUCERS`: a map an earlier version made stays on disk, unread), and its map file is still kept
     (maps are pruned to the newest few), else (with none asked for) the newest such revision. A revision's map is
     always a bare `<uuid>.map` in the place's folder: memory/places.py refuses any other name when it reads one."""
-    chain = places.revisions(state, place)
+    chain = [r for r in places.revisions(state, place) if places.shown(r) and (camera is None or camera in r.cameras)]
     found = [r for r in chain if r.map and (places.root(state) / place / r.map).is_file()]
     if revision is not None:
         return next((r for r in found if r.id == revision), None)
@@ -173,81 +177,40 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     """GET /places/splat: `revision`'s splat (SOG), or None (no such place or revision, or it has no splat)."""
     if places.get(state, place) is None:
         return None
-    rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
+    rev = next((r for r in places.revisions(state, place) if r.id == revision and places.shown(r)), None)
     return places.splat_path(state, rev, SPLAT_FORMAT) if rev and places.has_splat(state, rev) else None
 
 
 SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
 
 
-LEARNED = "surroundings"  # what a learned map's producer starts with, and what its splat says it was trained from
+def _learning() -> dict[str, Any]:
+    """Whether pictures are collected from the cameras, for the 3D view to say in plain words: `on` (the Live tab's
+    switch) and `cameras` (how many it samples now; none while off)."""
+    from liberational.spatial import surroundings
+
+    switch = surroundings.read()
+    return {"on": switch.on, "cameras": len(switch.cameras) if switch.on else 0}
 
 
-def _summary(state: Path) -> dict[str, Any]:
-    """What the map step knows (spatial/surroundings_map.py's `summary`): the switch, the cameras sampled, the kept
-    frames waiting for a place, whether a step is running, and each place's views and when it last improved."""
-    from liberational.spatial import surroundings_map
-
-    return surroundings_map.summary(state)
-
-
-def _learning(state: Path, place: str) -> dict[str, Any]:
-    """How `place`'s map is learned from the cameras, for the 3D view to say in plain words: `on` (the Live tab's
-    switch), `cameras` (how many it samples now; none while off), `improving` (on, and a kept frame is waiting to be
-    placed or a map step is running), `views` (the kept frames the place's map was built from; None for a place the
-    map step hasn't built), and `improved` (when a step last added a view to it, epoch seconds, or None)."""
-    told = _summary(state)
-    on = told.get("on") is True
-    by_place = told.get("places")
-    mine = by_place.get(place) if isinstance(by_place, dict) else None
-    mine = mine if isinstance(mine, dict) else {}
-    sampling = told.get("sampling")
-    return {
-        "on": on,
-        "cameras": len(sampling) if isinstance(sampling, list) else 0,
-        "improving": on and bool(told.get("waiting") or told.get("running")),
-        "views": mine.get("views"),
-        "improved": mine.get("improved"),
-    }
-
-
-def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
-    """Why `rev` has no splat of its own: `reason` is the splat pass's own note when it has tried this revision
-    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "learned" for a map learned
-    from the cameras (its splat is written right after it, so it's on its way or its training failed), else
-    "no_cameras" for a map with no cameras registered (there is nothing to make one from), else "pass": no pass has
-    tried this map. `pass_at` is the time of day a scheduled pass runs; None, since nothing makes splats on a
-    schedule at present (`pack-spatial-splat` does by hand)."""
-    note = places.splat_note(state, rev)
-    if note is not None:
-        reason, tried = note["reason"], note["at"]
-    elif rev.producer.startswith(LEARNED):
-        reason, tried = "learned", None
-    elif not rev.cameras:
-        reason, tried = "no_cameras", None
-    else:
-        reason, tried = "pass", None
-    return {"reason": reason, "tried": tried, "pass_at": None}
-
-
-def scene(state: Path, place: str) -> Reply:
+def scene(state: Path, place: str, camera: str | None = None) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). While the place has an
     owner's plan, that is the plan, whatever the map: `plan_source` is "owner", and no machine plan is given in its
     place. It's laid on the map only when it's drawn in this revision's frame (`plan_transform`, with `plan_aligned`
-    true); until a learned map is lined up with it the transform is None, so the view draws the map alone, and
-    `plan_lineup` says why (spatial/plan_lineup.py `status`). A place with no owner's plan gives the revision's own
-    machine plan, in its frame."""
+    true); otherwise the transform is None, and the view draws the map alone. A place with no owner's plan gives the
+    revision's own machine plan, in its frame. No map is made at present (the 3D map is being rebuilt with a new
+    method), so `revision` is None until a producer of today writes one (`places.SHOWN_PRODUCERS`). With `camera`,
+    only the revisions that register that camera count, for its map and its splat: a map made from one camera's
+    pictures."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
-    learning = _learning(state, place)
-    rev = _map_revision(state, place)
+    learning = _learning()
+    rev = _map_revision(state, place, camera=camera)
     if rev is None or rev.map is None:
         return 200, {"place": place, "revision": None, "learning": learning}
     by_id = {r.id: r for r in places.revisions(state, place)}
     drawn = by_id.get(held.plan_revision or "")
-    from liberational.spatial import plan_lineup  # numpy and scipy: only a scene needs them
-
     owned = held.plan_source == "owner"
     aligned = owned and drawn is not None and places.same_plan_frame(drawn, rev)
     try:
@@ -256,7 +219,7 @@ def scene(state: Path, place: str) -> Reply:
         return 200, {"place": place, "revision": None, "learning": learning}
     # The revision's own splat, else the newest one made in the same map frame (a later revision that kept the
     # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
-    chain = places.revisions(state, place)
+    chain = [r for r in places.revisions(state, place) if places.shown(r) and (camera is None or camera in r.cameras)]
     with_splat = [r for r in chain if places.has_splat(state, r)]
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
     shown = next((r for r in reversed(fits) if r.id == rev.id), fits[-1] if fits else None)
@@ -265,14 +228,12 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    # Which state the view is in, so the page doesn't guess: this map's own splat (still improving while learning
-    # is adding views to it), an earlier map's that still lines up (same frame), one that doesn't (named, not
-    # offered), or none. A revision that kept its map (one that only set the floor or a camera) has the splat of the
-    # revision that wrote that map: it's the same map's.
+    # Which state the view is in, so the page doesn't guess: this map's own splat, an earlier map's that still lines
+    # up (same frame), one that doesn't (named, not offered), or none. A revision that kept its map (one that only
+    # set the floor or a camera) has the splat of the revision that wrote that map: it's the same map's.
     own = shown is not None and (shown.id == rev.id or shown.map == rev.map)
     if shown is not None and own:
-        learned = places.splat_source(state, shown) == LEARNED
-        splat_state = "improving" if learned and learning["improving"] else "current"
+        splat_state = "current"
     elif shown is not None:
         splat_state = "earlier"
     else:
@@ -299,7 +260,6 @@ def scene(state: Path, place: str) -> Reply:
         "splat_from": None if shown is None else places.splat_source(state, shown),
         "splat_state": splat_state,
         "splat_at": None if shown is None else shown.at,
-        "splat_wait": None if own else _splat_wait(state, rev),
         "learning": learning,
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
@@ -307,7 +267,6 @@ def scene(state: Path, place: str) -> Reply:
         "plan": held.plan if owned else places.machine_plan(state, rev),
         "plan_source": "owner" if owned else "machine",
         "plan_aligned": aligned if owned else transform is not None,
-        "plan_lineup": plan_lineup.status(state, place) if owned else None,
     }
 
 
@@ -674,7 +633,8 @@ def _get_places(h: H) -> None:
 
 @routes.get("/places/scene")
 def _get_places_scene(h: H) -> None:
-    code, reply = scene(h.state, h._query().get("place", ""))
+    q = h._query()
+    code, reply = scene(h.state, q.get("place", ""), q.get("camera") or None)
     return h._json(reply, code)
 
 

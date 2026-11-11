@@ -1,5 +1,5 @@
-"""The Live tab's "Learn surroundings" switch (#255): whether the cameras' pictures may refine a place's map, and
-which cameras are sampled. spatial/surroundings.py holds the settings and how they're followed live.
+"""The Live tab's "Learn surroundings" switch (#255): whether pictures are collected from the cameras (for the 3D map
+being rebuilt with a new method), and which cameras are sampled. spatial/surroundings.py holds the settings and how they're followed live.
 
 GET  /surroundings  {"ok", "control", "on", "cameras": [{"name", "sampled", "default"}], "chosen": [name, ...]}:
      every camera in the device manifest, in its order; "sampled" says whether learning takes pictures from it
@@ -9,11 +9,10 @@ POST /surroundings  {"on"?: bool, "cameras"?: [name, ...]} -> the same view afte
      empty "cameras" goes back to the default. A name the manifest doesn't have is refused (400) and nothing is
      saved. This machine only, same-origin JSON only, like the other controls. Nothing restarts: the sampler
      follows pack.toml.
-GET  /surroundings/status  what learning is doing now, for the Places page to show while it's open (#283): the map
-     step's `summary` (spatial/surroundings_map.py) as it is, {"on", "sampling", "kept", "waiting", "running",
-     "step", "last_step", "cameras", "places", "frames"}. A few small state files and one lock test a read, so a
-     page may ask every few seconds. "frames" is each camera's newest kept frame, for the picture below; it's empty
-     when no picture may be shown.
+GET  /surroundings/status  what collecting pictures is doing now, for the Places page to show while it's open
+     (#283): spatial/surroundings_frames.py's `status` as it is, {"on", "sampling", "kept", "cameras", "frames"}.
+     Two small state files a read, so a page may ask every few seconds. "frames" is each camera's newest kept
+     frame, for the picture below; it's empty when no picture may be shown.
 GET  /surroundings/thumb/<frame id>.jpg  a kept frame as a small picture (THUMB_WIDTH wide), for the Places page's
      camera rows (#294). Whoever was in view is painted over first, from the pixels the sampler marked
      (spatial/surroundings_frames.py's `covered_path`), so a person or an animal is never shown; and without the
@@ -114,9 +113,9 @@ def _get(h: H) -> None:
 
 @routes.get("/surroundings/status")
 def _get_status(h: H) -> None:
-    from liberational.spatial import surroundings_map
+    from liberational.spatial import surroundings_frames
 
-    said = surroundings_map.summary(h.state)
+    said = surroundings_frames.status(h.state)
     if not pictures_allowed():
         said["frames"] = {}
     h._json(said)

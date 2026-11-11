@@ -1729,22 +1729,17 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
 def placing(state: Path, place: str) -> list[dict[str, Any]]:
     """The cameras that sit in `place`, by name, and whether each can place the people it sees: `by` is "spot" for a
     camera read at the owner's spot on the plan and "map" for one seen in the place's map, and `missing` is what it
-    lacks (empty when it places): what a spot lacks for a pose (spatial/spots.py's `Spot.missing`), or why a learned
-    map doesn't place a camera's people ("moving": it has no one pose; "floor": the map has no floor yet,
-    spatial/surroundings_positions.py). For a reader to say what's missing per camera instead of showing nobody."""
-    from liberational.spatial import surroundings_positions
-
+    lacks (empty when it places): what a spot lacks for a pose (spatial/spots.py's `Spot.missing`). For a reader to
+    say what's missing per camera instead of showing nobody."""
     found = spots.read(state)
-    learned = (surroundings_positions.status(state, place) or {}).get("unplaced") or {}
     here = {c for c, at in places.camera_places(state).items() if at == place}
     out = []
-    for camera in sorted(here | set(learned)):
+    for camera in sorted(here):
         spot = found.get(camera)
         if spot is not None and spot.place == place:
             out.append({"camera": camera, "by": "spot", "missing": list(spot.missing)})
         elif spot is None:  # a camera with a spot on another place's plan is that place's
-            why = learned.get(camera)
-            out.append({"camera": camera, "by": "map", "missing": [why] if why else []})
+            out.append({"camera": camera, "by": "map", "missing": []})
     return out
 
 
@@ -1941,21 +1936,15 @@ LACKS = {
     "lens": "it has no held lens and its spot has no fov",
     "tilt": "too few people seen walking to work out its tilt",
     "check": "people come out the wrong height from its spot: its height, lens, or tilt is off",
-    "moving": "it's on something that moves, and it has no pose for each moment yet",
-    "floor": "its place's map has no floor yet",
 }
 
 
 def run(state: Path, fixed: Sequence[str], now: float, first_s: float = footprints.FIRST_S) -> dict[str, int]:
-    """One run of the job: fit the tilt of each camera with a spot that has none (spatial/spots.py), give each
-    learned map its floor and fixed cameras (spatial/surroundings_positions.py), record `fixed`'s raw footprints
-    since the last run (`footprints.record`; `first_s` back for a camera never recorded), and place them
-    (`advance`). Returns `advance`'s counts with how many footprints were recorded."""
-    from liberational.spatial import surroundings_positions
-
+    """One run of the job: fit the tilt of each camera with a spot that has none (spatial/spots.py), record `fixed`'s
+    raw footprints since the last run (`footprints.record`; `first_s` back for a camera never recorded), and place
+    them (`advance`). Returns `advance`'s counts with how many footprints were recorded."""
     with places.writing(state):
         spots.fit(state, now)
-    surroundings_positions.advance(state, now)
     recorded = footprints.record(state, fixed, now, first_s)
     return {**advance(state, now - footprints.FLUSH_S), "recorded": recorded}
 
