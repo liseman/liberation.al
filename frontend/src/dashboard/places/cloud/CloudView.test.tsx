@@ -292,9 +292,9 @@ it("doesn't draw the map again when only what is said about learning changed", a
   reply = withSplat({ splat_state: 'current', learning: learning({ on: false }) });
   await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
   await waitFor(() =>
-    expect(client.getQueryData<{ learning?: { on: boolean } }>(['places', 'scene', 'p1', null])?.learning?.on).toBe(
-      false,
-    ),
+    expect(
+      client.getQueryData<{ learning?: { on: boolean } }>(['places', 'scene', 'p1', null, true])?.learning?.on,
+    ).toBe(false),
   );
   expect(build.mock.calls.length).toBe(before);
 });
@@ -631,6 +631,47 @@ it("says in a row's detail how its cloud was levelled and squared, that its wall
     screen.getByText('Walls in this cloud bend by about 3°: that is the depth estimate, not the placement.'),
   ).toBeTruthy();
   expect(screen.getByText(/^From a picture taken .* 15:53\.$/)).toBeTruthy();
+});
+
+const FITTED = {
+  state: 'fitted',
+  scale: 0.966,
+  up: 0.966,
+  dx: 0.01,
+  dy: 0.012,
+  walls: [
+    { off_deg: 0.3, before_m: 0.241, after_m: 0.038 },
+    { off_deg: 1.1, before_m: 0.064, after_m: -0.133 },
+  ],
+  seen: 2,
+};
+
+it('draws fitted clouds with flat walls and floor unless the box is cleared, and says what a flat wall is', async () => {
+  const asked = serveAll([placedRow('hall', { fitted: true, fit: FITTED }), placedRow('porch')]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  const box = await screen.findByLabelText('Flat walls and floor');
+  expect(box).toBeChecked();
+  expect(screen.getByText("A flat wall is your plan's wall with what the camera saw painted on it.")).toBeTruthy();
+  expect(asked.at(-1)?.get('flat')).toBeNull(); // flat is what the scene is unless asked otherwise
+  expect(
+    await screen.findByText(
+      "Fitted to the room: resized by 3 percent (smaller), moved 2 cm, matched to 2 walls. Before, its walls stood up to 24 cm from your plan's.",
+    ),
+  ).toBeTruthy();
+  await userEvent.click(box);
+  await waitFor(() => expect(asked.at(-1)?.get('flat')).toBe('0'));
+  expect(screen.getByLabelText('Flat walls and floor')).not.toBeChecked();
+});
+
+it('offers no flat walls where no cloud is fitted to its room', async () => {
+  serveAll([placedRow('hall'), placedRow('porch', { fit: { ...FITTED, state: 'no_match', walls: [] } })]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  expect(
+    await screen.findByText(/^Not fitted to the room: the wall it sees isn't where a wall of your plan is/),
+  ).toBeTruthy();
+  expect(screen.queryByLabelText('Flat walls and floor')).toBeNull();
 });
 
 it("hides a camera's points when its box is cleared, and the points outside the plan until asked for", async () => {

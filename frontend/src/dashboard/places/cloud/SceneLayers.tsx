@@ -18,6 +18,7 @@ import { tintCss } from './layers';
 import {
   APPROXIMATE,
   bendLine,
+  fitLine,
   levelLine,
   moveSpotQuestion,
   pairLine,
@@ -106,6 +107,7 @@ export function SceneLayers({
           const state = placedState(camera.how);
           const shown = open.has(camera.camera);
           const lines = [
+            camera.fit ? fitLine(camera.fit) : null,
             squareLine(camera),
             levelLine(camera.level, camera.tilt_deg, camera.roll_deg),
             bendLine(camera),
@@ -190,7 +192,7 @@ export function SceneLayers({
                   ))}
                   {camera.placed && (
                     <Text size="xs" c="dimmed">
-                      {APPROXIMATE}
+                      {camera.fitted ? '' : APPROXIMATE}
                       {outside[index]
                         ? ` ${outside[index]?.toLocaleString()} of its points fall outside your plan's rooms${inside ? ' and are left out' : ''}.`
                         : ''}

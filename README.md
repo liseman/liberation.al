@@ -45,8 +45,9 @@ kind starts to count once it has enough answers.
 
 <img alt="Known, Activities: two clips to check, asking Is this Preparing dinner? and Is this Coming home?, beside the kinds still learning" src="docs/images/demo-activities.png">
 
-**Places** has a plan of each place. You draw it in the plan editor and give each camera its spot, and people and
-pets are drawn on the plan where the cameras saw them. The 3D view shows what one camera sees as a cloud of points.
+**Places** has a plan of each place. You draw it in the plan editor and give each camera its spot, and people and pets
+are drawn on the plan where the cameras saw them. The 3D view shows what each camera sees as a cloud of points, fitted
+to the room on your plan.
 
 <img alt="Known, Places: the demo house's plan of six rooms, with a mark for each camera and coloured paths where people and Rex walked between them" src="docs/images/demo-places-plan.png">
 
@@ -55,7 +56,7 @@ pets are drawn on the plan where the cameras saw them. The 3D view shows what on
   <img alt="The plan editor on the demo house: tools for rooms, walls, doors, and windows beside the plan, with Versions, Discard changes, and Save plan above it" src="docs/images/demo-plan-editor.png">
 </picture>
 
-<img alt="The 3D view of the front-room camera: a point cloud of the room with two people, a dog, a sofa, and a plant, seen close up and marked as approximate in size" src="docs/images/demo-3d-view.png">
+<img alt="The 3D view of the front-room camera: a point cloud of the room with two people, a dog, a sofa, and a plant, seen close up, with the Flat walls and floor option under it" src="docs/images/demo-3d-view.png">
 
 **Statistics** charts who was around and when, conversations, and activity.
 

@@ -273,6 +273,96 @@ def test_a_placed_camera_says_what_levelled_its_cloud_its_tilt_and_when_its_pict
     assert (hall.square, hall.squared) == (None, False)
 
 
+# ---- fit to the rooms, and draw them flat
+
+
+def test_a_cloud_a_tenth_too_big_is_resized_to_the_plans_rooms_and_its_walls_and_floor_drawn_flat(store, tmp_path):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", truth)}
+    keep(store, "hall", points=corner_seen_from(truth) * 1.1)
+    assert scenes.align(store, "hall", spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    hall = placed(found, "hall")
+    assert (hall.how, hall.fitted) == ("spot", True)
+    assert hall.fit is not None and hall.fit["state"] == "fitted" and len(hall.fit["walls"]) == 2
+    assert hall.fit["scale"] == pytest.approx(1 / 1.1, abs=0.02)
+    move = np.array(hall.transform).reshape(4, 4)
+    assert move[2, 2] == pytest.approx(1 / 1.1, abs=0.02)  # the cloud is resized, not only moved
+    assert np.array(hall.pose).reshape(4, 4)[2, 3] == pytest.approx(HEIGHT / 1.1, abs=0.03)
+    flat = drawn(store, found)
+    walls = flat[flat["z"] > 0.3]
+    far, right = walls[walls["x"] < 3.9], walls[walls["x"] >= 3.9]
+    assert far["y"] == pytest.approx(5.0, abs=1e-6)  # on the plan's far wall exactly
+    assert right["x"] == pytest.approx(4.0, abs=1e-6)
+    assert flat[(flat["x"] < 3.9) & (flat["y"] < 4.9)]["z"] == pytest.approx(0.0, abs=1e-6)  # the floor, flat
+    raw = ply.vertices(scenes.points(store, found, flat=False))
+    assert raw is not None and len(raw) == len(flat)
+    assert float(np.abs(raw["y"][raw["z"] > 0.3] - 5.0).min()) < 0.05  # resized onto the wall, to the fit's few cm
+    assert not np.allclose(raw["x"], flat["x"])  # and not flattened
+    assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]  # only beside the clouds
+
+
+def test_the_flat_and_the_raw_drawing_of_one_scene_are_kept_side_by_side_and_an_older_scenes_go(store):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", truth)}
+    keep(store, "hall", points=corner_seen_from(truth))
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    flat, raw = scenes.drawn(store, found), scenes.drawn(store, found, flat=False)
+    assert flat != raw and flat.is_file() and raw.is_file()
+    assert flat.read_bytes() != raw.read_bytes()
+    keep(store, "hall", n=2, points=corner_seen_from(truth))
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    later = scenes.drawn(store, scenes.scene(store, PLACE, spots, (HOUSE,)))
+    assert later.is_file() and not flat.exists() and not raw.exists()
+
+
+def test_a_cloud_whose_walls_cant_be_matched_is_left_as_it_was_squared_and_says_why(store):
+    spots = {"hall": spot("hall", at(2.0, 1.0, 0.0))}
+    rng = np.random.default_rng(4)
+    island = np.c_[rng.random(4000) * 3.0 + 0.5, np.full(4000, 3.5), rng.random(4000) * 2.4]  # 1.5 m short of the wall
+    move = scenes._transform(at(2.0, 1.0, 0.0))
+    keep(store, "hall", points=(island - move[:3, 3]) @ move[:3, :3])
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    found = scenes.scene(store, PLACE, spots, (HOUSE,))
+    hall = placed(found, "hall")
+    assert (hall.fitted, (hall.fit or {})["state"], hall.squared) == (False, "no_match", True)
+    assert np.array(hall.transform).reshape(4, 4)[2, 2] == pytest.approx(1.0)  # its own size
+    assert drawn(store, found)["y"] == pytest.approx(3.5, abs=0.01)  # nothing laid on a wall
+
+
+def test_a_fitted_cameras_own_view_is_its_cloud_at_the_rooms_size_with_flat_walls(store):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", truth)}
+    cloud = keep(store, "hall", points=corner_seen_from(truth) * 1.1)
+    scenes.align(store, "hall", spots, rooms_of_the_plan)
+    hall = placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall")
+    own = ply.vertices(scenes.own_points(store, hall, cloud))
+    assert own is not None and len(own) > 0
+    pose = scenes.own_pose(hall, cloud)
+    assert pose[:3, 3] == pytest.approx([0.0, 0.0, HEIGHT / 1.1], abs=0.03)  # the camera, on its own z axis still
+    # put back where the camera stands, its points are the scene's flat ones
+    back = scenes._transform(stands(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall"))
+    xyz = np.c_[own["x"], own["y"], own["z"]] @ back[:3, :3].T + back[:3, 3]
+    far = xyz[(xyz[:, 2] > 0.3) & (xyz[:, 0] < 3.9)]
+    assert far[:, 1] == pytest.approx(5.0, abs=1e-4)
+    assert scenes.drawn_own(store, hall, cloud).is_file()
+
+
+def test_stored_clouds_are_brought_up_to_date_with_no_picture_and_no_model(store, tmp_path, monkeypatch):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", at(1.0, 1.0, 23.0))}
+    keep(store, "hall", points=corner_seen_from(truth))
+    keep(store, "yard")  # a camera with no spot: nothing to square it to
+    monkeypatch.setattr(scenes, "spots_of", lambda state: spots)
+    monkeypatch.setattr(scenes, "plan_rooms", lambda state, place, mirrored: (HOUSE,))
+    assert scenes.update(tmp_path, store) == 1
+    hall = placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall")
+    assert (hall.squared, hall.fitted) == (True, True)
+    assert scenes.update(tmp_path, store) == 0  # nothing is stale: nothing is done
+    assert scenes.update(tmp_path, store, place="another") == 0  # and not for a place it has no spot in
+
+
 # ---- 2. tighten
 
 
