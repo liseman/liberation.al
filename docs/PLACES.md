@@ -1,7 +1,7 @@
-# How to collect pictures of a place and see people on its plan
+# How to see what each camera sees in 3D and people on a place's plan
 
-This guide takes a pack with fixed cameras to pictures collected from them, cameras that have a pose from their spot
-on the plan, and people drawn on the plan on the Places page. [Spatial memory](SPATIAL.md) explains how each part
+This guide takes a pack with fixed cameras to pictures collected from them, a point cloud of what each camera sees,
+cameras that have a pose from their spot on the plan, and people drawn on the plan on the Places page. [Spatial memory](SPATIAL.md) explains how each part
 works.
 
 ## Before you begin
@@ -38,7 +38,35 @@ model). A row that says "Keeping pictures" needs nothing. "Nothing new in view",
 dark", and "Picture is blurred" say why the camera's recent pictures were passed by: wait, or change what the camera
 sees. "Not looked at yet" means no picture of the camera has been judged since the sampler started.
 
-The 3D map view has no machine-made map to show ([Spatial memory](SPATIAL.md#what-a-place-is)).
+## Look at a camera's point cloud
+
+While Learn surroundings is on, each chosen camera also gets a point cloud of what it sees. It needs MASt3R-SLAM set
+up on the machine ([the steps](../MIGRATING.md#each-cameras-own-point-cloud)); without it the view says so.
+
+1. On the Places page, pick the place and switch its view from **Plan** to **3D view**.
+2. Pick a camera under **Camera**. The view opens from that camera's own viewpoint and draws its points.
+3. Press **See it from outside** to step back from the camera and look at the cloud from elsewhere.
+
+One camera is shown at a time. Clouds of different cameras are not joined into one map of the place.
+
+The line under the view says how many points the cloud has, when it was made, and how it was sized. "Approximate
+size" means the cloud's scale is the model's guess. To pin it, give the camera its mounting height
+([Say how it is mounted](CAMERAS.md#say-how-it-is-mounted)); that works when a floor is in the camera's view.
+
+When a camera has no cloud, the view says why:
+
+| It says | Do this |
+|---|---|
+| Learn surroundings is off, or the camera isn't chosen to learn from | Turn the switch on and choose the camera on the Live tab |
+| Waiting for about 20 seconds with nobody in view | Wait |
+| Someone was in view each time it looked | Leave the view empty for about 20 seconds |
+| The view is too dark, or the camera is in night mode | Light the view |
+| The model that makes point clouds isn't set up | Set up MASt3R-SLAM and `spatial.pointmap_runtime` |
+| There wasn't enough free GPU memory, or the last try failed | Wait: it tries again in a couple of minutes |
+| The model wasn't sure of enough of the picture, or the picture had no depth to speak of | Glare, glass, or a very plain view: change what the camera sees |
+| This camera's lens calibration can't be used | Calibrate the lens again ([Cameras](CAMERAS.md#calibrate-a-wide-lens)) |
+
+A cloud is made again when the camera's view changes.
 
 ## Give a camera a spot on the plan
 
@@ -84,9 +112,9 @@ what it lacks.
 
 ## Start again
 
-`pack-reset-places` deletes every place's maps, splats, camera registrations, fitted tilts, and stored positions.
-It keeps the owner's names and plans, spots included, and a place with an owner plan stays listed with no map. It
-leaves the kept pictures.
+`pack-reset-places` deletes every place's maps, splats, camera registrations, fitted tilts, and stored positions,
+and each camera's point cloud. It keeps the owner's names and plans, spots included, and a place with an owner plan
+stays listed with no map. It leaves the kept pictures, and the clouds are made again.
 
 1. Turn Learn surroundings off, and pick a moment that isn't 20 past the hour.
 2. See what would go and what would stay, then do it:
