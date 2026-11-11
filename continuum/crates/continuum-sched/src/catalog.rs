@@ -31,10 +31,6 @@ pub struct StreamView {
     /// Nominal items per second (frames, blocks, batches), for estimating how many items a range holds. 0 if the
     /// stream has no rate (events).
     pub rate_hz: f64,
-    /// For a live stream, the newest time its producer has written, sealed into the catalog or not. The planner
-    /// treats everything up to it as present: the part after the last sealed batch is the unsealed tail the broker
-    /// serves from the ring (docs/CONTINUUM-BROKER.md, the live edge), never something to await or compute.
-    pub live_edge_ns: Option<u64>,
 }
 
 /// A stretch of a stream that exists, and the hottest tier holding it.

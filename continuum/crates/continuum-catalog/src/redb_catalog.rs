@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
-use continuum_core::{BootId, HeaderBuf, Interval, StageId, StorageLocator, StorageTier, StreamId, Uuid};
+use continuum_core::{BootId, HeaderBuf, Interval, StageId, StorageLocator, StorageTier, StreamId, Uuid, utc_now_ns};
 use redb::{Database, Durability, ReadableDatabase};
 
 use crate::codec::{self, In, Out};
@@ -1525,12 +1525,6 @@ fn note_live_bytes(w: &mut W) -> Result<()> {
     w.put(META, b"live_bytes", &now.to_be_bytes())
 }
 
-fn now_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-}
-
 fn io_error(e: std::io::Error) -> CatalogError {
     CatalogError::Storage(Box::new(e))
 }
@@ -1867,7 +1861,7 @@ impl RedbCatalog {
             Ok(db) => db,
             Err(e) => {
                 if matches!(e, redb::DatabaseError::Storage(redb::StorageError::Corrupted(_))) {
-                    let why = format!("{e}, at {} ns since the epoch", now_ns());
+                    let why = format!("{e}, at {} ns since the epoch", utc_now_ns());
                     if std::fs::write(&failed, &why).is_ok() {
                         let _ = sync_dir(&path);
                     }
@@ -3452,18 +3446,6 @@ impl Catalog for RedbCatalog {
         Ok(Some(StorageStats { page_size: 4096, file_bytes: meta.len(), disk_bytes: meta.blocks() * 512, tables }))
     }
 
-    fn record_aged_out(&self, stream: StreamId, spans: &[Interval]) -> Result<()> {
-        self.write(|w| {
-            if !w.has(STREAMS, &k32(stream.0))? {
-                return Err(CatalogError::NotFound(format!("stream {}", stream.0)));
-            }
-            for s in spans {
-                aged_insert(w, stream.0, *s, 0)?;
-            }
-            Ok(())
-        })
-    }
-
     fn aged_out(&self, stream: StreamId, window: Interval, max: usize) -> Result<Vec<Interval>> {
         if max == 0 {
             return Err(CatalogError::Invalid("an aged-out listing's max must be at least 1".into()));
@@ -3982,7 +3964,8 @@ impl Catalog for RedbCatalog {
         }
         drop(old);
         let file_after = std::fs::metadata(&self.path).map_or(0, |m| m.len());
-        let last = LastScrub { at_ns: now_ns(), file_before, file_after, live_bytes, rows: s.copied + carried as u64 };
+        let last =
+            LastScrub { at_ns: utc_now_ns(), file_before, file_after, live_bytes, rows: s.copied + carried as u64 };
         // Physical scrub statistics do not change availability. Preserve a projection carried through
         // the swap; normal writes (including the earlier scrub request) still advance its revision.
         self.write_restart(false, |w| {

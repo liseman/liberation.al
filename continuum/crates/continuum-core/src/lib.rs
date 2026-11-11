@@ -60,8 +60,10 @@ pub const fn is_aligned_16k(offset: usize) -> bool {
 }
 
 pub mod chunk_path;
+mod clock;
 mod types;
 
+pub use clock::utc_now_ns;
 pub use types::{BootId, DecodeError, HeaderBuf, HeaderSpec, Interval, MAX_INLINE_BYTES, StageId, StorageLocator};
 
 pub use schema::continuum::{

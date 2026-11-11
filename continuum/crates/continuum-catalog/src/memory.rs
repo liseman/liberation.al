@@ -1265,18 +1265,6 @@ impl Catalog for MemoryCatalog {
         Ok((!st.doomed.contains_key(&chunk)).then(|| st.provenance.get(&chunk).cloned()).flatten())
     }
 
-    fn record_aged_out(&self, stream: StreamId, spans: &[Interval]) -> Result<()> {
-        let mut st = self.write();
-        if !st.streams.contains_key(&stream.0) {
-            return Err(CatalogError::NotFound(format!("stream {}", stream.0)));
-        }
-        let aged = st.aged.entry(stream.0).or_default();
-        for s in spans {
-            aged.insert(*s);
-        }
-        Ok(())
-    }
-
     fn aged_out(&self, stream: StreamId, window: Interval, max: usize) -> Result<Vec<Interval>> {
         if max == 0 {
             return Err(CatalogError::Invalid("an aged-out listing's max must be at least 1".into()));

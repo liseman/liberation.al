@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use continuum_catalog::{Catalog, CatalogStorage, ScrubProgress};
+use continuum_core::utc_now_ns;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use tracing::{info, warn};
 
@@ -271,12 +272,6 @@ fn spawn_with(catalog: Arc<dyn Catalog>, config: ScrubConfig, free: FreeBytes) -
     Some(Scrubber { stop: Some(stop), thread: Some(thread) })
 }
 
-fn now_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-}
-
 struct Run {
     catalog: Arc<dyn Catalog>,
     config: ScrubConfig,
@@ -318,7 +313,7 @@ impl Run {
         let due = self.catalog.scrub_needed()?;
         let free = (self.free)(&storage.path);
         self.log_storage(&storage, due, free);
-        let Some(why) = reason(now_ns(), &storage, due, self.last.as_ref().map(|(at, _)| *at), &self.config) else {
+        let Some(why) = reason(utc_now_ns(), &storage, due, self.last.as_ref().map(|(at, _)| *at), &self.config) else {
             return Ok(());
         };
         let needed = needed_bytes(&storage, &self.config);
@@ -331,7 +326,7 @@ impl Run {
                 file_bytes = storage.file_bytes,
                 "catalog scrub skipped: not enough free disk for the fresh copy and the reserve"
             );
-            self.last = Some((now_ns(), Outcome::NoRoom { free, needed }));
+            self.last = Some((utc_now_ns(), Outcome::NoRoom { free, needed }));
             return Ok(());
         }
         if why != Reason::Due {
@@ -368,7 +363,7 @@ impl Run {
                 outcome
             }
         };
-        self.last = Some((now_ns(), outcome));
+        self.last = Some((utc_now_ns(), outcome));
         if let Some(storage) = self.catalog.storage()? {
             self.log_storage(&storage, self.catalog.scrub_needed()?, (self.free)(&storage.path));
         }

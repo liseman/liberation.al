@@ -343,7 +343,7 @@ impl Sched {
             mode: ask.mode,
         };
         let live = self.live();
-        let out = self.engine.query(&IndexView::new(&self.index, &live), req, now_ns());
+        let out = self.engine.query(&IndexView::new(&self.index, &live), req, utc_now_ns());
         let actions = out.actions;
         let (covered, missing, quote) = match out.decision {
             QueryDecision::Hit { covered, missing } => (covered, missing, None),
@@ -363,6 +363,9 @@ impl Sched {
         };
         let promise = quote.as_ref().map(|q| q.promise);
         let tail = self.ring_tail(stream, range);
+        // A query reaching past the newest indexed batch gets the ring's unsealed tail, and `complete` says so. The
+        // tail's span stays listed in `missing` (it is missing from the catalog, not from the answer): the tail
+        // itself and `complete` are what say those bytes can be read now, not later.
         let complete = missing.is_empty() && tail.is_none();
         let reply = QueryReply { session, request_id, complete, missing, quote, next_after: 0, by_seq: false, tail };
         let limit = if ask.max_items == 0 { DEFAULT_MAX_ITEMS } else { ask.max_items as usize };
@@ -378,7 +381,7 @@ impl Sched {
             Err(why) => {
                 // A quote nobody will see is cancelled, so nothing runs for it.
                 if let Some(p) = promise {
-                    if let Ok(actions) = self.engine.cancel_promise(p, now_ns()) {
+                    if let Ok(actions) = self.engine.cancel_promise(p, utc_now_ns()) {
                         self.run_actions(actions);
                     }
                     self.promise_ended(p);
@@ -548,7 +551,7 @@ impl Sched {
     /// An unseen quote must not outlive a query that failed before delivering its result.
     fn query_size_error(&mut self, reply: &QueryReply, code: ErrorCode, message: &str) {
         if let Some(quote) = &reply.quote {
-            if let Ok(actions) = self.engine.cancel_promise(quote.promise, now_ns()) {
+            if let Ok(actions) = self.engine.cancel_promise(quote.promise, utc_now_ns()) {
                 self.run_actions(actions);
             }
             self.promise_ended(quote.promise);
@@ -574,7 +577,8 @@ impl Sched {
         }
         let live = self.live();
         let alternative = option.checked_sub(1);
-        match self.engine.commit_promise(&IndexView::new(&self.index, &live), promise, alternative, band, now_ns()) {
+        match self.engine.commit_promise(&IndexView::new(&self.index, &live), promise, alternative, band, utc_now_ns())
+        {
             Ok(actions) => {
                 // The answer goes first; what the commit set off (a dispatch, or a failure when the only producer
                 // is gone) follows it, so the consumer never hears of a promise's end before its acceptance.
@@ -613,7 +617,7 @@ impl Sched {
             self.push(session, bytes);
             return;
         }
-        match self.engine.cancel_promise(promise, now_ns()) {
+        match self.engine.cancel_promise(promise, utc_now_ns()) {
             Ok(actions) => {
                 self.run_actions(actions);
                 self.promise_ended(promise);
@@ -655,7 +659,7 @@ impl Sched {
             return;
         }
         let live = self.live();
-        match self.engine.job_rejected(&IndexView::new(&self.index, &live), job, reason, now_ns()) {
+        match self.engine.job_rejected(&IndexView::new(&self.index, &live), job, reason, utc_now_ns()) {
             Ok(actions) => self.run_actions(actions),
             Err(e) => debug!(error = %e, "JobRejected for a job the engine doesn't know"),
         }
@@ -669,7 +673,7 @@ impl Sched {
             for promise in owned {
                 self.promise_ended(promise);
             }
-            let actions = self.engine.consumer_gone(consumer, now_ns());
+            let actions = self.engine.consumer_gone(consumer, utc_now_ns());
             self.run_actions(actions);
         }
     }
@@ -715,7 +719,8 @@ impl Sched {
         }
     }
 
-    /// The inputs of a dispatch were read: pin them for the job's lease and send the job to its worker.
+    /// The inputs of a dispatch were read: wire their locators to the worker's session and send the job. The session's
+    /// reader pins ([`crate::tier0::READ_PIN`]) cover the slots for a few seconds; nothing is held for the lease.
     pub(super) fn staged(&mut self, d: Dispatch, inputs: Result<Vec<ReadItem>, String>) {
         self.staging.remove(&d.output.lease);
         // The lease may have ended while the inputs were read (the promise was cancelled, the lease preempted or
@@ -731,8 +736,6 @@ impl Sched {
             Ok(items) => self.wire_items(Some(session), items),
             Err(e) => return self.staging_failed(d.output.lease, &e),
         };
-        let pinned: Vec<StorageLocator> = inputs.iter().filter_map(|i| i.locator.clone()).collect();
-        self.pins.insert(d.output.lease, pinned);
         self.jobs.insert(d.job, (d.worker, d.output.lease));
         let name = self.cap_names.get(&d.capability).cloned().unwrap_or_default();
         let bytes = protocol::dispatch_job(&mut self.builder, &d, &inputs, &name);
@@ -744,7 +747,7 @@ impl Sched {
         self.staging.remove(&lease);
         warn!(lease = lease.0, why, "couldn't stage a job's inputs");
         let live = self.live();
-        match self.engine.claim_failed(&IndexView::new(&self.index, &live), lease, now_ns()) {
+        match self.engine.claim_failed(&IndexView::new(&self.index, &live), lease, utc_now_ns()) {
             Ok(actions) => self.run_actions(actions),
             Err(e) => debug!(error = %e, "claim_failed for a lease the engine doesn't know"),
         }
@@ -852,7 +855,7 @@ impl Sched {
         // A delivery error can precede the engine's own completion. Release its armed capture and job leases;
         // ownership is already gone, so cancellation actions cannot send a second terminal response.
         if self.promise_alive(promise)
-            && let Ok(actions) = self.engine.cancel_promise(promise, now_ns())
+            && let Ok(actions) = self.engine.cancel_promise(promise, utc_now_ns())
         {
             self.run_actions(actions);
         }
@@ -860,13 +863,6 @@ impl Sched {
             let bytes = protocol::promise_failed(&mut self.builder, promise, reason, delivered);
             self.push(session, bytes);
         }
-    }
-
-    /// An `Action::Unpin`: release what was pinned for a job's lease.
-    pub(super) fn unpin(&mut self, lease: LeaseId) {
-        // Keep in-flight reader snapshots tracked until their Staged event arrives, even if the lease ends.
-        // TODO(slot arena): release the pins. Until then the stub pinned nothing.
-        self.pins.remove(&lease);
     }
 }
 

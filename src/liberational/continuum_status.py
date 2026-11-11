@@ -106,9 +106,12 @@ def check_services(
 
 def manifest_streams(path: pathlib.Path) -> set[str]:
     """The capture streams a device manifest makes: `<name>.video` for a camera and `<name>.audio` for a
-    microphone (continuum-capture's names)."""
+    microphone or an XVF3800 array (continuum-capture's names).
+
+    A Teensy's streams are left out: its worker isn't built yet, so listing them here would report the device as
+    broken."""
     devices = tomllib.loads(path.read_text()).get("device", [])
-    suffix = {"camera": "video", "rtsp": "video", "microphone": "audio"}
+    suffix = {"camera": "video", "rtsp": "video", "microphone": "audio", "xvf3800": "audio"}
     return {f"{d['name']}.{suffix[d['kind']]}" for d in devices if d.get("kind") in suffix and d.get("name")}
 
 

@@ -453,17 +453,6 @@ pub trait Catalog: Send + Sync {
         Err(CatalogError::Invalid("this catalog cannot read atomic chunk snapshots".into()))
     }
 
-    /// Records `spans` of `stream` as aged out, merged with what is there: a retention policy removed what was
-    /// recorded there, so readers can say so instead of treating the stretch as never recorded. Age-outs record their
-    /// own spans; this is for anything else a policy drops.
-    ///
-    /// # Errors
-    /// [`CatalogError::NotFound`] for an unregistered stream.
-    fn record_aged_out(&self, stream: StreamId, spans: &[Interval]) -> Result<()> {
-        let _ = (stream, spans);
-        Err(CatalogError::Invalid("this catalog can't record aged-out spans".into()))
-    }
-
     /// The parts of `window` on `stream` recorded as aged out, in order, the first `max` of them.
     ///
     /// # Errors
