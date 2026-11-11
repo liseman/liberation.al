@@ -1191,6 +1191,45 @@ def test_a_reference_without_a_span_keeps_every_unnamed_competitor():
     assert voices.match_person(A, refs, unnamed=[(1.0, 10 * NS, 12 * NS)]) is None
 
 
+# Alice's earlier line that missed and opened unnamed Speaker 1, and her next line, which sounds more like that one
+# (same room, same moment) than like her taught lines: .9 to A, about .99 to the miss.
+MISSED = unit(0.9, 0.436)
+NEXT = unit(0.88, 0.47)
+
+
+def test_a_persons_own_earlier_miss_in_the_index_does_not_keep_them_unnamed(tmp_path):
+    m, store = matcher(tmp_path, FakeSearch([]), FakePeople({7: ALICE}), known=7)
+    m.file(MISSED, 1, segment_log.new_id(), 50 * NS, 53 * NS)
+    m.search, m.references = IndexOf(store), taught_alice
+    got = asyncio.run(m.match(NEXT, 60 * NS, 63 * NS))
+    assert got is not None and got.speaker_id == 7
+
+
+def test_a_persons_own_recent_miss_does_not_keep_them_unnamed(tmp_path):
+    m, _ = matcher(tmp_path, FakeSearch([]), FakePeople({7: ALICE}), known=7)
+    m.references = taught_alice
+    m._remember(MISSED, 1)  # the miss opened Speaker 1 moments ago; the index hasn't filed it yet
+    got = asyncio.run(m.match(NEXT, 60 * NS, 63 * NS))
+    assert got is not None and got.speaker_id == 7
+
+
+def test_an_unnamed_voice_that_sounds_like_someone_else_still_blocks_the_name(tmp_path):
+    # The line passes Alice's gate alone (.6 to her answers) but sounds .8 like an unnamed voice that is 0 to Alice.
+    line, someone_else = unit(0.6, 0.8), unit(0, 1)
+    m, store = matcher(tmp_path, FakeSearch([]), FakePeople({7: ALICE}), known=7)
+    m.file(someone_else, 1, segment_log.new_id(), 50 * NS, 53 * NS)
+    m.search, m.references = IndexOf(store), taught_alice
+    assert voices.match_person(line, taught_alice()) is not None, "the gate alone would name Alice"
+    got = asyncio.run(m.match(line, 60 * NS, 63 * NS))
+    assert got is not None and got.speaker_id == 1
+
+
+def test_an_unnamed_hit_whose_vector_cant_be_read_back_still_blocks():
+    assert (
+        voices.match_person(NEXT, taught_alice(), unnamed=[(0.99, 50 * NS, 53 * NS)], heard=lambda s, e: None) is None
+    )
+
+
 def test_a_voice_taught_from_an_unnamed_cluster_is_named_when_heard_again(tmp_path):
     prints = voices.Voiceprints(tmp_path / "voiceprints.json", lambda: 0)
     m = voices.VoiceMatcher(

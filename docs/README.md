@@ -26,12 +26,13 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Taught state](TAUGHT-STATE.md) | Export what you taught, check and import the bundle, and reset without losing it |
 | [Naming](NAMING.md) | Name people and pets, answer the naming cards, and remove a wrong training image |
 | [Plan editor](PLAN-EDITOR.md) | Draw and change a place's plan, give cameras their spots, and go back to an earlier version |
-| [Places](PLACES.md) | Have the cameras learn a place's map and see people on its plan |
+| [Places](PLACES.md) | Collect pictures of a place, check what each camera places, and see people on its plan |
 | [Ingest](INGEST.md) | Import photos, video, and audio from elsewhere |
 | [Bluetooth](BLUETOOTH.md) | Set up advertisement sensors and link devices to people |
 | [Network](NETWORK.md) | Set up network inventory, device links, and network cameras |
 | [Measurement](MEASUREMENT.md) | Make hand-made labels and score the pack against them |
 | [Profiling](PROFILING.md) | Find where CPU goes |
+| [Workers](WORKERS.md) | Add a Python worker that follows Continuum: input, output, checkpoints, the service entry, and tests |
 | [Contributing](../CONTRIBUTING.md) | Set up for development and get a change merged |
 
 ## Reference: look something up
@@ -70,7 +71,7 @@ document. Link to them.
 | [Domain model](DOMAIN-MODEL.md) | The vocabulary, layers, and rules behind identity and memory |
 | [Answers](ANSWERS.md) | Ask, counts, activities, the journal, and the voice turn |
 | [Dashboard](DASHBOARD.md) | The web server, the frontend layout, and Settings |
-| [Spatial memory](SPATIAL.md) | Places, maps, plans, and positions |
+| [Spatial memory](SPATIAL.md) | Places, plans, collected pictures, and positions |
 | [Roadmap](ROADMAP.md) | Where each goal stands and what holds it back |
 
 ## History

@@ -43,6 +43,9 @@ import type { Cloud } from './load';
 
 export type Colour = 'rgb' | 'height';
 
+/** Where the viewer keeps whether its controls panel is open (its own key). */
+const CONTROLS_OPEN = 'controlsPanelOpen';
+
 /** Where the view looks from, in the viewer's frame, and the viewer's camera mode: what a view built again around
  *  a newer map of the same place opens with, so it stays where the person had it. */
 export interface View {
@@ -401,6 +404,14 @@ export async function build(
   const listening = new Promise<void>(resolve => {
     hand = resolve;
   });
+  // The viewer opens its controls panel (the keys of the mode it's in) for anyone who hasn't closed it, over a
+  // quarter of the view, and most of a phone's. Here it starts closed; its keyboard button opens it, and the viewer
+  // remembers that choice in the same place.
+  try {
+    if (localStorage.getItem(CONTROLS_OPEN) === null) localStorage.setItem(CONTROLS_OPEN, 'false');
+  } catch {
+    // no storage: the viewer shows its panel, as it does for any page denied storage
+  }
   const viewer = await createViewer({
     container: host,
     settings,
@@ -536,6 +547,7 @@ export async function build(
   // A splat opens from a view it trained on, standing there: in the viewer's walk mode where the place is large
   // enough for it, else flying. A place opened without such a view starts as an overview in orbit.
   const ready = (run: () => void) => {
+    if (gone) return;
     if (viewer.state.loaded) run();
     else viewer.events.once('loaded:changed', () => !gone && run());
   };
@@ -589,6 +601,9 @@ export async function build(
         draw();
       }),
     show: s => {
+      // Overlays stay in the scene for the life of the view. A checkbox only enables or disables them, and a
+      // call after the view was torn down does nothing: the page may still be flushing one.
+      if (gone) return;
       wantSplat = s.splat;
       const showSplat = s.splat && !!splat;
       points.enabled = !showSplat;
@@ -596,6 +611,7 @@ export async function build(
       // that; the stand-in for a missing splat is see-through and stays.
       if (splat)
         ready(() => {
+          if (gone) return;
           if (content) content.enabled = wantSplat;
           draw();
         });
@@ -609,11 +625,16 @@ export async function build(
     splatLoaded: splat ? splatLoaded : Promise.resolve(),
     cameraNames: names,
     dispose: () => {
+      if (gone) return;
       gone = true;
       host.removeEventListener('pointerenter', mine);
       host.removeEventListener('pointerdown', mine);
       host.removeEventListener('pointerleave', notMine);
-      viewer.destroy();
+      try {
+        viewer.destroy();
+      } catch {
+        // The device can already be gone when the page tears the view down a second time.
+      }
     },
   };
 }

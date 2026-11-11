@@ -22,7 +22,7 @@
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
-    GET /places/scene?place=           the 3D view's scene: the newest revision with a map, its map's URL and
+    GET /places/scene?place=[&camera=] the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
                                        it was trained from (`splat_from`, as its trainer named it), which state the
@@ -34,9 +34,13 @@
                                        many cameras it samples, whether a view is being added now, how many views
                                        the place's map was built from, and when it last improved. The page asks
                                        again every few seconds while it's open, and draws a newer map or splat
-                                       when the reply names one
-    GET /places/map?place=&revision=   that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
-                                       caching for good: a revision's files never change once written
+                                       when the reply names one. `views` lists the cameras whose own clouds
+                                       the view offers (`camera_views`); with `camera`, or with no map of the place,
+                                       the scene is one camera's own cloud, named in `view` (`_camera_scene`)
+    GET /places/map?place=&revision=[&camera=]
+                                       that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
+                                       caching for good: a revision's files never change once written. With
+                                       `camera`, that camera's own cloud, whose id is the revision
     GET /places/splat?place=&revision=&format=sog
                                        that revision's 3D Gaussian splat (SOG), served the same way; the scene
                                        names it (`splat`, null while the revision has none). The URL and the ETag
@@ -49,9 +53,8 @@
                                        people there (`cameras`: with none, nobody can be, and the page says so); and
                                        each camera of the place with how it's posed and what it lacks
                                        (`camera_notes`: [{camera, by: "spot" | "map", missing}], `missing` any of
-                                       "height", "facing", "lens", "tilt", "check" for a spot, spatial/spots.py,
-                                       and "moving" or "floor" for a learned map's camera,
-                                       spatial/surroundings_positions.py), and whether the place has a map
+                                       "height", "facing", "lens", "tilt", "check" for a spot, spatial/spots.py),
+                                       and whether the place has a map
                                        (`map`); the read stops if the client hangs up
 
 The GETs only read state. The POSTs are teaching, so they follow dashboard.remote_teaching like the rest.
@@ -151,20 +154,28 @@ def listing(state: Path, now: float | None = None) -> Reply:
 
 
 def _map_revision(state: Path, place: str, revision: str | None = None) -> places.Revision | None:
-    """The revision whose map the 3D view shows: `revision` if it's one of the place's and its map file is still kept
+    """The revision whose map the 3D view shows: `revision` if it's one of the place's, a producer of today wrote it
+    (`places.SHOWN_PRODUCERS`: a map an earlier version made stays on disk, unread), and its map file is still kept
     (maps are pruned to the newest few), else (with none asked for) the newest such revision. A revision's map is
     always a bare `<uuid>.map` in the place's folder: memory/places.py refuses any other name when it reads one."""
-    chain = places.revisions(state, place)
+    chain = [r for r in places.revisions(state, place) if places.shown(r)]
     found = [r for r in chain if r.map and (places.root(state) / place / r.map).is_file()]
     if revision is not None:
         return next((r for r in found if r.id == revision), None)
     return found[-1] if found else None
 
 
-def map_file(state: Path, place: str, revision: str) -> Path | None:
-    """GET /places/map: the file of `revision`'s map, or None (no such place or revision, or its map is gone)."""
+def map_file(state: Path, place: str, revision: str, camera: str | None = None) -> Path | None:
+    """GET /places/map: the file of `revision`'s map, or None (no such place or revision, or its map is gone). With
+    `camera`, that camera's own cloud (spatial/camera_clouds.py), when `revision` is still the one it has."""
     if places.get(state, place) is None:
         return None
+    if camera is not None:
+        from liberational.spatial import camera_clouds  # numpy: only the 3D view needs it
+
+        store = camera_clouds.Store(camera_clouds.root(state))
+        cloud = store.current(camera)
+        return store.file(cloud) if cloud is not None and cloud.id == revision else None
     rev = _map_revision(state, place, revision)
     return places.root(state) / place / rev.map if rev and rev.map else None
 
@@ -173,90 +184,148 @@ def splat_file(state: Path, place: str, revision: str) -> Path | None:
     """GET /places/splat: `revision`'s splat (SOG), or None (no such place or revision, or it has no splat)."""
     if places.get(state, place) is None:
         return None
-    rev = next((r for r in places.revisions(state, place) if r.id == revision), None)
+    rev = next((r for r in places.revisions(state, place) if r.id == revision and places.shown(r)), None)
     return places.splat_path(state, rev, SPLAT_FORMAT) if rev and places.has_splat(state, rev) else None
 
 
 SPLAT_FORMAT = "sog"  # what GET /places/splat serves, and what its URL and ETag name
 
 
-LEARNED = "surroundings"  # what a learned map's producer starts with, and what its splat says it was trained from
+def _learning() -> dict[str, Any]:
+    """Whether pictures are collected from the cameras, for the 3D view to say in plain words: `on` (the Live tab's
+    switch) and `cameras` (how many it samples now; none while off)."""
+    from liberational.spatial import surroundings
+
+    switch = surroundings.read()
+    return {"on": switch.on, "cameras": len(switch.cameras) if switch.on else 0}
 
 
-def _summary(state: Path) -> dict[str, Any]:
-    """What the map step knows (spatial/surroundings_map.py's `summary`): the switch, the cameras sampled, the kept
-    frames waiting for a place, whether a step is running, and each place's views and when it last improved."""
-    from liberational.spatial import surroundings_map
-
-    return surroundings_map.summary(state)
+#: Why a camera has no cloud that the service doesn't note itself: learning is off, or the camera isn't chosen.
+VIEW_OFF, VIEW_NOT_CHOSEN, VIEW_WAITING = "off", "not_chosen", "waiting"
 
 
-def _learning(state: Path, place: str) -> dict[str, Any]:
-    """How `place`'s map is learned from the cameras, for the 3D view to say in plain words: `on` (the Live tab's
-    switch), `cameras` (how many it samples now; none while off), `improving` (on, and a kept frame is waiting to be
-    placed or a map step is running), `views` (the kept frames the place's map was built from; None for a place the
-    map step hasn't built), and `improved` (when a step last added a view to it, epoch seconds, or None)."""
-    told = _summary(state)
-    on = told.get("on") is True
-    by_place = told.get("places")
-    mine = by_place.get(place) if isinstance(by_place, dict) else None
-    mine = mine if isinstance(mine, dict) else {}
-    sampling = told.get("sampling")
-    return {
-        "on": on,
-        "cameras": len(sampling) if isinstance(sampling, list) else 0,
-        "improving": on and bool(told.get("waiting") or told.get("running")),
-        "views": mine.get("views"),
-        "improved": mine.get("improved"),
+def camera_views(state: Path, place: str) -> list[dict[str, Any]]:
+    """The cameras whose own clouds the 3D view of `place` offers, in name order: the ones learned from now and the
+    ones that have a cloud, among the cameras with a spot on this place's plan and the ones with no spot on any
+    plan (a camera is an angle, and nothing else says which place it looks at). Each says whether it has a cloud
+    (`cloud`, with `at`, `points`, and `size`: "height" or "approximate") and what keeps it from a cloud or a newer
+    one (`why`: "off" while learning is off, "not_chosen", one of camera_clouds.REASONS from its last try, or
+    "waiting" for a clean picture; None for a camera whose cloud is kept up to date)."""
+    from liberational.spatial import camera_clouds, surroundings
+
+    store = camera_clouds.Store(camera_clouds.root(state))
+    switch = surroundings.read()
+    spots = places.spot_places(state)
+    notes = store.notes()
+    names = (set(switch.cameras) if switch.on else set()) | set(store.cameras())
+    out = []
+    for camera in sorted(names):
+        if spots.get(camera, place) != place:
+            continue
+        cloud = store.current(camera)
+        note = notes.get(camera)
+        # Learning off, or the camera not chosen, comes first: nothing is made or refreshed then, whatever the last
+        # try said, and the page says so even for a camera that has a cloud.
+        if not switch.on:
+            why = VIEW_OFF
+        elif camera not in switch.cameras:
+            why = VIEW_NOT_CHOSEN
+        elif note is not None:
+            why = str(note.get("reason"))
+        else:
+            why = None if cloud is not None else VIEW_WAITING
+        out.append(
+            {
+                "camera": camera,
+                "cloud": cloud is not None,
+                "at": None if cloud is None else cloud.at,
+                "points": None if cloud is None else cloud.points,
+                "size": None if cloud is None else cloud.size,
+                "why": why,
+            }
+        )
+    return out
+
+
+def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any], views: list[dict[str, Any]]) -> Reply:
+    """The scene of one camera's own cloud, in the cloud's level frame (spatial/camera_clouds.py): its points, the
+    floor at z = 0, and the camera where it stands in it. No plan is laid on it and no splat goes with it: the cloud
+    is that camera's view alone, not the place's map."""
+    from liberational.spatial import camera_clouds
+
+    store = camera_clouds.Store(camera_clouds.root(state))
+    cloud = store.current(camera)
+    base = {"place": place, "learning": learning, "views": views}
+    if cloud is None:
+        return 200, {**base, "revision": None, "view": {"camera": camera}}
+    try:
+        size = store.file(cloud).stat().st_size
+    except FileNotFoundError:  # replaced since it was read
+        return 200, {**base, "revision": None, "view": {"camera": camera}}
+    pose = {
+        "pose": list(cloud.pose),
+        "focal": cloud.focal,
+        "width": cloud.width,
+        "height": cloud.height,
+        "at": cloud.at,
+    }
+    return 200, {
+        **base,
+        "revision": cloud.id,
+        "at": cloud.at,
+        "map": "/places/map?" + urlencode({"place": place, "revision": cloud.id, "camera": camera}),
+        "map_format": "ply",
+        "map_bytes": size,
+        "splat": None,
+        "floor": [0.0, 0.0, 1.0, 0.0],
+        "plan_transform": None,
+        "cameras": {camera: pose},
+        "plan": None,
+        "view": {
+            "camera": camera,
+            "size": cloud.size,
+            "floor_found": cloud.floor_found,
+            "points": cloud.points,
+            "at": cloud.at,
+        },
     }
 
 
-def _splat_wait(state: Path, rev: places.Revision) -> dict[str, Any]:
-    """Why `rev` has no splat of its own: `reason` is the splat pass's own note when it has tried this revision
-    ("few_frames", "no_cameras", "no_runtime", or "failed", with `tried`, when), else "learned" for a map learned
-    from the cameras (its splat is written right after it, so it's on its way or its training failed), else
-    "no_cameras" for a map with no cameras registered (there is nothing to make one from), else "pass": no pass has
-    tried this map. `pass_at` is the time of day a scheduled pass runs; None, since nothing makes splats on a
-    schedule at present (`pack-spatial-splat` does by hand)."""
-    note = places.splat_note(state, rev)
-    if note is not None:
-        reason, tried = note["reason"], note["at"]
-    elif rev.producer.startswith(LEARNED):
-        reason, tried = "learned", None
-    elif not rev.cameras:
-        reason, tried = "no_cameras", None
-    else:
-        reason, tried = "pass", None
-    return {"reason": reason, "tried": tried, "pass_at": None}
-
-
-def scene(state: Path, place: str) -> Reply:
+def scene(state: Path, place: str, camera: str | None = None) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). While the place has an
     owner's plan, that is the plan, whatever the map: `plan_source` is "owner", and no machine plan is given in its
     place. It's laid on the map only when it's drawn in this revision's frame (`plan_transform`, with `plan_aligned`
-    true); until a learned map is lined up with it the transform is None, so the view draws the map alone, and
-    `plan_lineup` says why (spatial/plan_lineup.py `status`). A place with no owner's plan gives the revision's own
-    machine plan, in its frame."""
+    true); otherwise the transform is None, and the view draws the map alone. A place with no owner's plan gives the
+    revision's own machine plan, in its frame. No map is made at present (the 3D map is being rebuilt with a new
+    method), so `revision` is None until a producer of today writes one (`places.SHOWN_PRODUCERS`).
+
+    What there is meanwhile is each camera's own cloud (`camera_views`, always given as `views`). With `camera`, the
+    scene is that camera's cloud (`_camera_scene`); with none, and no map of the place, it's the first camera's that
+    has one, so the view opens on something. `view` names the camera whose cloud the scene is."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
-    learning = _learning(state, place)
+    learning = _learning()
+    views = camera_views(state, place)
+    if camera is not None:
+        return _camera_scene(state, place, camera, learning, views)
     rev = _map_revision(state, place)
     if rev is None or rev.map is None:
-        return 200, {"place": place, "revision": None, "learning": learning}
+        first = next((v["camera"] for v in views if v["cloud"]), None)
+        if first is not None:
+            return _camera_scene(state, place, first, learning, views)
+        return 200, {"place": place, "revision": None, "learning": learning, "views": views}
     by_id = {r.id: r for r in places.revisions(state, place)}
     drawn = by_id.get(held.plan_revision or "")
-    from liberational.spatial import plan_lineup  # numpy and scipy: only a scene needs them
-
     owned = held.plan_source == "owner"
     aligned = owned and drawn is not None and places.same_plan_frame(drawn, rev)
     try:
         size = (places.root(state) / place / rev.map).stat().st_size
     except FileNotFoundError:  # pruned since it was found
-        return 200, {"place": place, "revision": None, "learning": learning}
+        return 200, {"place": place, "revision": None, "learning": learning, "views": views}
     # The revision's own splat, else the newest one made in the same map frame (a later revision that kept the
     # frame); a splat of another frame (or an unknown one) would sit out of place, so it's only named as stale.
-    chain = places.revisions(state, place)
+    chain = [r for r in places.revisions(state, place) if places.shown(r)]
     with_splat = [r for r in chain if places.has_splat(state, r)]
     fits = [r for r in with_splat if r.id == rev.id or (rev.frame is not None and r.frame == rev.frame)]
     shown = next((r for r in reversed(fits) if r.id == rev.id), fits[-1] if fits else None)
@@ -265,14 +334,12 @@ def scene(state: Path, place: str) -> Reply:
     except FileNotFoundError:  # pruned since it was found
         shown, splat_size = None, None
     stale = with_splat[-1] if shown is None and with_splat else None
-    # Which state the view is in, so the page doesn't guess: this map's own splat (still improving while learning
-    # is adding views to it), an earlier map's that still lines up (same frame), one that doesn't (named, not
-    # offered), or none. A revision that kept its map (one that only set the floor or a camera) has the splat of the
-    # revision that wrote that map: it's the same map's.
+    # Which state the view is in, so the page doesn't guess: this map's own splat, an earlier map's that still lines
+    # up (same frame), one that doesn't (named, not offered), or none. A revision that kept its map (one that only
+    # set the floor or a camera) has the splat of the revision that wrote that map: it's the same map's.
     own = shown is not None and (shown.id == rev.id or shown.map == rev.map)
     if shown is not None and own:
-        learned = places.splat_source(state, shown) == LEARNED
-        splat_state = "improving" if learned and learning["improving"] else "current"
+        splat_state = "current"
     elif shown is not None:
         splat_state = "earlier"
     else:
@@ -299,15 +366,14 @@ def scene(state: Path, place: str) -> Reply:
         "splat_from": None if shown is None else places.splat_source(state, shown),
         "splat_state": splat_state,
         "splat_at": None if shown is None else shown.at,
-        "splat_wait": None if own else _splat_wait(state, rev),
         "learning": learning,
+        "views": views,
         "floor": list(rev.floor) if rev.floor else None,
         "plan_transform": list(transform) if transform else None,
         "cameras": {cam: pose.as_dict() for cam, pose in rev.cameras.items()},
         "plan": held.plan if owned else places.machine_plan(state, rev),
         "plan_source": "owner" if owned else "machine",
         "plan_aligned": aligned if owned else transform is not None,
-        "plan_lineup": plan_lineup.status(state, place) if owned else None,
     }
 
 
@@ -674,7 +740,8 @@ def _get_places(h: H) -> None:
 
 @routes.get("/places/scene")
 def _get_places_scene(h: H) -> None:
-    code, reply = scene(h.state, h._query().get("place", ""))
+    q = h._query()
+    code, reply = scene(h.state, q.get("place", ""), q.get("camera") or None)
     return h._json(reply, code)
 
 
@@ -682,8 +749,10 @@ def _get_places_scene(h: H) -> None:
 def _get_places_map(h: H) -> None:
     p = h.path.split("?")[0]
     q = h._query()
-    files = map_file if p == "/places/map" else splat_file
-    found = files(h.state, q.get("place", ""), q.get("revision", ""))
+    if p == "/places/map":
+        found = map_file(h.state, q.get("place", ""), q.get("revision", ""), q.get("camera") or None)
+    else:
+        found = splat_file(h.state, q.get("place", ""), q.get("revision", ""))
     # A splat is asked for by format: a URL without one is an earlier page's, whose bytes were another encoding.
     splat = p == "/places/splat"
     if found is None or (splat and q.get("format", SPLAT_FORMAT) != SPLAT_FORMAT):

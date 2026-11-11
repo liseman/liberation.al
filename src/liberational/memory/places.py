@@ -18,14 +18,15 @@ Two layers, following docs/DOMAIN-MODEL.md:
   map, counting only a map that revision wrote itself. A producer is still active when it wrote one of the last
   `PRODUCER_WINDOW` revisions. Older maps are pruned, and the
   revision records stay as the audit trail. Visits are rows in the `place.visit` segment stream (`segment_log.py`).
-- **A revision's splat** is a 3D Gaussian splat trained on that revision's map, cameras, and their recorded
-  frames (spatial/splats.py), in the map's frame: `<revision id>.gs.ply` (the standard 3DGS PLY, the master) and
-  `<revision id>.sog` (the compact copy the 3D view loads, spatial/sog.py), with `<revision id>.gs.from` saying what it was trained
-  from (the fixed cameras' frames are "cameras"). It's written once, after its revision, and isn't a
-  revision of its own (a revision is a reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT`
-  revisions' splats stay and older ones are pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show
-  an earlier revision's splat while the frame holds. A pass that made no splat for a revision leaves why in the
-  place's `splat.note` (`write_splat_note`), for the 3D view to say.
+- **A revision's splat** is a 3D Gaussian splat of that revision's map, in the map's frame: `<revision id>.gs.ply`
+  (the standard 3DGS PLY, the master) and `<revision id>.sog` (the compact copy the 3D view loads, spatial/sog.py),
+  with `<revision id>.gs.from` saying what made it (`write_splat`). It isn't a revision of its own (a revision is a
+  reconstruction; a splat is a rendering of one). The newest `SPLATS_KEPT` revisions' splats stay and older ones are
+  pruned. A splat fits every revision of its map's `frame` (`Revision.frame`), so the 3D view can show an earlier
+  revision's splat while the frame holds.
+- **Only a producer of today is shown** (`SHOWN_PRODUCERS`, `shown`). Nothing makes maps or splats at present: the
+  3D map is being rebuilt with a new method, which names its producer there. The maps, splats, and notes an earlier
+  version wrote stay on disk, and the 3D view doesn't read them.
 - **What the owner taught is in the knowledge store** (`knowledge.sqlite3`), and supersedes the machine view
   without deleting it, the way zone sets and identity corrections do. `place.named` holds the owner's name for a
   place (newest per place wins; an empty name goes back to the placeholder). `place.plan` holds the owner's
@@ -53,10 +54,10 @@ live with the video and follow the 30-day video window.
 
 This module is the schema and the read and write helpers. A writer is a job that builds a place's map and registers
 each camera in it: its pose in the map's frame, with the map's floor plane and the plan's frame, so `camera_to_plan`
-can put a pixel of that camera on the plan. The surroundings jobs are those writers: spatial/surroundings_map.py
-refines a place's map from the frames kept from its cameras into a new revision, and spatial/surroundings_positions.py
-gives that revision its floor and its fixed cameras. Until a revision registers a camera, it has a pose only from the
-spot the owner gave it on the place's plan (`spot_places`, spatial/spots.py), which needs no map.
+can put a pixel of that camera on the plan. No job writes maps at present (the 3D map is being rebuilt with a new
+method); revisions an earlier version wrote keep the cameras they registered. A camera with no such registration
+has a pose only from the spot the owner gave it on the place's plan (`spot_places`, spatial/spots.py), which needs
+no map.
 
 **Places in the journal**: `places_for_span` is the one call the journal's pages make for a
 span: the places visited in it and the places a registered fixed camera only observed, each with the rooms seen
@@ -90,6 +91,9 @@ NAMED = "place.named"  # owner names, in the knowledge store, keyed by place id
 PLAN = "place.plan"  # owner plan corrections, in the knowledge store, keyed by place id
 MAPS_KEPT = 2  # map files kept per place, newest first; older ones are pruned
 SPLATS_KEPT = 2  # revisions per place whose splat files are kept, newest first
+#: The producers whose revisions the 3D view shows (`shown`, by producer prefix). None at present: the 3D map is being
+#: rebuilt with a new method, which adds its own here. What earlier producers wrote stays on disk, unread.
+SHOWN_PRODUCERS: tuple[str, ...] = ()
 #: A splat's files beside its revision: the 3DGS master, the compact web copy, and a note of what it was trained from.
 SPLAT_FILES = ("gs.ply", "sog", "gs.from")
 # A producer's newest map is kept whatever its age only while that producer wrote one of the place's last this many
@@ -696,6 +700,11 @@ def read_map(state: Path, rev: Revision) -> bytes | None:
         return None
 
 
+def shown(rev: Revision) -> bool:
+    """Whether the 3D view shows `rev`'s map and splat: a producer of today wrote it (`SHOWN_PRODUCERS`)."""
+    return any(rev.producer.startswith(p) for p in SHOWN_PRODUCERS)
+
+
 def splat_path(state: Path, rev: Revision, kind: str) -> Path:
     """Where `rev`'s splat file of `kind` (one of SPLAT_FILES) lives, whether or not it's there."""
     if kind not in SPLAT_FILES:
@@ -729,41 +738,6 @@ def write_splat(state: Path, rev: Revision, master: bytes, web: bytes, source: s
         _write(splat_path(state, rev, "gs.from"), source.encode())
     _write(splat_path(state, rev, "sog"), web)
     _prune_splats(state, rev.place)
-
-
-#: Why the splat pass made no splat for a revision (`write_splat_note`): too few lit daytime frames, no fixed cameras
-#: to take frames from, the trainer isn't installed, or training failed.
-SPLAT_NOTE_REASONS = ("few_frames", "no_cameras", "no_runtime", "failed")
-
-
-def write_splat_note(state: Path, rev: Revision, reason: str, at: float | None = None) -> None:
-    """Note that the splat pass tried `rev` at `at` (now, by default) and made no splat, and why (one of
-    SPLAT_NOTE_REASONS). One note a place: the newest pass's, for the revision it tried."""
-    if reason not in SPLAT_NOTE_REASONS:
-        raise ValueError(f"a splat note's reason is one of {', '.join(SPLAT_NOTE_REASONS)}")
-    note = {"revision": rev.id, "reason": reason, "at": time.time() if at is None else at}
-    _write(root(state) / rev.place / "splat.note", json.dumps(note).encode())
-
-
-def splat_note(state: Path, rev: Revision) -> dict[str, Any] | None:
-    """The splat pass's note about `rev` (`reason` and `at`), or None: it hasn't tried this revision, or it made its
-    splat."""
-    try:
-        note = json.loads((root(state) / rev.place / "splat.note").read_text())
-    except OSError, ValueError:
-        return None
-    if not isinstance(note, dict) or note.get("revision") != rev.id or note.get("reason") not in SPLAT_NOTE_REASONS:
-        return None
-    at = note.get("at")
-    return {"reason": note["reason"], "at": float(at) if isinstance(at, int | float) else None}
-
-
-def write_splat_copy(state: Path, rev: Revision, web: bytes) -> None:
-    """Give `rev`'s kept splat (its 3DGS PLY is there) the SOG copy it lacks; a revision with a copy, or without a
-    PLY, is refused."""
-    if has_splat(state, rev) or not splat_path(state, rev, "gs.ply").is_file():
-        raise ValueError(f"revision {rev.id} has its splat's copy already, or no splat to copy")
-    _write(splat_path(state, rev, "sog"), web)
 
 
 def _prune_splats(state: Path, place: str) -> None:
@@ -924,7 +898,7 @@ def restore_plan(state: Path, place: str, record: str, now: float | None = None)
 def same_plan_frame(a: Revision, b: Revision) -> bool:
     """Whether two revisions of a place draw their plans in one frame: the same plan file, or, for revisions with no
     plan file, the same map frame (`Revision.frame`) and the same plan frame in it: the same plan transform when
-    either has one (a learned map lined up with the owner's plan, spatial/plan_lineup.py, whose floor may be found
+    either has one (a map lined up with the owner's plan, whose floor may be found
     again as the map grows), else the same floor, whose own frame is the plan's (`floor_frame`). An owner plan drawn
     in a revision with no plan file of its own (an imported one, or one a learned map was lined up with) holds for
     every revision in its frame this way."""

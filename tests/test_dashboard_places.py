@@ -602,6 +602,14 @@ def test_a_restore_that_isnt_one_changes_nothing(tmp_path, home, body, control, 
 CLOUD = b"ply\nformat binary_little_endian 1.0\nelement vertex 0\nend_header\n" + bytes(range(256)) * 4
 FLOOR = (0.0, 0.0, 1.0, -0.01)
 TRANSFORM = (1.0, 0.0, 0.0, 2.0, 0.0, 1.0, 0.0, 3.0, 0.0, 0.0, 1.0, 0.0)
+
+
+@pytest.fixture(autouse=True)
+def shown(monkeypatch):
+    """The producers whose maps the 3D view shows: these tests' own, as a producer of today would name itself."""
+    monkeypatch.setattr(places, "SHOWN_PRODUCERS", ("mapper", "floor"))
+
+
 CAM = places.CameraPose(
     pose=tuple(float(i == j) for i in range(4) for j in range(4)), focal=300.0, width=512, height=288
 )
@@ -627,9 +635,7 @@ def test_the_scene_gives_the_newest_maps_frame_cameras_and_plan(tmp_path, mapped
     assert reply["cameras"]["cam0"]["focal"] == 300.0 and len(reply["cameras"]["cam0"]["pose"]) == 16
     assert (reply["plan"], reply["plan_source"]) == (PLAN, "machine")
     assert (reply["splat"], reply["splat_format"], reply["splat_bytes"]) == (None, None, None)
-    # no splat, and no pass has tried this map yet: the page says so, and that none is scheduled
     assert (reply["splat_state"], reply["splat_at"]) == ("none", None)
-    assert reply["splat_wait"] == {"reason": "pass", "tried": None, "pass_at": None}
 
 
 def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_frame_names_it_stale(tmp_path, mapped):
@@ -645,12 +651,12 @@ def test_a_newer_map_in_the_same_frame_shows_the_last_splat_and_one_in_another_f
     assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}&format=sog"
     assert reply["splat_stale"] is None
     # offered, and labelled as an earlier map's: when that map was made, and why this one has none of its own
-    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]["reason"]) == ("earlier", T, "pass")
+    assert (reply["splat_state"], reply["splat_at"]) == ("earlier", T)
     moved = places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T + 20)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat"], reply["splat_revision"]) == (moved.id, None, None)
     assert reply["splat_stale"] == {"revision": rev_id, "at": T}
-    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]["reason"]) == ("stale", None, "pass")
+    assert (reply["splat_state"], reply["splat_at"]) == ("stale", None)
 
 
 def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
@@ -659,27 +665,7 @@ def test_the_scene_names_the_revisions_splat_once_it_has_one(tmp_path, mapped):
     reply = view.scene(tmp_path, place)[1]
     assert reply["splat"] == f"/places/splat?place={place}&revision={rev_id}&format=sog"
     assert (reply["splat_format"], reply["splat_bytes"]) == ("sog", len(b"sog-bytes"))
-    assert (reply["splat_state"], reply["splat_at"], reply["splat_wait"]) == ("current", T, None)
-
-
-@pytest.mark.parametrize("reason", ["few_frames", "failed", "no_runtime"])
-def test_the_scene_gives_the_splat_passs_own_reason_once_it_has_tried_this_map(tmp_path, mapped, reason):
-    place, _ = mapped
-    rev = places.revisions(tmp_path, place)[-1]
-    places.write_splat_note(tmp_path, rev, reason, T + 5)
-    wait = view.scene(tmp_path, place)[1]["splat_wait"]
-    assert (wait["reason"], wait["tried"]) == (reason, T + 5)
-    # a newer map hasn't been tried: the note was about the one before it
-    places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T + 10)
-    wait = view.scene(tmp_path, place)[1]["splat_wait"]
-    assert (wait["reason"], wait["tried"]) == ("pass", None)
-
-
-def test_a_map_with_no_cameras_says_the_pass_has_nothing_to_make_a_splat_from(tmp_path, mapped):
-    place, _ = mapped
-    places.revise(tmp_path, place, producer="mapper v1", map_bytes=CLOUD, map_format="ply", cameras={}, now=T + 10)
-    reply = view.scene(tmp_path, place)[1]
-    assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "no_cameras")
+    assert (reply["splat_state"], reply["splat_at"]) == ("current", T)
 
 
 def test_the_scene_says_what_its_splat_was_trained_from_as_the_trainer_named_it(tmp_path, mapped):
@@ -819,120 +805,129 @@ def test_the_positions_reply_counts_the_cameras_with_a_pose_in_the_place(tmp_pat
 # ---- the learned map's state (#259): what the 3D view says about learning, from the map step's summary
 
 
-def told(monkeypatch, **summary):
-    """Stand in for the map step's summary (spatial/surroundings_map.py's `summary`), in the shape it gives."""
-    whole = {"on": False, "sampling": [], "kept": 0, "waiting": 0, "running": False, "places": {}, **summary}
-    monkeypatch.setattr(view, "_summary", lambda state: whole)
+def waiting(camera):
+    return {"camera": camera, "cloud": False, "at": None, "points": None, "size": None, "why": "waiting"}
 
 
-def learned(state, place=None, now=T):
-    """A revision as the map step writes one, with its splat: (the place, the revision)."""
-    first = places.latest(state, place) if place else None
-    rev = places.revise(
-        state, place, producer="surroundings v1", map_bytes=CLOUD, map_format="ply",
-        frame=first.frame if first else None, now=now,
-    )  # fmt: skip
-    places.write_splat(state, rev, master=b"ply", web=b"sog-bytes", source="surroundings")
-    return rev.place, rev
+@pytest.fixture
+def learn(monkeypatch):
+    """Set the Learn surroundings switch: `learn(on, cameras)`."""
+    from liberational.spatial import surroundings
+
+    def to(on, cameras):
+        monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(on, tuple(cameras), (), "cam0"))
+
+    to(False, ())
+    return to
 
 
 @pytest.mark.parametrize(
-    ("summary", "learning"),
+    ("switch", "learning", "views"),
     [
-        pytest.param({}, {"on": False, "cameras": 0, "improving": False}, id="off"),
-        pytest.param(
-            {"on": True, "sampling": ["cam0", "cam1"]}, {"on": True, "cameras": 2, "improving": False}, id="on"
-        ),
-        pytest.param(
-            {"on": True, "sampling": ["cam0"], "waiting": 3},
-            {"on": True, "cameras": 1, "improving": True},
-            id="on-with-frames-waiting",
-        ),
+        pytest.param((False, ("cam0",)), {"on": False, "cameras": 0}, [], id="off"),
+        pytest.param((True, ("cam0", "cam1")), {"on": True, "cameras": 2}, [waiting("cam0"), waiting("cam1")], id="on"),
     ],
 )
-def test_a_place_with_no_map_still_says_whether_learning_is_on(tmp_path, vision, monkeypatch, summary, learning):
+def test_a_place_with_no_map_says_whether_pictures_are_collected(tmp_path, vision, learn, switch, learning, views):
+    learn(*switch)
     place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
-    told(monkeypatch, **summary)
-    reply = view.scene(tmp_path, place)[1]
-    assert reply == {"place": place, "revision": None, "learning": {**learning, "views": None, "improved": None}}
+    assert view.scene(tmp_path, place)[1] == {"place": place, "revision": None, "learning": learning, "views": views}
 
 
-def test_a_learned_map_says_its_views_and_when_it_last_improved_not_another_places(tmp_path, vision, monkeypatch):
-    place, rev = learned(tmp_path)
-    other = {"revision": "r-other", "views": 99, "rounds": 9, "improved": T + 500}
-    mine = {"revision": rev.id, "views": 42, "rounds": 3, "improved": T - 60}
-    told(monkeypatch, places={"another-place": other, place: mine})
-    reply = view.scene(tmp_path, place)[1]
-    assert reply["learning"] == {"on": False, "cameras": 0, "improving": False, "views": 42, "improved": T - 60}
-    # learning is off: the splat is this map's own, and nothing is being added to it
-    assert (reply["splat_state"], reply["splat_from"], reply["splat_wait"]) == ("current", "surroundings", None)
+def keep_cloud(state, camera, at=T, size="approximate"):
+    """Keep a made-up cloud for `camera`, as spatial/camera_clouds.py would."""
+    from liberational.spatial import camera_clouds
+
+    cloud = camera_clouds.Cloud(
+        id=f"00000000-0000-7000-8000-{int(at) % 10**12:012d}", camera=camera, at=at, points=1024, share=0.8, size=size,
+        factor=1.0, floor_found=True, pose=(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1.5, 0, 0, 0, 1), focal=300.0, width=512,
+        height=288,
+    )  # fmt: skip
+    store = camera_clouds.Store(camera_clouds.root(state))
+    store.replace(camera_clouds.Made(cloud, CLOUD))
+    return store, cloud
 
 
-@pytest.mark.parametrize(
-    ("summary", "state"),
-    [
-        pytest.param({"on": True, "running": True}, "improving", id="a-step-is-running"),
-        pytest.param({"on": True, "waiting": 2}, "improving", id="frames-are-waiting"),
-        pytest.param({"on": True}, "current", id="on-with-nothing-to-add"),
-        pytest.param({"on": False, "waiting": 2}, "current", id="off-with-frames-left-waiting"),
-    ],
-)
-def test_a_learned_splat_is_improving_only_while_learning_is_adding_to_it(
-    tmp_path, vision, monkeypatch, summary, state
-):
-    place, _ = learned(tmp_path)
-    told(monkeypatch, **summary)
-    assert view.scene(tmp_path, place)[1]["splat_state"] == state
+def test_a_cameras_own_cloud_is_the_scene_asked_for_by_camera(tmp_path, vision, learn):
+    learn(True, ("front", "hall"))
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    _, cloud = keep_cloud(tmp_path, "hall", size="height")
+    reply = view.scene(tmp_path, place, camera="hall")[1]
+    assert (reply["revision"], reply["map_format"], reply["map_bytes"]) == (cloud.id, "ply", len(CLOUD))
+    assert reply["view"] == {"camera": "hall", "size": "height", "floor_found": True, "points": 1024, "at": T}
+    assert reply["floor"] == [0.0, 0.0, 1.0, 0.0] and reply["splat"] is None and reply["plan"] is None
+    assert reply["cameras"]["hall"]["pose"][11] == 1.5  # the camera, where it stands in its own cloud
+    assert [(v["camera"], v["cloud"], v["why"]) for v in reply["views"]] == [
+        ("front", False, "waiting"),
+        ("hall", True, None),
+    ]
+    query = dict(pair.split("=") for pair in urlsplit(reply["map"]).query.split("&"))
+    served = view.map_file(tmp_path, place, query["revision"], query["camera"])
+    assert served is not None and served.read_bytes() == CLOUD
 
 
-def test_a_splat_made_some_other_way_is_never_called_improving(tmp_path, mapped, monkeypatch):
-    place, _ = mapped
-    places.write_splat(tmp_path, places.revisions(tmp_path, place)[-1], master=b"ply", web=b"sog-bytes")
-    told(monkeypatch, on=True, running=True)
-    assert view.scene(tmp_path, place)[1]["splat_state"] == "current"
+def test_with_no_camera_asked_for_the_view_opens_on_the_first_camera_that_has_a_cloud(tmp_path, vision, learn):
+    learn(True, ("front", "hall"))
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    keep_cloud(tmp_path, "hall")
+    assert view.scene(tmp_path, place)[1]["view"]["camera"] == "hall"
+    empty = view.scene(tmp_path, place, camera="front")[1]
+    assert (empty["revision"], empty["view"]) == (None, {"camera": "front"})
 
 
-def test_a_newer_learned_splat_is_the_one_the_scene_names(tmp_path, vision, monkeypatch):
-    told(monkeypatch, on=True)
-    place, first = learned(tmp_path)
-    assert view.scene(tmp_path, place)[1]["splat_revision"] == first.id
-    _, second = learned(tmp_path, place, now=T + 30)
-    reply = view.scene(tmp_path, place)[1]
-    assert (reply["revision"], reply["splat_revision"]) == (second.id, second.id)
-    assert reply["splat"] == f"/places/splat?place={place}&revision={second.id}&format=sog"
+def test_a_cloud_stays_offered_with_learning_off_and_a_camera_without_one_says_why(tmp_path, vision, learn):
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    store, _ = keep_cloud(tmp_path, "hall")
+    store.note("porch", "gpu", T, "1.0 GB free, 4 needed")
+    learn(False, ())
+    off = view.scene(tmp_path, place)[1]["views"]
+    assert [(v["camera"], v["cloud"], v["why"]) for v in off] == [("hall", True, "off")]  # kept, and not refreshed
+    learn(True, ("porch",))
+    assert view.scene(tmp_path, place)[1]["views"][0]["why"] == "not_chosen"
+    learn(True, ("hall", "porch"))
+    assert [(v["camera"], v["why"]) for v in view.scene(tmp_path, place)[1]["views"]] == [
+        ("hall", None),
+        ("porch", "gpu"),
+    ]
 
 
-def test_a_revision_that_kept_the_map_shows_that_maps_splat_as_its_own(tmp_path, vision, monkeypatch):
-    # the floor or a camera set on a learned map is a revision with no map of its own: the splat is still this map's
-    told(monkeypatch)
-    place, rev = learned(tmp_path)
+def test_a_cloud_since_replaced_is_no_longer_served(tmp_path, vision, learn):
+    place = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    _, old = keep_cloud(tmp_path, "hall", at=T)
+    _, new = keep_cloud(tmp_path, "hall", at=T + 600)
+    assert view.map_file(tmp_path, place, old.id, "hall") is None
+    assert view.map_file(tmp_path, place, new.id, "hall") is not None
+    assert view.map_file(tmp_path, place, new.id, "porch") is None
+
+
+def test_a_camera_with_a_spot_on_another_places_plan_is_offered_only_there(tmp_path, vision, learn, monkeypatch):
+    learn(True, ("hall",))
+    here = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    there = places.revise(tmp_path, None, producer="owner plan", plan=PLAN, now=T).place
+    keep_cloud(tmp_path, "hall")
+    monkeypatch.setattr(places, "spot_places", lambda state: {"hall": there})
+    assert view.scene(tmp_path, here)[1]["views"] == []
+    assert view.scene(tmp_path, there)[1]["view"]["camera"] == "hall"
+
+
+def test_a_map_and_splat_an_earlier_version_made_stay_on_disk_and_are_neither_shown_nor_served(tmp_path, vision):
+    rev = places.revise(tmp_path, None, producer="surroundings v1", map_bytes=CLOUD, map_format="ply", now=T)
+    places.write_splat(tmp_path, rev, master=b"ply", web=b"sog-bytes", source="surroundings")
+    assert view.scene(tmp_path, rev.place)[1]["revision"] is None
+    assert view.map_file(tmp_path, rev.place, rev.id) is None
+    assert view.splat_file(tmp_path, rev.place, rev.id) is None
+    assert (places.root(tmp_path) / rev.place / f"{rev.id}.sog").is_file()  # left as it was
+
+
+def test_a_revision_that_kept_the_map_shows_that_maps_splat_as_its_own(tmp_path, vision):
+    # the floor or a camera set on a map is a revision with no map of its own: the splat is still this map's
+    rev = places.revise(tmp_path, None, producer="mapper v1", map_bytes=CLOUD, map_format="ply", now=T)
+    places.write_splat(tmp_path, rev, master=b"ply", web=b"sog-bytes")
+    place = rev.place
     floored = places.revise(tmp_path, place, producer="floor v1", floor=FLOOR, now=T + 10)
     reply = view.scene(tmp_path, place)[1]
     assert (reply["revision"], reply["splat_revision"]) == (floored.id, rev.id)
-    assert (reply["splat_state"], reply["splat_wait"]) == ("current", None)
-
-
-def test_a_learned_map_without_its_splat_yet_says_its_on_its_way(tmp_path, vision, monkeypatch):
-    told(monkeypatch, on=True, running=True)
-    rev = places.revise(tmp_path, None, producer="surroundings v1", map_bytes=CLOUD, map_format="ply", now=T)
-    reply = view.scene(tmp_path, rev.place)[1]
-    assert (reply["splat_state"], reply["splat_wait"]["reason"]) == ("none", "learned")
-
-
-def test_a_learned_map_on_a_place_with_an_owners_plan_still_serves_the_owners_plan(tmp_path, monkeypatch):
-    told(monkeypatch)
-    # A place as a reset leaves it: listed with the owner's plan and no map. Then the cameras found its first map.
-    kept = places.revise(tmp_path, None, producer="places reset v1", now=T - 100)
-    mine = PLAN.replace('"Den"', '"Lounge"')
-    places.correct_plan(tmp_path, kept.place, mine, now=T - 90)
-    _, rev = learned(tmp_path, kept.place)
-    reply = view.scene(tmp_path, kept.place)[1]
-    assert (reply["revision"], reply["plan"], reply["plan_source"]) == (rev.id, mine, "owner")
-    # not lined up with the map yet: nothing to lay the plan on it by, and why
-    assert (reply["plan_aligned"], reply["plan_transform"]) == (False, None)
-    assert (reply["plan_lineup"]["state"], reply["plan_lineup"]["reason"]) == ("unaligned", "no_floor")
-    row = view.listing(tmp_path, now=T + 60)[1]["places"][0]
-    assert (row["plan"], row["plan_source"], row["machine_plan"], row["machine_newer"]) == (mine, "owner", None, False)
+    assert reply["splat_state"] == "current"
 
 
 def test_a_machine_plan_made_after_the_owners_is_never_served_in_its_place(tmp_path, mapped):
@@ -945,7 +940,6 @@ def test_a_machine_plan_made_after_the_owners_is_never_served_in_its_place(tmp_p
     )  # fmt: skip
     reply = view.scene(tmp_path, place)[1]
     assert (reply["plan"], reply["plan_source"], reply["plan_transform"]) == (mine, "owner", None)
-    assert reply["plan_lineup"] is None, "a map with a plan of the machine's isn't one the line-up works on"
 
 
 def test_an_owners_plan_lined_up_with_the_map_is_laid_on_it(tmp_path, mapped):

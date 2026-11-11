@@ -39,9 +39,9 @@ none), `facing` (no yaw), `lens` (no held focal and no `fov`), `tilt` (no aim ye
 or `check` (the aim's people come out the wrong height). A camera with nothing missing has a pose.
 
 **The owner's spot outranks a map.** The placer places a camera with a spot through the spot, whatever a map's
-registration says of it (`overlay`). A map may later refine the pose only within `REFINE_M` and `REFINE_DEG` of the
-spot, and whoever applies that logs it (`within_bounds`); past the bound the spot holds and the disagreement is
-logged.
+registration says of it (`overlay`). A refinement of the spot within `REFINE_M` and `REFINE_DEG` (`within_bounds`)
+that an earlier version's map step stored (`REFINED`, `refined_poses`) is still read; nothing makes new ones at
+present, and an owner's change to the spot drops it.
 """
 
 from __future__ import annotations
@@ -174,47 +174,6 @@ def refined_poses(state: Path) -> dict[str, dict[str, Any]]:
         except KeyError, TypeError, ValueError:
             continue
     return out
-
-
-def save_refined(
-    state: Path,
-    camera: str,
-    spot_pose: Sequence[float],
-    refined_pose: Sequence[float] | None,
-    now: float,
-    basis: str | None = None,
-    check: Mapping[str, Any] | None = None,
-) -> None:
-    """Save or clear `camera`'s refined pose against `spot_pose`, refusing anything outside `within_bounds`. With a
-    `check` (`spot_check.SpotCheck.as_dict`) and the `basis` it was made on, the row is kept even when nothing was
-    refined, so later views of the camera reuse the check instead of searching again."""
-    folder = places.root(state)
-    stored = {
-        c: {k: (list(v) if k in ("spot", "pose") else v) for k, v in r.items() if v is not None}
-        for c, r in refined_poses(state).items()
-    }
-    pose = list(spot_pose) if refined_pose is None else list(refined_pose)
-    if check is None and np.allclose(spot_pose, pose, atol=1e-6):
-        if camera not in stored:
-            return
-        del stored[camera]
-    else:
-        base = places.CameraPose(tuple(float(x) for x in spot_pose), 1.0, 1, 1)
-        cand = places.CameraPose(tuple(float(x) for x in pose), 1.0, 1, 1)
-        if not within_bounds(base, cand):
-            return
-        row: dict[str, Any] = {
-            "spot": [float(x) for x in spot_pose],
-            "pose": [float(x) for x in pose],
-            "at": float(now),
-        }
-        if check is not None:
-            row["check"] = dict(check)
-            if basis is not None:
-                row["basis"] = basis
-        stored[camera] = row
-    folder.mkdir(parents=True, exist_ok=True)
-    json_state.write(folder / REFINED, stored, indent=1, sort_keys=True)
 
 
 def _intrinsics(camera: str, fov: float | None, held: lens.Held | None, width: int, height: int) -> places.CameraPose:

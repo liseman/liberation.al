@@ -1,11 +1,12 @@
 """Wide-lens fixed cameras (part of spatial memory): a camera's radial distortion and the overlays
-it burns into its frames, so MASt3R, the footprints, and the splats see it as the pinhole they assume.
+it burns into its frames, so MASt3R and the footprints see it as the pinhole they assume.
 
-MASt3R, `places.CameraPose`, `places.floor_point`, and the splat trainer all take a camera as a pinhole with its
+MASt3R (the cameras' point clouds, spatial/camera_clouds.py), `places.CameraPose`, and `places.floor_point` all take a
+camera as a pinhole with its
 principal point at the frame's centre. A wide lens (the Reolink cameras: bedroom and kitchen on the Linux machine) bends
 straight lines towards the frame's edges, which bends its share of a place's cloud and misplaces foot points near the
 edges. So a camera with a `lens` calibration in its `config/devices.toml` entry has its frames undistorted before MASt3R
-and the splats see them, and its foot points undistorted before they're projected onto the floor. A camera's
+sees them, and its foot points undistorted before they're projected onto the floor. A camera's
 registration can also carry a lens fitted with its pose, kept the same way on its pose: its
 frames go to MASt3R as they are, and only its rays are undone.
 
@@ -38,9 +39,8 @@ refuses a calibration whose frame reaches past MIN_DENOMINATOR of it.
 
 **Overlays** (a timestamp, the camera's name, a logo) are rectangles of the frame, `masks = [[x1, y1, x2, y2], ...]`
 in fractions of its width and height, in the same manifest entry. They are painted over from their surroundings
-(`cv2.inpaint`) before the frame is undistorted, so MASt3R finds no matches in them (two cameras burning the same clock
-in the same place would otherwise match each other there), and `mask` gives the undistorted frame's pixels they cover,
-which MASt3R's cloud and the splat trainer's loss leave out.
+(`cv2.inpaint`) before the frame is undistorted, and `mask` gives the undistorted frame's pixels they cover, which
+a camera's point cloud leaves out.
 """
 
 from __future__ import annotations
@@ -220,7 +220,7 @@ def mask(masks: Sequence[Sequence[float]], width: int, height: int) -> np.ndarra
 
 
 def prepare(image: np.ndarray, lens: Lens | None, masks: Sequence[Sequence[float]]) -> tuple[np.ndarray, np.ndarray]:
-    """A BGR frame as MASt3R and the splats should see it: overlays painted over from their surroundings, then
+    """A BGR frame as MASt3R should see it: overlays painted over from their surroundings, then
     undistorted when there's a `lens`; and the undistorted frame's overlay pixels (H x W bool, all False with no
     masks). The frame keeps its size."""
     import cv2

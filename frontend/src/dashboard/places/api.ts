@@ -1,6 +1,6 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
 // one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
-import { queryOptions } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import type { Scene as PlanGraph } from '../../plan-editor/protocol';
 import { request } from '../../shared/http';
 
@@ -77,7 +77,7 @@ export interface Positions {
    *  none, nobody can be placed there. */
   cameras?: number;
   /** Each camera of the place: how it's posed, and what a spot still lacks for a pose ("height", "facing", "lens",
-   *  "tilt", or "check"; "moving" or "floor" for a camera of a learned map; empty when it places). */
+   *  "tilt", or "check"; empty when it places). */
   camera_notes?: { camera: string; by: 'spot' | 'map'; missing: string[] }[];
   /** Whether the place has a map. With none, and no camera spot on its plan, the page says "no map yet". */
   map?: boolean;
@@ -166,33 +166,43 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
-/** Why a map has no splat of its own. `reason`: no pass has tried this map ("pass"), there were too few lit daytime
- *  frames ("few_frames"), the map has no fixed cameras ("no_cameras"), the trainer isn't installed ("no_runtime"),
- *  training failed ("failed"), or the map is learned from the cameras and its splat is written right after it
- *  ("learned"). `tried` is when a pass last tried this map (epoch seconds), and `pass_at` the time of
- *  day a scheduled pass runs ("HH:MM"), null while none is scheduled. */
-export interface SplatWait {
-  reason: 'pass' | 'few_frames' | 'no_cameras' | 'no_runtime' | 'failed' | 'learned';
-  tried: number | null;
-  pass_at: string | null;
-}
-
-/** How a place's map is learned from the cameras (the Live tab's "Learn surroundings"). */
+/** Whether pictures are collected from the cameras (the Live tab's "Learn surroundings"), which is also what keeps
+ *  each camera's own cloud up to date. */
 export interface Learning {
   /** The switch. */
   on: boolean;
   /** How many cameras it samples now; none while it's off. */
   cameras: number;
-  /** On, and a view is being added now: a kept frame is waiting to be placed, or a map step is running. */
-  improving: boolean;
-  /** The views this place's map was built from, or null for a place learning hasn't built. */
-  views: number | null;
-  /** When a view was last added to it (epoch seconds), or null. */
-  improved: number | null;
+}
+
+/** Why a camera has no cloud, or no newer one: what the cloud maker noted of its last try, or that learning is off,
+ *  the camera isn't chosen, or it is waiting for a picture with nobody in it. */
+export type ViewWhy =
+  | 'off'
+  | 'not_chosen'
+  | 'waiting'
+  | 'no_runtime'
+  | 'dark'
+  | 'people'
+  | 'lens'
+  | 'gpu'
+  | 'failed'
+  | 'unsure'
+  | 'flat';
+
+/** One camera the 3D view offers: whether it has a cloud of its own view, and why not (or why no newer one). */
+export interface CameraView {
+  camera: string;
+  cloud: boolean;
+  /** When its cloud was made (epoch seconds), how many points it has, and how it was sized; null without one. */
+  at: number | null;
+  points: number | null;
+  size: 'height' | 'approximate' | null;
+  why: ViewWhy | null;
 }
 
 /** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
- *  has no map. */
+ *  has nothing to draw. With `view`, the scene is one camera's own cloud, not the place's map. */
 export interface Scene {
   place: string;
   revision: string | null;
@@ -214,13 +224,10 @@ export interface Scene {
   splat_from?: string | null;
   /** Which state the splat is in, so the page doesn't guess: made for this map ("current"), made for an earlier map
    *  in the same frame, so it still lines up ("earlier"), made in another frame and so not offered ("stale"), or
-   *  there is none. "improving" is this map's own splat while learning is adding views to it: a newer one is on
-   *  its way, and the view draws it when it's written. */
-  splat_state?: 'current' | 'improving' | 'earlier' | 'stale' | 'none';
+   *  there is none. */
+  splat_state?: 'current' | 'earlier' | 'stale' | 'none';
   /** When the map the offered splat was made for was built (epoch seconds). */
   splat_at?: number | null;
-  /** While the map has no splat of its own: why, and when one is due. */
-  splat_wait?: SplatWait | null;
   /** The floor plane: a unit normal and its offset (a, b, c, d), in the map's frame. */
   floor?: number[] | null;
   /** Map to plan, 3x4 row by row. */
@@ -232,24 +239,20 @@ export interface Scene {
   plan?: string | null;
   plan_source?: 'owner' | 'machine';
   plan_aligned?: boolean;
-  /** For a place with an owner's plan: how the map stands with it, and why it isn't lined up when it isn't. */
-  plan_lineup?: PlanLineup | null;
-  /** How the map is learned from the cameras; also given while the place has no map. */
+  /** Whether pictures are collected for the map; also given while the place has no map. */
   learning?: Learning;
-}
-
-export interface PlanLineup {
-  state: 'aligned' | 'unaligned';
-  reason:
-    | 'no_map'
-    | 'no_floor'
-    | 'plan_unreadable'
-    | 'too_little'
-    | 'ambiguous'
-    | 'poor_fit'
-    | 'drifted'
-    | 'not_tried'
-    | null;
+  /** The cameras whose own clouds the view offers. */
+  views?: CameraView[];
+  /** The camera whose own cloud this scene is (its points, in a level frame of its own, with the camera in it), with
+   *  how it was sized: by the camera's measured mounting height, or left in the model's approximate metres. Only
+   *  `camera` while that camera has no cloud yet. */
+  view?: {
+    camera: string;
+    size?: 'height' | 'approximate';
+    floor_found?: boolean;
+    points?: number;
+    at?: number;
+  };
 }
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
@@ -258,10 +261,18 @@ export interface PlanLineup {
 export const SCENE_LEARNING_MS = 10_000;
 export const SCENE_IDLE_MS = 60_000;
 
-export const sceneQuery = (place: string) =>
+/** A place's scene; with `camera`, that camera's own cloud. Changing the camera keeps the scene before it on screen
+ *  until the new one answers. */
+export const sceneQuery = (place: string, camera?: string | null) =>
   queryOptions({
-    queryKey: ['places', 'scene', place],
-    queryFn: ({ signal }) => request<Scene>(`/places/scene?${new URLSearchParams({ place })}`, undefined, signal),
+    queryKey: ['places', 'scene', place, camera ?? null],
+    queryFn: ({ signal }) =>
+      request<Scene>(
+        `/places/scene?${new URLSearchParams({ place, ...(camera ? { camera } : {}) })}`,
+        undefined,
+        signal,
+      ),
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
     refetchInterval: q => (q.state.data?.learning?.on ? SCENE_LEARNING_MS : SCENE_IDLE_MS),
   });

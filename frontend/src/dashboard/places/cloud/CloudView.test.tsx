@@ -83,21 +83,16 @@ function serve(reply: object, splat?: Parameters<typeof http.get>[1]) {
 /** The splat the viewer was last built around: its bytes, or null for the points alone. */
 const lastSplat = () => build.mock.calls.at(-1)?.[3] as ArrayBuffer | null | undefined;
 
-it.each([
-  ['pass', /^No splat of this place yet\. It's made from .* a pass that runs at 01:00\.$/],
-  ['few_frames', /^No splat of this place yet\. It's waiting for daylight: .* It tries again at 01:00\.$/],
-  ['no_cameras', /^No splat of this place yet\. This map has no cameras registered yet/],
-  ['failed', /^No splat of this place yet\. Making it failed when it was last tried/],
-])('says a place has no splat yet and why (%s), draws its points, and logs no error', async (reason, text) => {
+it('says a place has no splat yet, draws its points, and logs no error', async () => {
   const errors = vi.spyOn(console, 'error');
   const warnings = vi.spyOn(console, 'warn');
   let asked = 0;
-  serve(scene({ splat: null, splat_state: 'none', splat_wait: { reason, tried: 1.8e9, pass_at: '01:00' } }), () => {
+  serve(scene({ splat: null, splat_state: 'none' }), () => {
     asked += 1;
     return new HttpResponse(null, { status: 404 });
   });
   renderPage(<CloudView place="p1" />);
-  expect((await screen.findByRole('status')).textContent).toMatch(text);
+  expect((await screen.findByRole('status')).textContent).toBe('No splat of this place yet.');
   await waitFor(() => expect(shown.at(-1)?.splat).toBe(false));
   expect(lastSplat()).toBeNull();
   expect(screen.getByText('Point size')).toBeTruthy();
@@ -114,45 +109,125 @@ it("draws an earlier map's splat that still lines up, labelled as one", async ()
     withSplat({
       splat_state: 'earlier',
       splat_at: 1.8e9,
-      splat_wait: { reason: 'few_frames', tried: 1.8e9 + 3600, pass_at: '01:00' },
     }),
     () => bytes(SOG),
   );
   renderPage(<CloudView place="p1" />);
   expect((await screen.findByText(/^This splat was made for an earlier map of this place/)).textContent).toMatch(
-    /it lines up with the current one\. A splat of the current map isn't made yet\. It's waiting for daylight/,
+    /it lines up with the current one\. A splat of the current map isn't made yet\.$/,
   );
   await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
   expect(new Uint8Array(lastSplat() ?? new ArrayBuffer(0))).toEqual(SOG);
   expect(screen.getByText('Splat')).toBeTruthy();
 });
 
-const learning = (more: object = {}) => ({
-  on: true,
-  cameras: 1,
-  improving: false,
-  views: 42,
-  improved: 1.8e9,
+const learning = (more: object = {}) => ({ on: true, cameras: 1, ...more });
+
+it('says no camera has a point cloud yet, and that learning is off, for a place with nothing to draw', async () => {
+  serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0 }), views: [] });
+  renderPage(<CloudView place="p1" />);
+  expect(
+    await screen.findByText(/^No camera has a point cloud of this place yet\. Turn on Learn surroundings in/),
+  ).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull();
+  expect(build).not.toHaveBeenCalled();
+});
+
+// One camera's own cloud (#417): picked by camera, drawn as points alone, from that camera's viewpoint.
+const view = (camera: string, more: object = {}) => ({
+  camera,
+  cloud: true,
+  at: 1.8e9,
+  points: 1024,
+  size: 'approximate',
+  why: null,
   ...more,
 });
+const VIEWS = [view('hall'), view('porch', { cloud: false, at: null, points: null, size: null, why: 'people' })];
+const cloudOf = (camera: string, more: object = {}) =>
+  scene({
+    revision: `c-${camera}`,
+    map: `/places/map?place=p1&revision=c-${camera}&camera=${camera}`,
+    splat: null,
+    cameras: {
+      [camera]: {
+        pose: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1.5, 0, 0, 0, 1],
+        focal: 300,
+        width: 512,
+        height: 288,
+        at: 1,
+      },
+    },
+    learning: learning(),
+    views: VIEWS,
+    view: { camera, size: 'approximate', floor_found: true, points: 1024, at: 1.8e9 },
+    ...more,
+  });
 
-it('draws a splat that is still improving, and says it is', async () => {
-  serve(withSplat({ splat_state: 'improving', learning: learning({ improving: true }) }), () => bytes(SOG));
+/** Serve each camera's scene by the camera asked for; with none asked for, the first camera's. */
+function serveCameras() {
+  const asked: (string | null)[] = [];
+  server.use(
+    http.get('/places/scene', ({ request }) => {
+      const camera = new URL(request.url).searchParams.get('camera');
+      asked.push(camera);
+      if (camera === 'porch')
+        return HttpResponse.json({ place: 'p1', revision: null, learning: learning(), views: VIEWS, view: { camera } });
+      return HttpResponse.json(cloudOf('hall'));
+    }),
+    http.get('/places/map', () => bytes(MAP)),
+  );
+  return asked;
+}
+
+it("opens on the first camera's own cloud, from that camera, as points with no splat or plan offered", async () => {
+  serveCameras();
   renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  expect(build.mock.calls[0]?.[3]).toBeNull(); // no splat
+  expect(build.mock.calls[0]?.[4]).toBe('hall'); // from where the camera stands
   expect(
-    await screen.findByText(/^Learning is on, and this map is still improving: .* Built from 42 views/),
+    await screen.findByText(/^What hall sees on its own\. 1,024 points, .+ Approximate size\. Give this camera/),
   ).toBeTruthy();
-  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
-  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.getByLabelText('Camera mark')).not.toBeChecked(); // its own mark would lie along the picture's edges
+  expect(screen.queryByText('Splat')).toBeNull();
+  expect(screen.queryByLabelText('Plan')).toBeNull();
+  expect(screen.queryByText(/No splat/)).toBeNull();
 });
 
-it('says a place with no map has none, and what would start one', async () => {
-  serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0, views: null, improved: null }) });
+it('says a cloud was sized from the mounting height when it was', async () => {
+  serve(cloudOf('hall', { view: { camera: 'hall', size: 'height', floor_found: true, points: 1024, at: 1.8e9 } }));
   renderPage(<CloudView place="p1" />);
+  expect(await screen.findByText(/Sized from the camera's mounting height\./)).toBeTruthy();
+});
+
+it('shows the camera picked, and says why one with no cloud has none', async () => {
+  const asked = serveCameras();
+  renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  await userEvent.click(screen.getByRole('combobox', { name: 'Camera' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'porch (no cloud yet)' }));
   expect(
-    await screen.findByText(/^No 3D map of this place yet\. Learning is off\. Turn on Learn surroundings/),
+    await screen.findByText(
+      'No point cloud from porch yet. Someone was in view each time it looked. It needs about 20 seconds with nobody in view.',
+    ),
   ).toBeTruthy();
-  expect(build).not.toHaveBeenCalled();
+  expect(asked).toEqual([null, 'porch']);
+  // and back to the one that has a cloud
+  await userEvent.click(screen.getByRole('combobox', { name: 'Camera' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'hall' }));
+  await waitFor(() => expect(asked.at(-1)).toBe('hall'));
+  expect(await screen.findByText(/1,024 points/)).toBeTruthy();
+});
+
+it("says why a camera's cloud isn't newer while learning is off", async () => {
+  serve(cloudOf('hall', { learning: learning({ on: false, cameras: 0 }), views: [view('hall', { why: 'off' })] }));
+  renderPage(<CloudView place="p1" />);
+  const live = await screen.findByRole('link', { name: 'Live' });
+  expect(live.getAttribute('href')).toBe('/');
+  expect(live.closest('p')?.textContent).toBe(
+    "Learn surroundings is off, so this picture won't update. Turn it on in Live.",
+  );
 });
 
 it('asks for the scene again every few seconds while learning is on, and seldom while it is off', () => {
@@ -164,7 +239,7 @@ it('asks for the scene again every few seconds while learning is on, and seldom 
 
 it('draws a newer splat once all of it is here, from where the person was looking, without a reload', async () => {
   const NEWER = '/places/splat?place=p1&revision=r3&format=sog';
-  let reply = withSplat({ learning: learning({ improving: true }) });
+  let reply = withSplat({ learning: learning() });
   let release = () => {};
   const held = new Promise<void>(resolve => {
     release = resolve;
@@ -187,11 +262,10 @@ it('draws a newer splat once all of it is here, from where the person was lookin
     map: '/places/map?place=p1&revision=r3',
     splat: NEWER,
     splat_revision: 'r3',
-    learning: learning({ improving: true, views: 43 }),
+    learning: learning(),
   });
   await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
   expect(await screen.findByText(/^A newer version of this map is loading/)).toBeTruthy();
-  expect(await screen.findByText(/Built from 43 views/)).toBeTruthy();
   // the one before it stays drawn while the newer one's bytes come
   expect(build.mock.calls.length).toBe(before);
   expect(shown.at(-1)?.splat).toBe(true);
@@ -207,7 +281,7 @@ it('draws a newer splat once all of it is here, from where the person was lookin
 });
 
 it("doesn't draw the map again when only what is said about learning changed", async () => {
-  let reply = withSplat({ learning: learning({ improving: true }) });
+  let reply = withSplat({ learning: learning() });
   server.use(
     http.get('/places/scene', () => HttpResponse.json(reply)),
     http.get('/places/map', () => bytes(MAP)),
@@ -218,7 +292,11 @@ it("doesn't draw the map again when only what is said about learning changed", a
   const before = build.mock.calls.length;
   reply = withSplat({ splat_state: 'current', learning: learning({ on: false }) });
   await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
-  expect(await screen.findByText(/^Learning is off, so this map stays as it is/)).toBeTruthy();
+  await waitFor(() =>
+    expect(client.getQueryData<{ learning?: { on: boolean } }>(['places', 'scene', 'p1', null])?.learning?.on).toBe(
+      false,
+    ),
+  );
   expect(build.mock.calls.length).toBe(before);
 });
 
@@ -228,12 +306,11 @@ it("names a splat that doesn't line up with the map without offering it", async 
       splat: null,
       splat_state: 'stale',
       splat_stale: { revision: 'r0', at: 1.8e9 },
-      splat_wait: { reason: 'pass', tried: null, pass_at: '01:00' },
     }),
   );
   renderPage(<CloudView place="p1" />);
   expect((await screen.findByRole('status')).textContent).toMatch(
-    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras' daytime frames/,
+    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\.$/,
   );
   await waitFor(() => expect(lastSplat()).toBeNull());
   expect(screen.queryByText('Splat')).toBeNull();
@@ -312,4 +389,136 @@ it("says when the splat's file can't be fetched at all", async () => {
   renderPage(<CloudView place="p1" />);
   expect((await screen.findByRole('alert')).textContent).toMatch(/^Couldn't show the splat: the server answered 500\./);
   await waitFor(() => expect(lastSplat()).toBeNull());
+});
+
+it('turns Floor, Cameras, and Plan on and off without building the view again, including before it is ready', async () => {
+  const pending: Array<(built: Built) => void> = [];
+  let open = false;
+  const built: Built = {
+    view: () => LOOKING,
+    home: () => {},
+    lookFrom: () => {},
+    show: s => {
+      shown.push(s);
+    },
+    splatLoaded: Promise.resolve(),
+    cameraNames: ['Hall', 'Study'],
+    dispose: () => {},
+  };
+  build.mockImplementation(
+    () =>
+      new Promise<Built>(resolve => {
+        if (open) resolve(built);
+        else pending.push(resolve);
+      }),
+  );
+  serve(withSplat({ cameras: { Hall: {}, Study: {} } }), () => bytes(SOG));
+  renderPage(<CloudView place="p1" />);
+  const floor = await screen.findByRole('checkbox', { name: 'Floor' });
+  const cameras = await screen.findByRole('checkbox', { name: 'Cameras (2)' });
+  const plan = await screen.findByRole('checkbox', { name: 'Plan' });
+  // before the viewer exists: the choice is kept and applied once it does, and the view is still built once
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  expect(shown).toEqual([]);
+  expect(floor).not.toBeChecked();
+  expect(cameras).not.toBeChecked();
+  expect(plan).not.toBeChecked();
+  const before = build.mock.calls.length;
+  expect(before).toBeGreaterThan(0);
+  open = true;
+  for (const resolve of pending.splice(0)) resolve(built);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: false, cameras: false, plan: false }));
+  const settled = build.mock.calls.length;
+
+  await userEvent.click(floor);
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  await userEvent.click(plan);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: false, cameras: false, plan: false }));
+  expect(build.mock.calls.length).toBe(settled);
+  expect(screen.queryByRole('alert')).toBeNull();
+
+  // the same checkboxes in the points view
+  await userEvent.click(screen.getByText('Points'));
+  await userEvent.click(floor);
+  await userEvent.click(cameras);
+  await userEvent.click(plan);
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ splat: false, floor: true, cameras: true, plan: true }));
+  expect(build.mock.calls.length).toBe(settled);
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('keeps Floor, Cameras, and Plan across a newer map replacing the one on screen', async () => {
+  const newer = '/places/splat?place=p1&revision=r3&format=sog';
+  let reply = withSplat({ cameras: { Hall: {} } });
+  let release = () => {};
+  const held = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  server.use(
+    http.get('/places/scene', () => HttpResponse.json(reply)),
+    http.get('/places/map', () => bytes(MAP)),
+    http.get('/places/splat', async ({ request }) => {
+      if (new URL(request.url).searchParams.get('revision') === 'r3') await held;
+      return bytes(SOG);
+    }),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(shown.at(-1)?.splat).toBe(true));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Floor' }));
+  await waitFor(() => expect(shown.at(-1)?.floor).toBe(false));
+  const before = build.mock.calls.length;
+
+  reply = withSplat({
+    revision: 'r3',
+    map: '/places/map?place=p1&revision=r3',
+    splat: newer,
+    splat_revision: 'r3',
+    cameras: { Hall: {} },
+  });
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  expect(await screen.findByText(/^A newer version of this map is loading/)).toBeTruthy();
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Plan' }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Cameras (1)' }));
+  expect(build.mock.calls.length).toBe(before);
+
+  release();
+  await waitFor(() => expect(build.mock.calls.length).toBe(before + 1));
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ splat: true, floor: false, cameras: false, plan: false }));
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+
+it('shows the shared error and Retry when the view fails, then builds it again', async () => {
+  let fail = true;
+  build.mockImplementation(
+    async (): Promise<Built> => ({
+      view: () => LOOKING,
+      home: () => {},
+      lookFrom: () => {},
+      show: s => {
+        if (fail) throw new Error('the overlay could not be drawn');
+        shown.push(s);
+      },
+      splatLoaded: Promise.resolve(),
+      cameraNames: [],
+      dispose: () => {},
+    }),
+  );
+  serve(withSplat(), () => bytes(SOG));
+  renderPage(<CloudView place="p1" />);
+  const alert = await screen.findByRole('alert');
+  expect(alert.textContent).toMatch(/Couldn't show the map/);
+  expect(alert.textContent).toMatch(/Nothing was lost/);
+  await userEvent.click(screen.getByText('Show details'));
+  expect(screen.getByText('the overlay could not be drawn')).toBeTruthy();
+  const before = build.mock.calls.length;
+  fail = false;
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: true, cameras: true, plan: true }));
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(build.mock.calls.length).toBe(before + 1);
 });

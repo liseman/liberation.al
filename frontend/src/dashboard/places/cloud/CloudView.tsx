@@ -13,17 +13,33 @@
 //
 // A map learned from the cameras changes while the view is open (#259): the scene is asked for again every few
 // seconds, and a newer map or splat is drawn once all of its bytes are here, the one before it staying drawn until
-// then, from where the person was looking. A line under the view says whether learning is on, how many views the
-// map was built from, and when it last improved (status.ts).
-import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
+// then, from where the person was looking.
+//
+// Until a place has a map of its own, what there is to draw is each camera's own point cloud (#417): what that one
+// camera sees, with depth. A picker over the view chooses the camera, the view opens from where that camera stands,
+// and a line says how the cloud was sized and when it was made, or why a camera has none yet (status.ts). One camera
+// at a time: clouds of different cameras are never drawn together, since nothing relates them.
+import { Anchor, Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  Component,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { messageOf } from '../../../shared/http';
-import { type Scene, sceneQuery } from '../api';
+import { PageError } from '../../lib/page';
+import { viewName } from '../../review/views';
+import { linkClick } from '../../router';
+import { type CameraView, type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { type Built, build, type Colour, type View } from './scene';
-import { learningNote, loadingText, planNote, splatNote } from './status';
+import { LIVE, learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
 
 type Draw = 'points' | 'splat';
 
@@ -40,6 +56,7 @@ function drawnPart(scene: Scene): string {
   const { place, revision, map, map_format, map_bytes, splat, splat_format, splat_bytes, splat_revision } = scene;
   const { floor, plan_transform, cameras, plan } = scene;
   return JSON.stringify({
+    view: scene.view?.camera ?? null,
     place,
     revision,
     map,
@@ -105,10 +122,86 @@ function useSplatBytes(scene: Scene | undefined, wanted: boolean, attempt: numbe
   return { ...query, got };
 }
 
+/** A failure while rendering the view (above this boundary) replaces the canvas with the shared error and a Retry
+ *  that builds it again. An effect failure is caught in the view itself; this is for one raised during render. */
+class MapCrash extends Component<{ children: ReactNode; onRetry: () => void }, { detail: string | null }> {
+  state = { detail: null as string | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { detail: messageOf(error) };
+  }
+
+  render() {
+    if (this.state.detail === null) return this.props.children;
+    return <PageError title="Couldn't show the map" detail={this.state.detail} onRetry={this.props.onRetry} />;
+  }
+}
+
 export default function CloudView({ place }: { place: string }) {
+  const [generation, setGeneration] = useState(0);
+  return (
+    <MapCrash key={generation} onRetry={() => setGeneration(n => n + 1)}>
+      <CloudMap place={place} />
+    </MapCrash>
+  );
+}
+
+/** The camera whose own cloud is shown, picked from the cameras the scene offers. A camera with no cloud yet can be
+ *  picked too: the line under it says why it has none. Nothing is drawn with one camera or none to pick from. */
+function CameraPicker({
+  views,
+  camera,
+  onPick,
+}: {
+  views: readonly CameraView[];
+  camera: string | null;
+  onPick: (camera: string) => void;
+}) {
+  if (!views.length) return null;
+  return (
+    <Select
+      size="xs"
+      w={240}
+      label="Camera"
+      allowDeselect={false}
+      value={camera}
+      onChange={value => value && onPick(value)}
+      data={views.map(v => ({
+        value: v.camera,
+        label: v.cloud ? viewName(v.camera) : `${viewName(v.camera)} (no cloud yet)`,
+      }))}
+    />
+  );
+}
+
+/** A line of status.ts's words, with a link to the Live page where it names it. */
+function Words({ text }: { text: string }) {
+  const parts = text.split(LIVE);
+  return (
+    <>
+      {parts.map((part, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one fixed sentence, in order
+        <span key={i}>
+          {i > 0 && (
+            <Anchor href="/" inherit onClick={linkClick}>
+              Live
+            </Anchor>
+          )}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function CloudMap({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
-  const scene = useQuery({ ...sceneQuery(place), enabled: webgl });
+  // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
+  const [picked, setPicked] = useState<string | null>(null);
+  const scene = useQuery({ ...sceneQuery(place, picked), enabled: webgl });
   const read = scene.data;
+  const views = read?.views ?? [];
+  const camera = read?.view?.camera ?? null;
   // The scene as far as drawing goes: the same object from one read to the next while nothing drawn changed.
   const part = read ? drawnPart(read) : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `part` is what of `read` is drawn
@@ -134,7 +227,17 @@ export default function CloudView({ place }: { place: string }) {
   const [colour, setColour] = useState<Colour>('rgb');
   const [size, setSize] = useState(2.5);
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
+  // A camera's cloud opens from that camera, where its own mark (the outline of its view) lies along the edges of
+  // the picture: a stray line down one side. So the mark starts off for each camera's cloud, and comes on from
+  // outside ("See it from outside"), where it shows where the camera stands.
+  const [opened, setOpened] = useState<string | null>(null);
+  if (camera !== opened) {
+    setOpened(camera);
+    if (camera) setShow(current => ({ ...current, cameras: false }));
+  }
   const [failed, setFailed] = useState<string | null>(null);
+  // Retry builds the view again. The build runs when its inputs change, and a failure leaves those as they were.
+  const [rebuild, setRebuild] = useState(0);
 
   // Build the scene once its map's bytes are here, with the points alone until the splat's bytes are (and when
   // they can't be read or drawn), then again around the splat: the viewer is built around its content. It's torn
@@ -157,6 +260,7 @@ export default function CloudView({ place }: { place: string }) {
   const newer = !!drawn && !!data && drawn.scene !== data;
   // Where the person was looking when a drawn splat was taken down for a newer one.
   const carried = useRef<View | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rebuild` is Retry asking for this same scene again
   useEffect(() => {
     const el = host.current;
     if (!webgl || !el || !drawn) return;
@@ -166,7 +270,8 @@ export default function CloudView({ place }: { place: string }) {
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
     // the views it trained on ("Back to the start" goes to the overview). A newer splat of the same place opens
     // from where the one before it was being looked at.
-    const opening = carried.current ?? (file ? openingCamera(Object.keys(data.cameras ?? {})) : null);
+    // A camera's own cloud opens from that camera too: it is that camera's view, and empty from behind.
+    const opening = carried.current ?? (file || data.view ? openingCamera(Object.keys(data.cameras ?? {})) : null);
     carried.current = null;
     (async () => build(el, data, parseCloud(map, 'ply'), file, opening))().then(
       b => {
@@ -196,12 +301,25 @@ export default function CloudView({ place }: { place: string }) {
       carried.current = file && made ? made.view() : null;
       made?.dispose();
     };
-  }, [webgl, drawn]);
+  }, [webgl, drawn, rebuild]);
 
-  // Settings change what's drawn, then one frame is drawn.
+  // Settings change what's drawn, then one frame is drawn. A throw here is the view failing: take it down and say
+  // so, with Retry, instead of leaving a canvas that no longer draws.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
   useEffect(() => {
-    built.current?.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
+    const view = built.current;
+    if (!view) return;
+    try {
+      view.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
+    } catch (error) {
+      built.current = null;
+      try {
+        view.dispose();
+      } catch {
+        // The view already failed; tearing it down can fail again once the device is gone.
+      }
+      setFailed(messageOf(error));
+    }
   }, [draw, splatReady, size, colour, show, ready]);
 
   // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
@@ -227,15 +345,31 @@ export default function CloudView({ place }: { place: string }) {
   // A read that fails while a map is drawn leaves it drawn: the next read may well answer.
   if ((scene.isError && !read) || (bytes.isError && !drawn) || failed)
     return (
-      <Text size="sm" c="red">
-        Couldn't show the map: {failed ?? messageOf(scene.error ?? bytes.error)}
-      </Text>
+      <PageError
+        title="Couldn't show the map"
+        detail={failed ?? messageOf(scene.error ?? bytes.error)}
+        onRetry={() => {
+          setFailed(null);
+          setRebuild(n => n + 1);
+          if (scene.isError) void scene.refetch();
+          if (bytes.isError) void bytes.refetch();
+        }}
+      />
     );
   if (data && !data.revision)
     return (
-      <Text size="sm" c="dimmed">
-        {(read && learningNote(read)) ?? 'No 3D map of this place yet. It appears once the house has built one.'}
-      </Text>
+      <>
+        <CameraPicker views={views} camera={camera} onPick={setPicked} />
+        <Text size="sm" c="dimmed" mt={views.length ? 'sm' : 0} role="status">
+          <Words
+            text={
+              camera
+                ? `No point cloud from ${viewName(camera)} yet. ${viewWhy(views.find(v => v.camera === camera)) ?? ''}`.trim()
+                : ((read && learningNote(read)) ?? 'Nothing to show in 3D here yet.')
+            }
+          />
+        </Text>
+      </>
     );
   if (data && !canDraw(data.map_format))
     return (
@@ -248,18 +382,42 @@ export default function CloudView({ place }: { place: string }) {
   const splatLoading = hasSplat && !splatError && !splatReady && !newer;
   const note = read ? splatNote(read) : null;
   const learning = read ? learningNote(read) : null;
+  const own = read ? viewNote(read, camera ? viewName(camera) : undefined) : null;
+  // Why the camera's cloud isn't newer than it is (learning is off, nobody has left its view, no GPU memory).
+  const held = read?.view ? viewWhy(views.find(v => v.camera === camera)) : null;
   const plan = read ? planNote(read) : null;
   const retry = () => {
     setDrawFault(null);
     setAttempt(n => n + 1);
   };
   const cams = Object.keys((drawn?.scene ?? data)?.cameras ?? {});
+  // Read the checkbox now. React clears currentTarget once this handler returns, then runs the state updater, so
+  // reading it inside the updater throws and takes the whole view down. The same for every overlay.
+  const onOverlay = (key: 'floor' | 'cameras' | 'plan') => (event: ChangeEvent<HTMLInputElement>) => {
+    const on = event.currentTarget.checked;
+    setShow(current => ({ ...current, [key]: on }));
+  };
   return (
     <div
       ref={frame}
       className={classes.cloudFrame}
       style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
     >
+      {views.length > 0 && (
+        <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
+          <CameraPicker views={views} camera={camera} onPick={setPicked} />
+          {own && (
+            <Text size="xs" c="dimmed" role="status" flex={1} miw={220}>
+              {own}
+            </Text>
+          )}
+        </Group>
+      )}
+      {held && (
+        <Text size="xs" c="dimmed" mb="sm" role="status">
+          <Words text={held} />
+        </Text>
+      )}
       <div
         className={classes.cloud}
         ref={host}
@@ -306,24 +464,14 @@ export default function CloudView({ place }: { place: string }) {
           </>
         )}
         <Group gap="md">
+          <Checkbox size="xs" label="Floor" checked={show.floor} onChange={onOverlay('floor')} />
           <Checkbox
             size="xs"
-            label="Floor"
-            checked={show.floor}
-            onChange={e => setShow(s => ({ ...s, floor: e.currentTarget.checked }))}
-          />
-          <Checkbox
-            size="xs"
-            label={`Cameras${cams.length ? ` (${cams.length})` : ''}`}
+            label={read?.view ? 'Camera mark' : `Cameras${cams.length ? ` (${cams.length})` : ''}`}
             checked={show.cameras}
-            onChange={e => setShow(s => ({ ...s, cameras: e.currentTarget.checked }))}
+            onChange={onOverlay('cameras')}
           />
-          <Checkbox
-            size="xs"
-            label="Plan"
-            checked={show.plan}
-            onChange={e => setShow(s => ({ ...s, plan: e.currentTarget.checked }))}
-          />
+          {!read?.view && <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />}
         </Group>
         <Text
           size="xs"
@@ -331,10 +479,29 @@ export default function CloudView({ place }: { place: string }) {
           component="button"
           type="button"
           className={classes.cloudHome}
-          onClick={() => built.current?.home()}
+          onClick={() => {
+            // from outside, the camera's mark shows where it stands
+            if (read?.view) setShow(current => ({ ...current, cameras: true }));
+            built.current?.home();
+          }}
         >
-          Back to the start
+          {read?.view ? 'See it from outside' : 'Back to the start'}
         </Text>
+        {read?.view && camera && (
+          <Text
+            size="xs"
+            c="dimmed"
+            component="button"
+            type="button"
+            className={classes.cloudHome}
+            onClick={() => {
+              setShow(current => ({ ...current, cameras: false }));
+              built.current?.lookFrom(camera);
+            }}
+          >
+            Back to the camera's view
+          </Text>
+        )}
       </Group>
       {splatLoading && (
         <Group gap="xs" mt="xs" wrap="nowrap" role="status">
@@ -382,7 +549,7 @@ export default function CloudView({ place }: { place: string }) {
           {plan}
         </Text>
       )}
-      {cams.length > 0 && (
+      {cams.length > 0 && !read?.view && (
         <Group gap="xs" mt="xs" wrap="wrap">
           <Text size="xs" c="dimmed">
             Look from

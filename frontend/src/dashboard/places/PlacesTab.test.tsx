@@ -399,8 +399,8 @@ it("switches a real place between its plan and its map in 3D, but not an example
   server.use(http.get('/places/scene', () => HttpResponse.json({ place: 'p1', revision: null })));
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: 'Edit plan' });
-  fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
-  expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('radio', { name: '3D view' }));
+  expect(await screen.findByText(/Nothing to show in 3D here yet/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Edit plan' })).toBeTruthy(); // the way into editing stays put
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(await screen.findByRole('button', { name: 'Edit plan' })).toBeTruthy();
@@ -412,7 +412,7 @@ it('offers no map in 3D for an example plan', async () => {
   renderPage(<PlacesTab />);
   await screen.findAllByRole('img', { name: /^Floor plan/ });
   fireEvent.click(row(/Example cabin/));
-  expect(screen.queryByRole('radio', { name: '3D map' })).toBeNull();
+  expect(screen.queryByRole('radio', { name: '3D view' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Edit plan' })).toBeTruthy();
 });
 
@@ -545,12 +545,6 @@ it('says a place has no map yet when it has none and no camera has a spot', asyn
   serve([HOME], empty(0, [], false));
   renderPage(<PlacesTab />);
   expect(await screen.findByText(/This place has no map yet, and no camera has a spot on its plan/)).toBeTruthy();
-});
-
-it('says a camera on something that moves is left unplaced, and why', async () => {
-  serve([HOME], empty(0, [{ camera: 'cart', by: 'map', missing: ['moving'] }]));
-  renderPage(<PlacesTab />);
-  expect(await screen.findByText(/cart can't place anyone yet: it's on something that moves/)).toBeTruthy();
 });
 
 it('says every camera is missing something when none can place anyone', async () => {

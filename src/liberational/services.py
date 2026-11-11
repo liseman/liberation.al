@@ -549,9 +549,14 @@ def _installed_only(names: Sequence[str]) -> list[str]:
     """names, refusing any service that isn't installed (stop and start act on an installed unit; install adds one)."""
     have = set(installed())
     missing = [n for n in names if n not in have]
-    if missing:
-        raise SystemExit(f"not installed: {', '.join(missing)} (turn it on with `pack-services install`)")
-    return list(names)
+    if not missing:
+        return list(names)
+    if not have:
+        raise SystemExit(
+            f"not installed: {', '.join(missing)}. No per-service units are installed. "
+            "Open the application: pack-app (or pack-supervisor run, without the window)."
+        )
+    raise SystemExit(f"not installed: {', '.join(missing)} (turn it on with `pack-services install`)")
 
 
 def stop(names: Sequence[str], anywhere: bool = False) -> None:
@@ -1455,7 +1460,7 @@ def main() -> None:
         chosen = selected()
         for name, svc in declared().items():
             print(f"{'*' if name in chosen else ' '} {name:16} {svc.get('description', '')}")
-        print("\n* = installed by `pack-services install` on this machine")
+        print("\n* = selected on this machine")
     elif a.cmd == "render":
         for name, svc in selected().items():
             for fname, text in render(name, svc).items():

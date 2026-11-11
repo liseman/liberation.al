@@ -41,8 +41,8 @@ a reset, not devices that left. Because BLE advertisements can be missed even wh
 
    With `serial_ports` empty, the worker auto-discovers Espressif native USB ports and common UART bridges, up to
    `bluetooth.max_sensors` boards at once, retrying unplugged ports.
-4. Start the `bluetooth` service: under the application, `uv run pack-supervisor reload` follows the changed
-   selection; on an install with a unit per service, `uv run pack-services install bluetooth`.
+4. Start the `bluetooth` service: with the application open, `uv run pack-supervisor reload` follows the changed
+   selection.
 
 ## Computer Bluetooth instead of an ESP32
 

@@ -1,5 +1,7 @@
-# The pack's long-running services, declared once. `uv run pack-services` renders
-# them to launchd agents (macOS) or systemd user units (Linux) and installs them.
+# The pack's long-running services, declared once. The application (pack-app, or
+# pack-supervisor run without a window) runs the selected ones as its own children.
+# Rendering a unit file per service is only for an install that has not moved
+# (docs/SERVICES.md). `pack-services migrate` removes those units.
 #
 # Per service:
 #   description  one plain sentence, for the machine's owner, on what it does (Settings' Services shows it); build
@@ -69,14 +71,13 @@ default = true
 
 # Holds no camera and no model while the "learn surroundings" switch is off (spatial/surroundings_worker.py).
 [surroundings]
-description = "While \"Learn surroundings\" is on, samples pictures from the chosen cameras and keeps the ones that improve the map of a place."
+description = "While \"Learn surroundings\" is on, collects pictures from the chosen cameras, keeps the ones that show something new, and keeps each camera's own point cloud up to date."
 group = "workers"
 command = "pack-surroundings"
 background = true
 default = true
 
-# Fits spot cameras' tilts, gives learned maps their floor and fixed cameras, records the fixed cameras' footprints,
-# and runs the placer (spatial/positions.py). Reads pose tracks from the segment store's files.
+# Fits spot cameras' tilts, records the fixed cameras' footprints, and runs the placer (spatial/positions.py). Reads pose tracks from the segment store's files.
 [positions]
 description = "Every hour, puts the people and pets the cameras saw on each place's plan."
 group = "workers"

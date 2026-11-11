@@ -18,7 +18,7 @@
   color: var(--mantine-color-dimmed);
 }
 
-/* The state: a dot (or the spinner while a step runs) beside two lines. */
+/* The state: a dot beside two lines. */
 .state {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
@@ -75,32 +75,12 @@
   box-shadow: 0 0 0 4px var(--lib-warn-tint);
 }
 
-.state > .dot,
-.spinner {
+.state > .dot {
   margin-top: 5px;
   justify-self: center;
 }
 
-.measured {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.percent {
-  font-size: 13px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bar * {
-    animation: none;
-  }
-}
-
-/* The numbers: each over its label, four across. */
+/* The numbers: each over its label. */
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -134,12 +114,6 @@
 .stat dt {
   font-size: 12px;
   line-height: 1.3;
-  color: var(--mantine-color-dimmed);
-}
-
-.improved {
-  margin: -4px 0 0;
-  font-size: 12.5px;
   color: var(--mantine-color-dimmed);
 }
 

@@ -1,5 +1,7 @@
-"""`pack-surroundings`: samples frames for a place's map while "learn surroundings" is on (#256). docs/SPATIAL.md
-has the design; spatial/surroundings.py is the switch, and spatial/surroundings_frames.py the gate and the store.
+"""`pack-surroundings`: collects pictures of each place from its cameras while "learn surroundings" is on (#256).
+docs/SPATIAL.md has the design; spatial/surroundings.py is the switch, and spatial/surroundings_frames.py the gate and
+the store. The same pictures give each camera its own point cloud (spatial/surroundings_clouds.py decides when and
+from which picture; spatial/camera_clouds.py makes and keeps it).
 
 The service follows the switch live (`surroundings.read`, every `SWITCH_EVERY_S`). While it's off, or no camera is
 chosen, it holds no connection to the shared decoder and no model: it costs one small file's `stat` a second. While
@@ -18,7 +20,7 @@ cheapest check first:
    differ ten times over in what their sharp frame scores, so there's no one bar);
 4. **person**: see-actions' detector, on the CPU, finds people or animals (`Living`) whose boxes, each grown by
    `PAD`, cover more than `MAX_COVERED` of the frame. With less covered the frame goes on to the gate with those
-   pixels marked (`cover`), kept beside it for the map step to leave out of its depth, its points, and its losses.
+   pixels marked (`cover`), kept beside it so whatever reads the picture can leave them out.
    Skipping every frame with someone in it was the first rule, and it starved the cameras that matter: on the Linux
    machine two cameras of a room someone sat in had a person in every one of 32 looks. Without the detector's model
    nothing is marked, and the log says so once;
@@ -32,13 +34,6 @@ on, and per camera the counts of each outcome since the service started, when a 
 outcomes of its last `RECENT` looks (`recent`), which is how a page says why a camera's frames aren't being kept now.
 
 A camera the decoder refuses or stops serving is logged and tried again after `RETRY_S`; the other cameras carry on.
-
-**The map step.** While learning is on, the service looks every `MAP_GAP_S` at whether kept frames are due a step
-(`surroundings_map.due`: a frame no pair could place is parked, and starts none until the map has grown) for a
-place, and runs one step of spatial/surroundings_map.py when some are (`map_step`: its own process, niced, one at a
-time). It also drops the kept frames that step asks to drop (`State.drop`: frames parked for a day, or that the map
-already draws), since the kept frames have one writer. Nothing runs a step on a schedule, and none starts while
-learning is off.
 """
 
 from __future__ import annotations
@@ -49,9 +44,8 @@ import concurrent.futures
 import math
 import signal
 import statistics
-import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -59,6 +53,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, logs
 from liberational.spatial import surroundings
+from liberational.spatial import surroundings_clouds as clouds
 from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings")
@@ -67,8 +62,6 @@ SAMPLE_EVERY_S = 5.0
 SWITCH_EVERY_S = 1.0
 STATUS_EVERY_S = 5.0
 RETRY_S = 30.0
-MAP_GAP_S = 60.0  # between one map step's end and the next look at whether one is due
-MAP_NICE = 10
 SAME_THUMB = 0.995
 THUMB = (32, 18)
 BLUR = 0.5
@@ -80,8 +73,6 @@ OUTCOMES = ("dark", "same", "blurred", "person", "copy", "view", "changed", "sha
 
 #: The people and animals in a BGR frame, as boxes (`Living`).
 Detector = Callable[[np.ndarray], Sequence[tuple[float, float, float, float]]]
-#: Runs one map step (spatial/surroundings_map.py) and gives its exit code.
-MapStep = Callable[[], Awaitable[int]]
 #: A camera's pictures, one every so often (`pictures`).
 Pictures = Callable[[str], AsyncIterator[np.ndarray]]
 
@@ -282,23 +273,8 @@ async def pictures(camera: str) -> AsyncIterator[np.ndarray]:
         yield frame.pixels
 
 
-async def map_step() -> int:
-    """One map step as its own process, niced: `python -m liberational.spatial.surroundings_map`. Its exit code. A
-    step cancelled from here (the service is stopping) is ended with it."""
-    process = await asyncio.create_subprocess_exec(
-        "nice", "-n", str(MAP_NICE), sys.executable, "-m", "liberational.spatial.surroundings_map"
-    )
-    try:
-        return await process.wait()
-    except asyncio.CancelledError:
-        process.terminate()
-        await process.wait()
-        raise
-
-
 class Service:
-    """Follows the switch, and the chosen cameras while it's on; and, while it's on, starts a map step when kept
-    frames are waiting for a place."""
+    """Follows the switch, and the chosen cameras while it's on."""
 
     def __init__(
         self,
@@ -308,13 +284,11 @@ class Service:
         clock: Callable[[], float] = time.time,
         on_idle: Callable[[], None] = lambda: None,
         monotonic: Callable[[], float] = time.monotonic,
-        map_step: MapStep | None = None,
+        clouds: clouds.Clouds | None = None,
     ) -> None:
         self.monotonic = monotonic
-        self.map_step = map_step
-        self._mapping: asyncio.Task[None] | None = None
-        self._map_at = -MAP_GAP_S
         self.sampler = sampler
+        self.clouds = clouds
         self.read = read
         self.source = source
         self.clock = clock
@@ -330,14 +304,23 @@ class Service:
     async def _follow(self, camera: str) -> None:
         loop = asyncio.get_running_loop()
         self.sampler.forget(camera)
+        if self.clouds is not None:
+            self.clouds.forget(camera)
         async for pixels in self.source(camera):
             if camera in self._busy:
                 continue  # its last look is still running: pass this picture by
             self._busy.add(camera)
             try:
-                await loop.run_in_executor(self._pool, self.sampler.look, camera, pixels, self.clock())
+                await loop.run_in_executor(self._pool, self._look, camera, pixels, self.clock())
             finally:
                 self._busy.discard(camera)
+
+    def _look(self, camera: str, pixels: np.ndarray, now: float) -> None:
+        """One sampled picture: the sampler's look, then the camera's own cloud's (on the same thread, since they
+        share the detector)."""
+        self.sampler.look(camera, pixels, now)
+        if self.clouds is not None:
+            self.clouds.look(camera, pixels, now)
 
     def step(self) -> surroundings.Switch:
         """Bring what's followed in line with the switch as it reads now; the switch."""
@@ -364,45 +347,6 @@ class Service:
         if not self.following:
             self.on_idle()
         return switch
-
-    def _apply_map(self) -> int:
-        """Drop the kept frames the map step asked to drop, and count the ones a step is due for (not the parked
-        ones, `surroundings_map.due`). Run on the looks' thread: the store has one writer."""
-        from liberational.spatial import surroundings_map
-
-        state = surroundings_map.State.read(self.sampler.store.folder)
-        for frame_id in state.drop:
-            self.sampler.store.remove(frame_id)
-        basis = surroundings_map.spot_bases(self.sampler.store.folder.parent)
-        return len(surroundings_map.due(self.sampler.store.kept, state, self.clock(), basis))
-
-    async def _map(self) -> None:
-        """One look at whether a map step is due, and the step when it is."""
-        assert self.map_step is not None
-        waiting = await asyncio.get_running_loop().run_in_executor(self._pool, self._apply_map)
-        if not waiting:
-            return
-        LOG.info("%d kept frames are due a map step: starting one", waiting)
-        code = await self.map_step()
-        if code != 0:
-            LOG.warning("the map step failed (exit %d); its own log says why", code)
-        await asyncio.get_running_loop().run_in_executor(self._pool, self._apply_map)
-
-    def map_due(self, switch: surroundings.Switch) -> None:
-        """Start a look at the map (`_map`) when learning is on, none is running, and the last ended at least
-        MAP_GAP_S ago. One map step runs at a time, and never while learning is off."""
-        if self.map_step is None or not switch.on:
-            return
-        now = self.monotonic()
-        if self._mapping is not None:
-            if not self._mapping.done():
-                return
-            error = None if self._mapping.cancelled() else self._mapping.exception()
-            if error is not None:
-                LOG.warning("couldn't run a map step: %s", error)
-            self._mapping, self._map_at = None, now
-        if now - self._map_at >= MAP_GAP_S:
-            self._mapping = asyncio.get_running_loop().create_task(self._map())
 
     def write_status(self, switch: surroundings.Switch, force: bool = False) -> None:
         now = self.clock()
@@ -434,24 +378,25 @@ class Service:
                 if switch.on != was_on:
                     LOG.info("learning surroundings is %s", "on" if switch.on else "off")
                 self.write_status(switch, force=switch.on != was_on)
-                self.map_due(switch)
                 was_on = switch.on
                 try:
                     await asyncio.wait_for(stop.wait(), SWITCH_EVERY_S)
                 except TimeoutError:
                     pass
         finally:
-            tasks = [*self.following.values(), *([self._mapping] if self._mapping is not None else [])]
+            tasks = list(self.following.values())
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self._pool.shutdown(wait=True)
+            if self.clouds is not None:
+                self.clouds.close()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """`pack-surroundings`: samples the chosen cameras' pictures for a place's map while "learn surroundings" is on,
-    and keeps the ones likely to improve it. It needs see-decode for pictures; while the switch is off it needs
-    nothing."""
+    """`pack-surroundings`: collects the chosen cameras' pictures while "learn surroundings" is on, keeps the ones
+    that show something new, and keeps each camera's own point cloud up to date. It needs see-decode for pictures;
+    while the switch is off it needs nothing."""
     import argparse
 
     from liberational.spatial import cameras
@@ -473,8 +418,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
-        # The map step needs CUDA: on macOS the frames are kept and wait.
-        await Service(sampler, on_idle=idle, map_step=None if sys.platform == "darwin" else map_step).run(stop)
+        own = clouds.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail)
+        await Service(sampler, on_idle=idle, clouds=own).run(stop)
 
     asyncio.run(run())
 

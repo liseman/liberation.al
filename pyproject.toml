@@ -115,9 +115,7 @@ pack-deep-transcribe = "liberational.listen.deep:main"
 pack-devices = "liberational.proximity.devices:main"
 pack-catalog-stats = "liberational.catalog_stats:main"
 pack-video-window = "liberational.video_window:main"
-pack-spatial-splat = "liberational.spatial.splats:main"
 pack-surroundings = "liberational.spatial.surroundings_worker:main"
-pack-surroundings-map = "liberational.spatial.surroundings_map:main"
 pack-positions = "liberational.spatial.positions:main"
 pack-see-objects = "liberational.see.object_worker:main"
 pack-identity = "liberational.people.identity:main"
@@ -291,7 +289,6 @@ allowed-unresolved-imports = [
     "insightface.**",
     "onnx.**",
     "torch.**",
-    "gsplat.**",
     "torchaudio.**",
     "transformers.**",
     "faster_qwen3_tts.**",

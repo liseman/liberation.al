@@ -19,7 +19,7 @@ import {
   type V3,
 } from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { learningNote, loadingText, planNote, splatNote } from './status';
+import { learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -203,7 +203,6 @@ it('names a splat from another map frame as out of date instead of drawing it', 
         splat: null,
         splat_state: 'stale',
         splat_stale: { revision: 'r1', at: 1_800_000_000 },
-        splat_wait: { reason: 'pass', tried: null, pass_at: '01:00' },
       }),
     ),
     http.get('/places/map', () => new Promise<never>(() => {})),
@@ -251,53 +250,21 @@ it('says how much of a splat has loaded, then that it is being drawn', () => {
   expect(loadingText(13_542_594, 13_542_594, true)).toBe('Drawing the splat…');
 });
 
-it("says nothing about a splat that is the map's own, and why there is none otherwise", () => {
+it("says nothing about a splat that is the map's own, and that there is none otherwise", () => {
   const scene = { place: 'p1', revision: 'r2' };
-  const wait = { tried: null, pass_at: '01:00' };
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
-  // a splat still improving is the map's own too: the line about learning says it's improving
-  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toBeNull();
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
-    "No splat of this place yet. It's made from the fixed cameras' daytime frames, by a pass that runs at 01:00.",
-  );
-  const dark = splatNote({
-    ...scene,
-    splat_state: 'none',
-    splat_wait: { ...wait, reason: 'few_frames', tried: 1.8e9 },
-  });
-  expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* too few when it was last tried \(/);
-  expect(dark).toMatch(/It tries again at 01:00\.$/);
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_cameras' } })).toMatch(
-    /no cameras registered yet to make one from/,
-  );
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_runtime' } })).toMatch(
-    /trainer isn't installed/,
-  );
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'failed' } })).toMatch(
-    /Making it failed when it was last tried\. It tries again at 01:00\./,
-  );
-  // with no pass scheduled, it says so and promises no next try
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'pass', tried: null, pass_at: null } })).toBe(
-    'No splat of this place yet. None has been made for this map, and nothing makes splats on a schedule yet.',
-  );
-  expect(
-    splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'failed', tried: null, pass_at: null } }),
-  ).toBe('No splat of this place yet. Making it failed when it was last tried.');
+  expect(splatNote({ ...scene, splat_state: 'none' })).toBe('No splat of this place yet.');
 });
 
 it("labels an earlier map's splat as one, and names one that no longer lines up without offering it", () => {
-  const scene = { place: 'p1', revision: 'r2', splat_wait: { reason: 'pass' as const, tried: null, pass_at: '01:00' } };
+  const scene = { place: 'p1', revision: 'r2' };
   const earlier = splatNote({ ...scene, splat: '/s', splat_state: 'earlier', splat_at: 1.8e9 });
   expect(earlier).toMatch(
     /^This splat was made for an earlier map of this place \(.+\); it lines up with the current one\./,
   );
-  expect(earlier).toMatch(
-    /A splat of the current map isn't made yet\. It's made from the fixed cameras' daytime frames/,
-  );
+  expect(earlier).toMatch(/A splat of the current map isn't made yet\.$/);
   const stale = splatNote({ ...scene, splat_state: 'stale', splat_stale: { revision: 'r1', at: 1.8e9 } });
-  expect(stale).toMatch(
-    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras/,
-  );
+  expect(stale).toMatch(/doesn't line up with this one, so it isn't shown\. A new one isn't made yet\.$/);
 });
 
 it("says so when the browser can't draw 3D", async () => {
@@ -311,7 +278,7 @@ it('says when a place has no 3D map yet, or one in a format it cannot draw', asy
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as RenderingContext);
   server.use(http.get('/places/scene', () => HttpResponse.json({ place: 'p1', revision: null })));
   const { unmount } = renderPage(<CloudView place="p1" />);
-  expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
+  expect(await screen.findByText(/Nothing to show in 3D here yet/)).toBeTruthy();
   unmount();
   server.use(
     http.get('/places/scene', () =>
@@ -446,89 +413,85 @@ it('writes the collision as a GLB the viewer will take for one: a data URL endin
   expect(url.startsWith('data:model/gltf-binary,%67%6c%54%46')).toBe(true);
 });
 
-// The line about learning (#259), in each state a place can be in. Times are worded in the reader's own zone, so
-// only their presence is checked.
-const learning = (more: object = {}) => ({
-  on: false,
-  cameras: 0,
-  improving: false,
-  views: null,
-  improved: null,
-  ...more,
-});
+// The line while there is nothing to draw: that no camera has a point cloud yet, and what would make one.
+const learning = (more: object = {}) => ({ on: false, cameras: 0, ...more });
 
 it.each([
   [
-    'no map, learning off',
-    { revision: null, learning: learning() },
-    /^No 3D map of this place yet\. Learning is off\. Turn on Learn surroundings on the Live tab, and a map is built from what the cameras see\.$/,
+    'off',
+    learning(),
+    'No camera has a point cloud of this place yet. Turn on Learn surroundings in {Live}, and each camera chosen there gets a cloud of what it sees.',
   ],
   [
-    'no map, learning on',
-    { revision: null, learning: learning({ on: true, cameras: 1 }) },
-    /^No 3D map of this place yet\. Learning is on\. A map appears here once the cameras have seen enough to start one\.$/,
+    'on',
+    learning({ on: true, cameras: 1 }),
+    'No camera has a point cloud of this place yet. Each chosen camera gets one once it has had about 20 seconds with nobody in view.',
   ],
   [
-    'no map, learning on with first views waiting',
-    { revision: null, learning: learning({ on: true, cameras: 1, improving: true }) },
-    /^No 3D map of this place yet\. Learning is on, and the cameras' first views are being put together\./,
+    'on with no camera',
+    learning({ on: true }),
+    'No camera has a point cloud of this place yet. No camera is chosen to learn from. Choose one beside Learn surroundings in {Live}.',
   ],
-  [
-    'no map, learning on with no camera',
-    { revision: null, learning: learning({ on: true }) },
-    /^No 3D map of this place yet\. Learning is on, but no camera is chosen to learn from\. Choose one on the Live tab\.$/,
-  ],
-  [
-    'a map still improving',
-    { revision: 'r2', learning: learning({ on: true, cameras: 2, improving: true, views: 42, improved: 1.8e9 }) },
-    /^Learning is on, and this map is still improving: new views are being added to it\. Built from 42 views, last improved .+\.$/,
-  ],
-  [
-    'a map with learning on and nothing to add',
-    { revision: 'r2', learning: learning({ on: true, cameras: 2, views: 1, improved: 1.8e9 }) },
-    /^Learning is on\. This map improves when the cameras see something it doesn't have yet\. Built from 1 view, last improved .+\.$/,
-  ],
-  [
-    'a map with learning off',
-    { revision: 'r2', learning: learning({ views: 42, improved: 1.8e9 }) },
-    /^Learning is off, so this map stays as it is\. Built from 42 views, last improved .+\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
-  ],
-  [
-    'a map learning never built',
-    { revision: 'r2', learning: learning() },
-    /^Learning is off, so this map stays as it is\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
-  ],
-])('says how the map is learned: %s', (_, more, text) => {
-  expect(learningNote({ place: 'p1', ...more })).toMatch(text);
+])('says what would make a point cloud for a place where no camera has one: %s', (_, said, text) => {
+  expect(learningNote({ place: 'p1', revision: null, learning: said })).toBe(text);
 });
 
-it("says nothing about learning when the scene doesn't", () => {
+it("says nothing more about a place's map once it has one, or when the scene doesn't say", () => {
+  expect(learningNote({ place: 'p1', revision: 'r2', learning: learning({ on: true, cameras: 2 }) })).toBeNull();
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
 });
 
-it.each([
-  ['no_floor', /^Your plan isn't drawn on this map yet: the map has no floor yet to lay it on\./],
-  ['too_little', /^Your plan isn't drawn on this map yet: the map covers too little of your plan so far/],
-  ['ambiguous', /^Your plan isn't drawn on this map yet: what the map has so far fits your plan more than one way\./],
-  ['not_tried', /^Your plan isn't drawn on this map yet: the map hasn't been lined up with it yet\./],
-] as const)("says why the owner's plan isn't drawn on a map not lined up with it: %s", (reason, text) => {
-  const said = planNote({
-    place: 'p1',
-    revision: 'r2',
-    plan: 'plan "Home"',
-    plan_source: 'owner',
-    plan_aligned: false,
-    plan_transform: null,
-    plan_lineup: { state: 'unaligned', reason },
-  });
-  expect(said).toMatch(text);
-  expect(said).toMatch(/The Plan view shows your plan as you drew it\.$/);
+it("leads a camera's cloud with whose view it is, then its points, when it was made, and how it was sized", () => {
+  const now = new Date(2026, 10, 10, 9, 0);
+  const at = new Date(2026, 10, 10, 1, 40).getTime() / 1000;
+  const own = { place: 'p1', revision: 'c1', view: { camera: 'cam0', points: 123554, at, floor_found: true } } as const;
+  expect(viewNote({ ...own, view: { ...own.view, size: 'height' } }, 'Hall', now)).toBe(
+    "What Hall sees on its own. 123,554 points, today 01:40. Sized from the camera's mounting height.",
+  );
+  expect(viewNote({ ...own, view: { ...own.view, at: at - 7 * 3600, size: 'height' } }, 'Hall', now)).toMatch(
+    /123,554 points, yesterday 18:40\./,
+  );
+  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate' } }, 'Hall', now)).toMatch(
+    /Approximate size\. Give this camera its mounting height \(mount\.height_m .+config\/devices\.toml\) for a true one\.$/,
+  );
+  // with no floor in view a height wouldn't help, so that is what it says
+  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate', floor_found: false } }, 'Hall', now)).toMatch(
+    /Approximate size: no floor is in this camera's view/,
+  );
+  expect(viewNote({ place: 'p1', revision: 'r2' })).toBeNull(); // the place's own map
+  expect(viewNote({ place: 'p1', revision: null, view: { camera: 'hall' } })).toBeNull(); // no cloud yet
+  expect(splatNote({ ...own, splat: null })).toBeNull(); // no splat goes with a camera's cloud
 });
 
-it("says nothing about an owner's plan that is drawn on its map, and flags a map that moved off it", () => {
-  const drawn = { place: 'p1', revision: 'r2', plan_source: 'owner', plan_aligned: true } as const;
-  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: null } })).toBeNull();
-  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: 'drifted' } })).toMatch(/moved off it since/);
+it.each([
+  ['people', /nobody in view/],
+  ['gpu', /GPU memory/],
+  ['no_runtime', /isn't set up on this machine/],
+  ['not_chosen', /Choose it beside Learn surroundings in \{Live\}/],
+] as const)('says why a camera has no cloud: %s', (why, text) => {
+  expect(viewWhy({ why, cloud: false })).toMatch(text);
+});
+
+it('says what learning being off means for a cloud that is showing, and for a camera with none', () => {
+  expect(viewWhy({ why: 'off', cloud: true })).toBe(
+    "Learn surroundings is off, so this picture won't update. Turn it on in {Live}.",
+  );
+  expect(viewWhy({ why: 'off', cloud: false })).toBe(
+    'Turn on Learn surroundings in {Live}, and each camera chosen there gets a cloud of what it sees.',
+  );
+});
+
+it('says nothing stands in the way of a camera whose cloud is current', () => {
+  expect(viewWhy({ why: null, cloud: true })).toBeNull();
+  expect(viewWhy(undefined)).toBeNull();
+});
+
+it("says the owner's plan isn't drawn on a map not lined up with it, and nothing once it is", () => {
+  const owned = { place: 'p1', revision: 'r2', plan: 'plan "Home"', plan_source: 'owner' } as const;
+  expect(planNote({ ...owned, plan_aligned: false, plan_transform: null })).toBe(
+    "Your plan isn't drawn on this map: the map isn't lined up with it. The Plan view shows your plan as you drew it.",
+  );
+  expect(planNote({ ...owned, plan_aligned: true })).toBeNull();
 });
 
 it('says nothing about a plan for a place with only a machine plan, or with no map', () => {

@@ -1,7 +1,7 @@
 # Continuum SDKs, builds, and wheels
 
 How code talks to the broker, and how `continuum/` is built and packaged as wheels. [CONTINUUM.md](CONTINUUM.md) is the
-overview.
+overview, and [WORKERS.md](WORKERS.md) is the guide to writing a worker.
 
 ## Clients
 
