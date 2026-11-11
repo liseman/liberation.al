@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -11,8 +12,10 @@ from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+import pytest
 from PIL import Image
 
+from liberational import config as cfg
 from liberational.demo import cli, dataset
 
 
@@ -51,6 +54,10 @@ with socket.socket(socket.AF_UNIX) as local:
 
 
 def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> None:
+    # The Python-only CI job does not build the native daemons. Exercise the real launcher wherever installed.
+    missing = [name for name in ("continuum-broker", "continuum-gateway") if not cfg.program(name).is_file()]
+    if missing or shutil.which("ffmpeg") is None:
+        pytest.skip("full-launch integration needs installed Continuum daemons and FFmpeg")
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
