@@ -17,7 +17,7 @@ import { LearningBadge, LearningPanel, useLearning } from './learning';
 import { OwnerBar, type Showing } from './OwnerBar';
 import { PlacePaths } from './paths/PlacePaths';
 import classes from './places.module.css';
-import { drawScene, type SceneDrawing } from './scene/draw';
+import { drawScene, summarise } from './scene/draw';
 import { PlaceEditor } from './scene/PlaceEditor';
 
 // The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
@@ -65,8 +65,8 @@ export function fromServer(p: PlaceSummary): Place {
 export type View = 'plan' | 'map';
 
 /** "6 rooms · 62.4 m²": what a plan holds (floor area on wall centrelines). */
-export const sceneSummary = (drawing: SceneDrawing): string =>
-  `${plural(drawing.rooms, 'room', 'rooms')} · ${drawing.area.toFixed(1)} m²`;
+export const sceneSummary = (plan: { rooms: number; area: number }): string =>
+  `${plural(plan.rooms, 'room', 'rooms')} · ${plan.area.toFixed(1)} m²`;
 
 /** Whose plan this is, for its heading: a first real plan is a rough machine baseline, so it says so. */
 export function originText(place: Place): string | null {
@@ -102,10 +102,10 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const learning = useLearning();
   // The examples are the empty state: they show only while no place has a plan yet (or the list couldn't load), after
   // any places still waiting for their first.
-  const real = server.data?.places ?? [];
-  const showingExamples = !real.some(p => p.plan);
+  const real = server.data?.places;
+  const showingExamples = !(real ?? []).some(p => p.plan);
   const places = useMemo(
-    () => [...real.map(fromServer), ...(showingExamples ? examples : [])],
+    () => [...(real ?? []).map(fromServer), ...(showingExamples ? examples : [])],
     [real, examples, showingExamples],
   );
   // A link opens a place at a moment; reading the address on each navigation follows a link while the tab is open.
@@ -142,8 +142,10 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
     setUnsaved(false);
     then();
   };
-  const drawn = useMemo(() => new Map(places.map(p => [p.id, p.scene ? drawScene(p.scene, p.name) : null])), [places]);
-  const scened = place ? (drawn.get(place.id) ?? null) : null;
+  // What each row says of its plan (rooms, and their area): read without drawing anything, since only the place being
+  // shown is drawn below.
+  const planned = useMemo(() => new Map(places.map(p => [p.id, p.scene ? summarise(p.scene) : null])), [places]);
+  const scened = useMemo(() => (place?.scene ? drawScene(place.scene, place.name) : null), [place]);
   const machine = useMemo(
     () => (place?.machineScene && showing === 'machine' ? drawScene(place.machineScene, place.name) : null),
     [place, showing],
@@ -186,7 +188,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
               <nav aria-label="Places">
                 <ul className={classes.list}>
                   {places.map(p => {
-                    const d = drawn.get(p.id);
+                    const d = planned.get(p.id);
                     return (
                       <li key={p.id}>
                         <NavLink
@@ -266,7 +268,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   <PlaceEditor
                     key={place.id}
                     place={place}
-                    view="2d"
                     scheme={scheme}
                     onUnsaved={setUnsaved}
                     onSaved={() => {

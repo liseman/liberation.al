@@ -353,12 +353,6 @@ export const undoLabels = (body: { lines: string[] } | { ts_starts: number[] } |
   );
 export const skipItem = (body: { kind: 'face' | 'voice' | 'line'; id: number | string } | { kind: 'clear' }) =>
   request<{ ok: boolean; error?: string; skipped?: number }>('/inbox/skip', body);
-export const faceSightings = (id: number, { signal }: Opts = {}) =>
-  request<{ sightings: { id: string; ts: number; url: string }[] }>(
-    `/faces/unknown/${id}/sightings`,
-    undefined,
-    signal,
-  );
 
 // ---- calls ----
 
@@ -450,9 +444,6 @@ export const pickClips = (id: number, lines: string[]) =>
 /** A line's audio: by its key, or by its ts_start as before keys. */
 export const lineClip = (line: LineRef) =>
   typeof line === 'string' ? `/clip?line=${encodeURIComponent(line)}` : `/clip?ts_start=${line}`;
-export const voiceClip = (id: number) => `/speaker/${id}/latest-clip?t=${Date.now()}`;
-export const latestOf = (id: number, { signal }: Opts = {}) =>
-  request<{ ts_start?: number }>(`/speaker/${id}/latest`, undefined, signal);
 
 // ---- Why this name ----
 

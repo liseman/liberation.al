@@ -334,8 +334,8 @@ export interface Scene {
    *  camera with how it is placed or why it isn't, in the order the points name them, and each pair's reading. */
   combined?: { place: string; id: string; cameras: ScenePlaced[]; pairs: ScenePair[] };
   /** The camera whose own cloud this scene is (its points, in a level frame of its own, with the camera in it), with
-   *  how it was sized: by the camera's measured mounting height, or left in the model's approximate metres. Only
-   *  `camera` while that camera has no cloud yet. */
+   *  how it was sized: always the model's own approximate metres (`cloud.size`, spatial/camera_clouds.py); a measured
+   *  mounting height only checks which plane is the floor. Only `camera` while that camera has no cloud yet. */
   view?: {
     camera: string;
     size?: 'approximate';
