@@ -24,8 +24,9 @@ A revision that changes only the floor, the cameras, or the transform points at 
 and splats are kept; plans and revision records stay.
 
 The 3D view shows a revision only when its producer is listed in `SHOWN_PRODUCERS` (`memory/places.py`). None is, so
-no revision's map is shown. What the 3D view shows is one camera's own point cloud at a time
-([A camera's own point cloud](#a-cameras-own-point-cloud)).
+no revision's map is shown, and no splat is drawn. What the 3D view shows is cameras' own point clouds: one camera's
+by itself, or every camera's together ([A camera's own point cloud](#a-cameras-own-point-cloud),
+[The scene of all cameras](#the-scene-of-all-cameras)).
 
 What the owner taught is in the knowledge store and supersedes what the machine holds without changing it: a place's
 name (`place.named`), its plan (`place.plan`, with every earlier version: a scene saved from the plan editor), and each
@@ -111,10 +112,13 @@ A cloud is brought onto the plan in four moves, each using better evidence than 
 1. **Placed by the owner's spot.** A camera's spot on the plan says where it is and which way it faces. The cloud is
    level already, so placing it is a turn about the vertical and a shift: the camera lands on its spot, facing its
    facing, with the cloud's floor on the plan's. A camera with no spot, or a spot with no facing, is not in the scene.
+   A camera that was turned or carried is placed by its own cloud's walls instead: a working pose kept beside the
+   cloud, never a change to the spot ([A camera that was turned or carried](#a-camera-that-was-turned-or-carried)).
 2. **Squared to the plan.** A cloud's own walls say how its camera really faces, better than a facing set by hand.
    The cloud is turned about its camera so that its walls run along the plan's walls near it, by at most 15 degrees
-   from the facing the owner set: a camera farther round than that was moved. Where a cloud wall has one clear
-   counterpart on the plan, the cloud is also slid onto it, by at most 0.5 m. Nearer walls count more, since a
+   from the pose it is placed by. A camera farther round than that is placed again by the walls it sees, facing the
+   way they fit, which is how a spot set facing the wrong way still lands its cloud right. Where a cloud wall has one
+   clear counterpart on the plan, the cloud is also slid onto it, by at most 0.5 m. Nearer walls count more, since a
    cloud's far depth is its least sure.
 3. **Fitted to the room.** Each wall of the squared cloud is matched to the plan wall its camera sees there: the
    first plan wall on the sight lines from the camera's spot to the cloud wall, so never one behind another, when it
@@ -159,6 +163,8 @@ seen from the other.
   the correction, so the scene stays on the plan.
 - **The bound.** A match may move a camera at most 0.75 m and 20 degrees from its spot. One that would move it farther
   says that one of the two spots is off: the view says so, and nothing is moved.
+- **Only a camera on its own spot.** A camera that was turned or carried is placed by the plan's walls instead, and a
+  match adjusts only cameras standing on their spots.
 - **Daylight.** A pair that matches in daylight often doesn't at night. While neither camera has moved and neither
   spot has changed, the last confident measurement stays in use, and a later look that isn't confident doesn't
   replace it.
@@ -167,24 +173,70 @@ Registering overlapping clouds to each other from their points and colours was t
 room from two sides, and each cloud is a relief with its own bend, so few surfaces are shared: the registration slid
 one relief along the other, tipped it off level, and ended farther from what the two pictures measured.
 
-### A camera that was moved
+### A camera that was turned or carried
 
-The picture a camera was first placed with at its spot is its anchor. Each new picture is compared with it. One that
-registers within 0.3 m and 4 degrees hasn't moved, and becomes the anchor. One that registers farther has moved: its
-cloud follows by what the pictures measured, and the new spot is offered to the owner. One that doesn't register is
-looking at other space: it is tried against the other cameras' pictures and placed from the first that registers. If
-none does, the camera leaves the scene and says it was moved and isn't placed, until its spot is set again or a
-picture registers. A moved camera's cloud is never left at its old spot.
+The picture a camera was last placed with is its anchor. Each new picture is compared with it, and one that registers
+within 0.3 m and 4 degrees says the camera still stands there, and becomes the anchor. Beyond that the camera is
+placed again, without asking anyone, from the first of these that answers (`spatial/cloud_scene.py`):
 
-The spot offered for a moved camera is saved, as a new version of the plan, only when the owner accepts it. The
-anchor it replaced is set aside, so that Undo puts the plan's earlier version and the anchor back.
+- **Its pictures.** The new picture registers with the anchor farther than that (it still overlaps its old view), or
+  with another camera's picture, and the two-view measurement says where it stands now.
+- **Its own cloud.** The cloud's walls against the plan's (`cloud_align.locate`), with no limit on how far it turned
+  or went: where it stood facing another way, or anywhere on the plan its walls fit.
+
+The answer is the camera's working pose, kept beside its cloud (`follow.json`) and used in place of the owner's spot;
+the cloud is then squared and fitted from it as any cloud is. The owner's spot and plan are never written. A camera
+whose pictures didn't change but whose walls line up with the plan only far from its spot's facing is placed this way
+too, since a spot set facing the wrong way is not a camera that moved.
+
+An answer counts when the plan's walls account for at least half of the cloud's walls, measured by their points, less
+the share of its points that fall outside every room. An answer found away from where the camera stood must also hold
+walls in two directions, since one wall says how far the camera is from it and nothing about where along it. The
+camera is taken to have stayed where it stood whenever an answer there is within 0.15 of the best anywhere: a camera
+that still fits its place was turned, not carried. And the answer must stand alone, because a corner fits other
+corners and a wall fits other walls: when a second answer more than 0.75 m or 20 degrees away scores within 0.15 of
+the best, the view fits two places and nothing is placed.
+
+A view that can't be placed that way (no wall in view, your plan has no wall to place it by, the walls it sees fit
+nowhere, or they fit in two places) is not drawn. The camera's row says why, it keeps the working pose it had for
+when its old view comes back, and every new cloud is tried again. The owner has one way back: **Use the plan's spot**
+puts the camera on its spot again, which holds until its view next changes, and **Follow it again** takes that back.
+
+### A camera that is moving
+
+Between two still views a moving camera has no place in the scene, and a cloud needs a view that held still. So
+`spatial/camera_track.py` gives it a pose a few times a second from its live frames, with MASt3R-SLAM's own frame
+tracker (in its runtime, as a process that stays up for the length of a track): each frame is matched to the current
+keyframe and solved against that keyframe's points, and a frame that shares too little with it becomes the next one.
+
+A track starts near where the camera stood, when two samples in a row are less than 0.9 alike with nobody in view
+(someone walking past a still camera changes its picture too, so a start that sees no motion ends within ten seconds),
+the camera has a place in the scene, the runtime is set up, and a GPU has the memory. One camera is tracked at a
+time. Every keyframe gives a cloud of its own. The first is placed by its walls near where the camera stood, which
+fixes how the track's frame lies on the plan. Each later one is put where the track says it is, then held to the
+plan's walls from there, which sets the track's frame on the plan again and takes out what it had drifted: the
+camera's height and tilt come from the keyframe's floor and its scale from the plan's walls. A keyframe that no wall
+holds stays where the track put it, and the scene says how long ago a wall last held it.
+
+Under the camera's own points the scene draws the last six keyframes' clouds (thinned to 30,000 points each) and its
+path (two minutes of poses), kept beside the cloud (`track.json`, `track/`). A track ends when the camera has come to
+rest (within 5 cm and 2 degrees of where it was ten seconds before), after ten minutes, or after five restarts, and a
+camera whose track ended is left alone for a minute. When the view has held still long enough for a cloud, that cloud
+is placed from where the track left the camera, the track's files go, and it is an ordinary camera again. A frame
+the tracker can't match is skipped; after six in a row the track is begun again from where the camera was last placed,
+and after five of those it ends.
+
+It costs about 10 seconds to load the model at the start of a track, then 0.2 s of one GPU a frame at two frames a
+second (about two fifths of that GPU while a camera moves) and 2.9 GB of its memory, all given back when the track
+ends.
 
 ### What is kept, and when it is made
 
 Everything is kept beside the clouds, in `state/camera_clouds/`: each camera's squaring and fit (`align.json`), its
 anchor (`anchor.json`, `anchor.png`), what became of it once its picture stopped matching the anchor (`moved.json`),
-the pairs' measurements (`pairs.json`), and the scene's drawn points (`scenes/`), made on request and kept until the
-scene changes. A measurement made from another picture or another spot is not used.
+its working pose when it left its spot (`follow.json`), a moving camera's track and its last keyframes' clouds
+(`track.json`, `track/`), the pairs' measurements (`pairs.json`), and the scene's drawn points (`scenes/`), made on
+request and kept until the scene changes. A measurement made from another picture or another spot is not used.
 
 The 3D view brings a place's stored clouds up to date each time it asks for the scene: an older cloud with no floor
 is stood up by its walls, and each camera's squaring and fit are made where they are missing or stale. That needs no
