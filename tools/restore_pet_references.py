@@ -12,7 +12,8 @@ finds it again with see-actions' detector (RF-DETR Small, on the CPU), cuts the 
 embedder does, and embeds it. A label without a photo, or whose photo the detector finds no animal in, is left as
 it is: no example rather than a wrong one.
 
-    uv run python tools/restore_pet_references.py --dry-run   # count only
+    uv run python tools/restore_pet_references.py --dry-run   # detect and embed, without writing
+    uv run python tools/restore_pet_references.py --inventory-only   # count photos without loading models
     uv run python tools/restore_pet_references.py
 
 **From what the old model was sure of** (`--carry-from <old space>`): for the examples taught before photos were
@@ -32,7 +33,9 @@ passes on the new examples.
     uv run python tools/restore_pet_references.py --carry-from facebook/dinov3-vits16-pretrain-lvd1689m:tight \
         --old-model facebook/dinov3-vits16-pretrain-lvd1689m
 
-The dry run names and counts but writes nothing, and works before the configured model is switched.
+The default dry run reports anonymous per-pet counts: recoverable, no stored photo, missing metadata, and no usable
+animal crop. It opens the knowledge database read-only, loads local models only when pictures survive, and never
+creates a store or evidence lock. The carry-over mode is separate and may infer new labels; restoring never does.
 
 Run it by hand where the animal models are installed (the embedder loads on `vision.animal_models_device`; the
 detector takes a few minutes on the CPU for a couple of thousand photos). It only adds records to the knowledge
@@ -40,10 +43,14 @@ store, under the pet evidence lock, and running it again finds nothing more to d
 """
 
 import argparse
+import base64
 import collections
+import json
+import sqlite3
 import time
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -118,19 +125,91 @@ def embed(crops: Mapping[str, np.ndarray], repo: str | None = None) -> dict[str,
     return out
 
 
-def restore(state: Path, dry_run: bool) -> None:
-    """The default: every stranded label with a kept or saved photo gets its example in the current space."""
-    stranded = recognition.stranded(state)
-    kept = recognition.photos(state)
+def restore_inputs(state: Path) -> tuple[list[dict[str, Any]], dict[str, bytes]]:
+    """Read a consistent taught-state snapshot without opening a writer, even on a fresh install."""
+    from liberational.people import registry
+
+    path = registry.knowledge_path(state)
+    if not path.exists():
+        return [], {}
+    with closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as db:
+        db.execute("PRAGMA query_only=ON")
+        rows = db.execute(
+            "SELECT collection,start_ns,value FROM records WHERE collection IN (?,?,?) ORDER BY position",
+            (recognition.LABELS, recognition.REFERENCES, recognition.PHOTOS),
+        ).fetchall()
+    active = recognition.latest_labels(
+        {**json.loads(value), "ts_start": start / 1e9}
+        for collection, start, value in rows
+        if collection == recognition.LABELS
+    )
+    held = {str(r.get("track_id")) for r in recognition.embedding_rows(state)}
+    photos: dict[str, bytes] = {}
+    for collection, _, encoded in rows:
+        value = json.loads(encoded)
+        track = str(value.get("track_id"))
+        if collection == recognition.REFERENCES and track in active:
+            # Older labels did not carry the span, but their taught reference did. Keep the active identity.
+            metadata = {"sighting_start": value.get("ts_start"), **value.get("owner_label", {})}
+            for key in ("species", "cam", "sighting_start", "sighting_end"):
+                if active[track].get(key) is None and metadata.get(key) is not None:
+                    active[track][key] = metadata[key]
+        if collection == recognition.REFERENCES and value.get("model") == recognition.embedding_model():
+            held.add(track)
+        if collection == recognition.PHOTOS:
+            try:
+                photos[track] = base64.b64decode(value["jpg"], validate=True)
+            except KeyError, TypeError, ValueError:
+                continue
+    stranded = [r for t, r in active.items() if t not in held and r["label"] not in ("", recognition.IGNORED)]
+    return stranded, photos
+
+
+def restoration(
+    state: Path, *, inventory_only: bool = False
+) -> tuple[list[dict[str, Any]], dict[str, bytes], dict[str, np.ndarray], list[dict[str, Any]]]:
+    """Plan restoration in memory; anonymous per-pet counts distinguish absent photos from failed crops.
+
+    No model is loaded for an inventory. A full dry run detects and embeds the kept pictures, so its recoverable
+    count is measured, not a promise that every JPEG contains a usable animal. Labels and old references survive.
+    """
+    stranded, kept = restore_inputs(state)
     found: dict[str, bytes] = {}
     for row in stranded:
         track = str(row["track_id"])
         if (jpg := kept.get(track) or recognition.saved_photo(state, track)) is not None:
             found[track] = jpg
-    print(f"{len(stranded)} labels have no example; {len(found)} of them have a photo")
-    if dry_run or not found:
+    eligible = {
+        str(r["track_id"])
+        for r in stranded
+        if isinstance(r.get("species"), str) and recognition._finite(r.get("sighting_start")) is not None
+    }
+    crops = cut({t: jpg for t, jpg in found.items() if t in eligible}) if found and not inventory_only else {}
+    vectors = embed(crops) if crops else {}
+    report = []
+    for i, pet in enumerate(sorted({str(r["label"]) for r in stranded})):
+        tracks = {str(r["track_id"]) for r in stranded if r["label"] == pet}
+        report.append(
+            {
+                "pet": chr(65 + i),
+                "stranded": len(tracks),
+                "photo_available": len(tracks & found.keys()),
+                "no_photo": len(tracks - found.keys()),
+                "missing_metadata": len(tracks - eligible),
+                "recoverable": None if inventory_only else len(tracks & vectors.keys()),
+                "no_usable_crop": None if inventory_only else len((tracks & found.keys() & eligible) - vectors.keys()),
+            }
+        )
+    return stranded, found, vectors, report
+
+
+def restore(state: Path, dry_run: bool, *, inventory_only: bool = False) -> None:
+    """Restore confirmed labels only; the dry run performs the same inference without creating a store or lock."""
+    stranded, found, vectors, report = restoration(state, inventory_only=inventory_only)
+    print(json.dumps({"dry_run": dry_run, "inventory_only": inventory_only, "pets": report}, indent=2))
+    if dry_run or inventory_only or not vectors:
         return
-    vectors = embed(cut(found))
+    kept = recognition.photos(state)
     now = time.time()
     records = []
     for k, row in enumerate(r for r in stranded if str(r["track_id"]) in vectors):
@@ -139,7 +218,7 @@ def restore(state: Path, dry_run: bool) -> None:
         if track not in kept:  # from state/pet_shots: keep it with the taught state from now on
             records.append(recognition.photo(track, found[track], at))
     print(f"no animal found in {len(found) - len(vectors)} photos; those labels keep no example")
-    print(f"restored {recognition.keep_references(state, records)} pet references")
+    print(f"restored {recognition.keep_references(state, records)} reference/photo records")
 
 
 def old_examples(
@@ -311,6 +390,9 @@ def keep(state: Path, records: Mapping[str, Sequence[knowledge.Record]]) -> list
 def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--dry-run", action="store_true", help="count what would be done, and write nothing")
+    parser.add_argument(
+        "--inventory-only", action="store_true", help="count available pictures without models or writes"
+    )
     parser.add_argument("--state", type=Path, help="the state directory (default: paths.state)")
     parser.add_argument("--carry-from", metavar="SPACE", help="carry the pets over from this earlier embedding space")
     parser.add_argument("--old-model", metavar="REPO", help="carry-over: the installed model of that earlier space")
@@ -318,11 +400,13 @@ def main() -> None:
     parser.add_argument("--margin", type=float, default=MARGIN, help=f"carry-over: how clear (default {MARGIN})")
     parser.add_argument("--per-pet", type=int, default=PER_PET, help=f"carry-over: sightings a pet (default {PER_PET})")
     args = parser.parse_args()
+    if args.inventory_only and args.carry_from:
+        parser.error("--inventory-only cannot be combined with --carry-from")
     state = args.state or Path(cfg.path("paths.state"))
     if args.carry_from:
         carry(state, args.carry_from, args.old_model, args.min_sim, args.margin, args.per_pet, args.dry_run)
     else:
-        restore(state, args.dry_run)
+        restore(state, args.dry_run, inventory_only=args.inventory_only)
 
 
 if __name__ == "__main__":

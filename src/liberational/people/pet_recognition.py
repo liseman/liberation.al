@@ -45,6 +45,19 @@ that pet for that sighting (`recognize`'s `exclude`), and saying it of a sightin
 The thresholds were first guesses, then set from the owner's labels. The held-out check, not the
 thresholds, is what decides whether recognition is used.
 
+With enough labels, configured multi-pet species also try a calibrated logistic classifier. The oldest half
+trains, the next quarter calibrates, and the newest quarter tests, with HOLD_OUT_S between entire track spans.
+Per-crop probabilities are averaged over a track. Its operating point permits no observed calibration errors;
+it replaces the nearest-example rule only with no worse decided coverage or error rate on the separate test.
+The tested model stays frozen until the labels or embeddings change. All labels contribute to fitting,
+calibration, or validation; the latest answers immediately update the gate and the reference gallery, rather
+than being used as both training evidence and their own accuracy check. Single-pet species keep the gallery rule.
+
+Recognized sightings stay on the pet's card and leave the teaching queue. Waiting sightings carry a reason, and
+conflicting guesses cannot share a bulk-label group. Per-pet learning reports give recent forward-held-out
+coverage, its actual time span and sample count, and how many taught sightings lack a current-space reference.
+They are estimates on owner-checked evidence, not a historical log of automatic decisions.
+
 **Reading the embeddings**: every recorded animal embedding is kept in this process an hour at a time
 (`embedding_rows`). Each read stats the store's files (milliseconds), and reads again only the hours whose files
 changed, which is a new hour or a row written late into an old one, and starts over when the deletions log moves.
@@ -158,6 +171,7 @@ class Sighting:
     end: float
     vectors: list[np.ndarray] = field(default_factory=list)
     shot: dict[str, Any] = field(default_factory=dict)  # the largest box seen: {ts, box}, for its photo
+    crops: list[np.ndarray] = field(default_factory=list)  # observed crops, excluding a retained reference mean
 
     @functools.cached_property
     def mean(self) -> np.ndarray:
@@ -183,6 +197,8 @@ def sightings(rows: Iterable[Mapping[str, Any]]) -> list[Sighting]:
         s = out.setdefault(tid, Sighting(tid, species, str(r.get("cam") or ""), ts, ts))
         s.start, s.end = min(s.start, ts), max(s.end, ts)
         s.vectors.append(v / np.linalg.norm(v))
+        if "owner_label" not in r:
+            s.crops.append(s.vectors[-1])
         box = r.get("box")
         if isinstance(box, list) and len(box) >= 4:
             area = (box[2] - box[0]) * (box[3] - box[1])
@@ -409,6 +425,134 @@ def gallery(labeled: Sequence[tuple[Sighting, str]], species: str, pet: str) -> 
         "reason": reason,
         "threshold": threshold,  # exact: recognition compares against it
     }
+
+
+@dataclass
+class _Classifier:
+    """A frozen, time-validated classifier. Calibration and test sightings are never fit examples.
+
+    Every label rebuilds the chronological split and its gate. Keeping the tested estimator (rather than refitting
+    after inspecting its errors) makes the reported wrong-name check apply to the model that actually answers.
+    """
+
+    estimator: Any
+    threshold: float
+
+    def scores(self, found: Sequence[Sighting]) -> tuple[list[str], np.ndarray]:
+        # A retained mean is a fallback after recordings expire, not an extra camera observation. Counting it
+        # again would make labeled test tracks differ from the unlabeled tracks this classifier will answer.
+        probabilities = np.stack(
+            [self.estimator.predict_proba(np.stack(s.crops or s.vectors)).mean(axis=0) for s in found]
+        )
+        best = probabilities.argmax(axis=1)
+        return self.estimator.classes_[best].tolist(), probabilities[np.arange(len(found)), best]
+
+    def answers(self, found: Sequence[Sighting]) -> list[str | None]:
+        labels, scores = self.scores(found)
+        return [label if score >= self.threshold else None for label, score in zip(labels, scores, strict=True)]
+
+
+def _tally(answers: Sequence[str | None], truth: Sequence[str]) -> dict[str, int]:
+    right = sum(a == y for a, y in zip(answers, truth, strict=True))
+    wrong = sum(a is not None and a != y for a, y in zip(answers, truth, strict=True))
+    return {"right": right, "wrong": wrong, "unknown": len(truth) - right - wrong, "tested": len(truth)}
+
+
+def _no_worse(candidate: Mapping[str, int], baseline: Mapping[str, int]) -> bool:
+    """Compare exact error fractions, including a baseline that made no decisions."""
+    a, b = candidate["right"] + candidate["wrong"], baseline["right"] + baseline["wrong"]
+    return a >= b and candidate["wrong"] * max(b, 1) <= baseline["wrong"] * max(a, 1)
+
+
+def _passes(candidate: Mapping[str, int], baseline: Mapping[str, int]) -> bool:
+    """Improvement never waives the recognition gate's absolute minimum coverage and maximum error rate."""
+    decided = candidate["right"] + candidate["wrong"]
+    return (
+        _no_worse(candidate, baseline)
+        and decided >= MIN_DECIDED * candidate["tested"]
+        and candidate["wrong"] <= MAX_WRONG * decided
+    )
+
+
+def _operating_point(scores: np.ndarray, predictions: Sequence[str], truth: Sequence[str]) -> float:
+    """Most coverage with no observed calibration errors; ties enter together, never selected on test data.
+
+    Matching a nonzero empirical baseline rate on a small calibration set spends the whole error budget before
+    testing on the next period. Use zero here, then independently require no worse test coverage or error rate.
+    """
+    for threshold in np.unique(scores):
+        answers = [p if s >= threshold else None for p, s in zip(predictions, scores, strict=True)]
+        counts = _tally(answers, truth)
+        if counts["wrong"] == 0:
+            return float(threshold)
+    return math.inf
+
+
+def _temporal_check(labeled: Sequence[tuple[Sighting, str]], species: str, pet: str | None) -> dict[str, Any]:
+    """Forward evaluation: older half trains, next quarter calibrates, newest quarter tests, with purged boundaries.
+
+    Foreign species are rejection examples, not proof about unseen pets of this species. A single-pet species
+    retains its gallery rule. Coverage is held-out labeled evidence, never a claim about unobserved animals.
+    """
+    mine = sorted([(s, label) for s, label in labeled if s.species == species], key=lambda pair: pair[0].start)
+    if len(mine) < int(config.get("pets.classifier_min_labels")):
+        return {}
+    first, second = mine[len(mine) // 2][0].start, mine[3 * len(mine) // 4][0].start
+    train = [(s, label) for s, label in labeled if s.end < first - HOLD_OUT_S]
+    calibration = [(s, label) for s, label in labeled if s.start >= first and s.end < second - HOLD_OUT_S]
+    test = [(s, label) for s, label in mine if s.start >= second]
+    cal_mine = [(s, label) for s, label in calibration if s.species == species]
+    if min(len(train), len(cal_mine), len(test)) < MIN_LABELED:
+        return {}
+    baseline_check = gallery(train, species, pet) if pet is not None else held_out(train, species)
+    refs = References(train)
+
+    def baseline(rows: Sequence[tuple[Sighting, str]]) -> list[str | None]:
+        return [
+            recognize(s, refs, baseline_check.get("threshold") or MATCH_SIM)[0] if baseline_check["on"] else None
+            for s, _ in rows
+        ]
+
+    truth = [label for _, label in test]
+    baseline_answers = baseline(test)
+    base_counts = _tally(baseline_answers, truth)
+    result: dict[str, Any] = {"method": "nearest", "baseline": base_counts}
+    answers = baseline_answers
+    if pet is None and species in config.get("pets.classifier_species"):
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.frozen import FrozenEstimator
+        from sklearn.linear_model import LogisticRegression
+
+        def classes(rows: Sequence[tuple[Sighting, str]]) -> list[str]:
+            return [label if s.species == species else OTHER for s, label in rows]
+
+        train_y, cal_y = classes(train), classes(calibration)
+        # A class absent from either side cannot be calibrated. Never manufacture labels for partial negatives.
+        own_classes = {label for _, label in mine}
+        represented = all(
+            own_classes <= {label for s, label in rows if s.species == species} for rows in (train, calibration, test)
+        )
+        if len(own_classes) >= 2 and represented and set(train_y) == set(cal_y):
+            estimator = LogisticRegression(C=float(config.get("pets.classifier_regularization")), max_iter=1000)
+            estimator.fit(_means([s for s, _ in train]), train_y)
+            calibrated = CalibratedClassifierCV(FrozenEstimator(estimator), method="sigmoid")
+            calibrated.fit(_means([s for s, _ in calibration]), cal_y)
+            model = _Classifier(calibrated, math.inf)
+            predictions, scores = model.scores([s for s, _ in cal_mine])
+            cal_truth = [label for _, label in cal_mine]
+            model.threshold = _operating_point(scores, predictions, cal_truth)
+            candidate = model.answers([s for s, _ in test])
+            counts = _tally(candidate, truth)
+            result["candidate"] = counts
+            if _passes(counts, base_counts):
+                result.update(method="classifier", _model=model)
+                answers = candidate
+    result["validation"] = _tally(answers, truth)
+    result["evaluated"] = [
+        {"label": label, "start": s.start, "end": s.end, "answer": answer}
+        for (s, label), answer in zip(test, answers, strict=True)
+    ]
+    return result
 
 
 def latest_labels(rows: Iterable[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -732,11 +876,26 @@ def _checks(
     for sp in sorted(set(species)):
         mine = [(s, label) for s, label in labeled if s.species == sp]
         pet = only.get(sp)
-        key = (*stamp, pet, tuple((s.track_id, label, s.start, len(s.vectors)) for s, label in mine))
+        inputs = labeled if len(mine) >= int(config.get("pets.classifier_min_labels")) else mine
+        settings = tuple(config.get(f"pets.{name}") for name in ("classifier_min_labels", "classifier_regularization"))
+        key = (
+            *stamp,
+            pet,
+            settings,
+            tuple(config.get("pets.classifier_species")),
+            tuple((s.track_id, label, s.start, s.end, len(s.vectors)) for s, label in inputs),
+        )
         with _answers_lock:
             kept = _checks_kept.get((path, sp))
         if kept is None or kept[0] != key:
-            kept = (key, gallery(mine, sp, pet) if pet is not None else held_out(mine, sp))
+            check = gallery(mine, sp, pet) if pet is not None else held_out(mine, sp)
+            temporal = _temporal_check(labeled, sp, pet)
+            check.update(temporal)
+            if temporal.get("method") == "classifier":
+                check.update({k: temporal["validation"][k] for k in ("right", "wrong", "unknown")})
+                check["tested"] = temporal["validation"]["tested"]
+                check.update(on=True, reason=None)
+            kept = (key, check)
             with _answers_lock:
                 _checks_kept[(path, sp)] = kept
         out[sp] = kept[1]
@@ -752,21 +911,46 @@ def _judge(
     """{"recognized": ...} when recognition is on for the sighting's species and names it, {"suggestion": ...} for a
     match it isn't trusted with yet (`clear`: true) or an unclear nearest one (`clear`: false), else {}. Never
     a pet in `exclude`."""
+    model = check.get("_model")
+    if model is not None and check["on"]:
+        predictions, confidence = model.scores([s])
+        label, score = predictions[0], float(confidence[0])
+        if label in exclude:
+            return {"reason": "The owner ruled out the predicted pet for this sighting."}
+        if score >= model.threshold:
+            return {"recognized": {"label": label, "similarity": round(score, 3)}}
+        return {
+            "suggestion": {"label": label, "similarity": round(score, 3), "clear": False},
+            "reason": "The pictures do not identify one pet confidently enough.",
+        }
     threshold = check.get("threshold")
     match, sim, suggestion = recognize(s, labeled, MATCH_SIM if threshold is None else threshold, exclude)
     if match is not None and check["on"]:
         return {"recognized": {"label": match, "similarity": round(sim or 0.0, 3)}}
     if match is not None or suggestion is not None:
+        reason = (
+            "Recognition has not passed its held-out check."
+            if not check["on"]
+            else "Appearance is below the naming threshold."
+            if sim is not None and sim < (MATCH_SIM if threshold is None else threshold)
+            else "Another animal looks too similar to name this sighting safely."
+        )
         return {
-            "suggestion": {"label": match or suggestion, "similarity": round(sim or 0.0, 3), "clear": match is not None}
+            "suggestion": {
+                "label": match or suggestion,
+                "similarity": round(sim or 0.0, 3),
+                "clear": match is not None,
+            },
+            "reason": reason,
         }
-    return {}
+    return {"reason": "No eligible labeled example is available for this sighting."}
 
 
 def _guess(row: Mapping[str, Any], names: Mapping[str, str]) -> dict[str, Any] | None:
     """A sighting's guess in the shape every naming list shares (as faces' and voices'): {id (the label to send
     back), name, score (0 to 100), band ("probable" for recognition's match or a clear suggestion, "maybe" for an
-    unclear one), close (None: recognition gives no runner-up)}, or None."""
+    unclear one), close (None: recognition gives no runner-up)}, or None. The score is calibrated probability for
+    the classifier and cosine similarity for the nearest-example rule."""
     found = row.get("recognized") or row.get("suggestion")
     if not found:
         return None
@@ -869,9 +1053,19 @@ def _view(state: Any, pets: Sequence[Mapping[str, Any]], now: float) -> dict[str
         rows.sort(key=lambda r: -r["end"])
         del rows[SEEN_MAX:]
     listed = []
-    waiting = [s for s in found if s.track_id not in named and s.track_id not in ignored]
+    waiting = [
+        s
+        for s in found
+        if s.track_id not in named and s.track_id not in ignored and "recognized" not in items[s.track_id]
+    ]
     walled = blocked(waiting, blocks(state))  # like something the owner blocked: not asked about
-    for members in groups([s for s in waiting if s.track_id not in walled]):
+    # Similar-looking pets can share a geometric cluster. Conflicting guesses must never share a bulk answer.
+    partitions: dict[tuple[str, str | None], list[Sighting]] = {}
+    for s in waiting:
+        if s.track_id not in walled:
+            guess = items[s.track_id].get("guess") or {}
+            partitions.setdefault((s.species, guess.get("id")), []).append(s)
+    for members in [g for partition in partitions.values() for g in groups(partition)]:
         rows = [items[s.track_id] for s in members]
         listed.append(
             {
@@ -887,10 +1081,47 @@ def _view(state: Any, pets: Sequence[Mapping[str, Any]], now: float) -> dict[str
         "seen": seen,
         "groups": listed,
         "count": len(listed),  # the groups waiting, as /faces/unknown/groups counts
-        "recognition": [c for sp, c in checks.items() if sp != ANIMAL],
+        "recognition": [
+            {k: v for k, v in c.items() if not k.startswith("_") and k != "evaluated"}
+            for sp, c in checks.items()
+            if sp != ANIMAL
+        ],
+        "learning": _learning(checks, labeled, active, names, now),
         "names": names,
         "label_days": label_days(),
     }
+
+
+def _learning(
+    checks: Mapping[str, Mapping[str, Any]],
+    labeled: Sequence[tuple[Sighting, str]],
+    active: Mapping[str, Mapping[str, Any]],
+    names: Mapping[str, str],
+    now: float,
+) -> dict[str, dict[str, Any]]:
+    """Per-pet coverage on recent forward-held-out labels, with missing evidence explicit.
+
+    This is an estimate on owner-checked sightings, not a log of past automatic decisions. In particular, no
+    current-label resubstitution score is described as last week's recognition accuracy.
+    """
+    days = float(config.get("pets.learning_days"))
+    cutoff = now - days * 86400
+    evaluated = [r for c in checks.values() for r in c.get("evaluated", []) if cutoff <= r["start"] <= now]
+    out = {}
+    for pet in names:
+        rows = [r for r in evaluated if r["label"] == pet]
+        tally = _tally([r["answer"] for r in rows], [pet] * len(rows))
+        references = sum(label == pet for _, label in labeled)
+        out[pet] = {
+            **tally,
+            "days": days,
+            "start": min((r["start"] for r in rows), default=None),
+            "end": max((r["end"] for r in rows), default=None),
+            "automatic_percent": round(100 * tally["right"] / len(rows), 1) if rows else None,
+            "references": references,
+            "stranded": max(0, sum(r["label"] == pet for r in active.values()) - references),
+        }
+    return out
 
 
 def label(

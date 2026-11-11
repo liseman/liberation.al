@@ -232,6 +232,11 @@ function GroupRow({
             {label}, {span(first, last)}
             {cams ? ` · ${cams}` : ''}
           </Text>
+          {[...new Set(kept.map(s => s.reason).filter(Boolean))].map(reason => (
+            <Text size="xs" c="dimmed" key={reason}>
+              {reason}
+            </Text>
+          ))}
         </>
       }
       picker={
