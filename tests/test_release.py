@@ -145,3 +145,62 @@ def test_a_version_with_no_section_is_refused() -> None:
 def test_notes_that_do_not_say_what_an_upgrade_resets_are_refused() -> None:
     with pytest.raises(ValueError, match=r"0\.0\.9 don't say what an upgrade resets"):
         release.notes("0.0.9", RELEASES)
+
+
+def test_notes_rewrites_relative_link_up_a_level() -> None:
+    sample = "## 0.2.0\n\nSee [MIGRATING.md](../MIGRATING.md) for upgrade notes.\n\nAn upgrade resets nothing.\n"
+    result = release.notes("0.2.0", sample, repo="https://github.com/liseman/liberation.al")
+    assert "[MIGRATING.md](https://github.com/liseman/liberation.al/blob/v0.2.0/MIGRATING.md)" in result
+
+
+def test_notes_rewrites_sibling_page_with_an_anchor() -> None:
+    sample = "## 0.2.0\n\nRead [running instructions](RUNNING.md#start) first.\n\nAn upgrade resets nothing.\n"
+    result = release.notes("0.2.0", sample, repo="https://github.com/liseman/liberation.al")
+    assert (
+        "[running instructions](https://github.com/liseman/liberation.al/blob/v0.2.0/docs/RUNNING.md#start)" in result
+    )
+
+
+def test_notes_rewrites_same_file_anchor() -> None:
+    sample = "## 0.2.0\n\nReview [Notes](#notes) for details.\n\nAn upgrade resets nothing.\n"
+    result = release.notes("0.2.0", sample, repo="https://github.com/liseman/liberation.al")
+    assert "[Notes](https://github.com/liseman/liberation.al/blob/v0.2.0/docs/RELEASES.md#notes)" in result
+
+
+def test_notes_leaves_absolute_links_untouched() -> None:
+    sample = (
+        "## 0.2.0\n\n"
+        "Installed via [uv](https://docs.astral.sh/uv/) or email [team](mailto:team@example.com).\n\n"
+        "An upgrade resets nothing.\n"
+    )
+    result = release.notes("0.2.0", sample, repo="https://github.com/liseman/liberation.al")
+    assert "[uv](https://docs.astral.sh/uv/)" in result
+    assert "[team](mailto:team@example.com)" in result
+
+
+def test_notes_leaves_links_inside_code_blocks_untouched() -> None:
+    sample = (
+        "## 0.2.0\n\nExample block:\n\n```sh\n[in code block](../MIGRATING.md)\n```\n\nAn upgrade resets nothing.\n"
+    )
+    result = release.notes("0.2.0", sample, repo="https://github.com/liseman/liberation.al")
+    assert "[in code block](../MIGRATING.md)" in result
+
+
+def test_apt_release_notes_commands_match_releases_documentation() -> None:
+    root = Path(__file__).resolve().parent.parent
+    releases_text = (root / "docs" / "RELEASES.md").read_text()
+    apt_notes_text = (root / "packaging" / "apt-release-notes.md").read_text()
+
+    apt_blocks = re.findall(r"```sh\n(.*?)\n```", apt_notes_text, flags=re.DOTALL)
+    assert len(apt_blocks) >= 2, "apt-release-notes.md must contain install and upgrade code blocks"
+    apt_install, apt_upgrade = apt_blocks[0].strip(), apt_blocks[1].strip()
+
+    install_section = releases_text.split("## Install with apt")[1].split("##")[0]
+    install_doc = re.search(r"```sh\n(.*?)\n```", install_section, flags=re.DOTALL)
+    assert install_doc is not None
+    assert apt_install == install_doc.group(1).strip()
+
+    upgrade_section = releases_text.split("### Upgrade, remove, or purge an apt install")[1].split("###")[0]
+    upgrade_doc = re.search(r"```sh\n(.*?)\n```", upgrade_section, flags=re.DOTALL)
+    assert upgrade_doc is not None
+    assert apt_upgrade == upgrade_doc.group(1).strip()
