@@ -49,7 +49,7 @@ def test_a_cloud_stands_level_on_its_floor_with_the_camera_above_it():
     made = clouds.make("hall", room(height=1.5), None, T)
     cloud = made.cloud
     pose = np.array(cloud.pose).reshape(4, 4)
-    assert (cloud.size, cloud.factor, cloud.floor_found) == ("approximate", 1.0, True)
+    assert (cloud.size, cloud.floor_found) == ("approximate", True)
     assert pose[:3, 3] == pytest.approx([0.0, 0.0, 1.5], abs=0.02)  # the camera, on the z axis, as high as it hangs
     assert pose[:3, 2] == pytest.approx([0.0, np.cos(PITCH), -np.sin(PITCH)], abs=0.02)  # looking along +y, and down
     z = points_of(made)[:, 2]
@@ -57,16 +57,27 @@ def test_a_cloud_stands_level_on_its_floor_with_the_camera_above_it():
     assert np.mean(np.abs(z) < 0.03) > 0.3  # and the floor's own points on it
 
 
-def test_a_measured_mounting_height_sizes_the_cloud():
-    made = clouds.make("hall", room(height=1.5, wall=4.0), 3.0, T)  # the model's metres are half the true ones
-    assert (made.cloud.size, made.cloud.factor) == ("height", pytest.approx(2.0, abs=0.03))
-    assert np.array(made.cloud.pose).reshape(4, 4)[2, 3] == pytest.approx(3.0, abs=0.01)
-    assert points_of(made)[:, 1].max() == pytest.approx(8.0, abs=0.15)  # the wall 4 m ahead is 8 m ahead
+def test_a_measured_mounting_height_doesnt_size_the_cloud():
+    made = clouds.make("hall", room(height=1.5, wall=4.0), 2.0, T)  # hung at 2 m; the model reads 1.5
+    assert made.cloud.size == "approximate" and made.cloud.floor_found
+    assert np.array(made.cloud.pose).reshape(4, 4)[2, 3] == pytest.approx(1.5, abs=0.02)  # the model's own metres
+    assert points_of(made)[:, 1].max() == pytest.approx(4.0, abs=0.1)  # and the wall where the model put it
+
+
+def test_a_plane_far_from_the_cameras_measured_height_isnt_taken_for_its_floor():
+    # a camera hung at 6 m whose "floor" reads 1.5 m under it is looking at a table top, not its floor
+    made = clouds.make("hall", room(height=1.5), 6.0, T)
+    assert made.cloud.floor_found is False
+
+
+def test_a_surface_just_under_the_camera_isnt_its_floor():
+    made = clouds.make("hall", room(height=0.3), None, T)  # a shelf the camera stands over
+    assert made.cloud.floor_found is False
 
 
 def test_a_view_with_no_floor_in_it_stays_approximate_even_with_a_height():
     made = clouds.make("hall", room(floor=False), 3.0, T)
-    assert (made.cloud.size, made.cloud.factor, made.cloud.floor_found) == ("approximate", 1.0, False)
+    assert (made.cloud.size, made.cloud.floor_found) == ("approximate", False)
     assert points_of(made)[:, 2].min() == pytest.approx(0.0, abs=0.2)  # the lowest points stand in for the floor
 
 
@@ -100,7 +111,7 @@ def store(tmp_path):
     return clouds.Store(clouds.root(tmp_path))
 
 
-def run_room(picture, overlay):
+def run_room(picture, overlay, others=()):
     return room()
 
 
@@ -115,7 +126,7 @@ def test_a_new_cloud_replaces_the_cameras_old_one_whole(store, tmp_path):
 
 
 def refuse(error):
-    def run(picture, overlay):
+    def run(picture, overlay, others=()):
         raise error
 
     return run
@@ -144,20 +155,47 @@ def test_a_made_cloud_clears_the_note_of_the_try_before(store, tmp_path):
     assert store.notes() == {}
 
 
-def test_the_model_gets_the_picture_with_the_cameras_overlays_marked_and_its_height_sizes_the_cloud(store, tmp_path):
+def test_the_model_gets_the_picture_with_the_cameras_overlays_marked(store, tmp_path):
     manifest = tmp_path / "devices.toml"
     manifest.write_text(
-        '[[device]]\nname = "hall"\nkind = "rtsp"\nmasks = [[0.0, 0.0, 0.5, 0.25]]\nmount = { height_m = 3.0 }\n'
+        '[[device]]\nname = "hall"\nkind = "rtsp"\nmasks = [[0.0, 0.0, 0.5, 0.25]]\nmount = { height_m = 2.25 }\n'
     )
     seen = {}
 
-    def run(picture, overlay):
+    def run(picture, overlay, others=()):
         seen["overlay"] = overlay
         return room(height=1.5)
 
     cloud = clouds.refresh(store, "hall", np.full((36, 64, 3), 120, np.uint8), T, run=run, manifest=manifest)
     assert seen["overlay"][:9, :32].all() and not seen["overlay"][9:].any() and not seen["overlay"][:, 32:].any()
-    assert cloud is not None and cloud.size == "height"
+    assert cloud is not None
+
+
+def test_a_new_picture_is_compared_with_the_neighbours_in_the_same_run_and_kept_for_the_next(store, tmp_path):
+    from liberational.spatial import cloud_scene
+
+    manifest = tmp_path / "devices.toml"
+    place = "11111111-1111-7111-8111-111111111111"
+    spots = {
+        name: cloud_scene.SpotAt(name, place, cloud_scene.At(x, 0.0, 0.0), (x, 0.0), False, name)
+        for name, x in (("hall", 0.0), ("porch", 2.0))
+    }
+    asked = []
+
+    def run(picture, overlay, others=()):
+        asked.append([(path.name, first) for path, first in others])
+        return clouds.replace(room(), matches=tuple({"match": [0.0, 0.0], "sure": [0.0, 0.0]} for _ in others))
+
+    blank = np.full((36, 64, 3), 90, np.uint8)
+    hall = clouds.refresh(store, "hall", blank, T, run=run, manifest=manifest, spots=lambda: spots)
+    porch = clouds.refresh(store, "porch", blank, T + 60, run=run, manifest=manifest, spots=lambda: spots)
+    again = clouds.refresh(store, "hall", blank, T + 120, run=run, manifest=manifest, spots=lambda: spots)
+    assert hall is not None and porch is not None and again is not None
+    # the first has nothing to compare with; the second, the first's picture; the third, its own anchor (as the
+    # picture seen from) and the other camera's
+    assert asked == [[], [(f"{hall.id}.png", False)], [("anchor.png", True), (f"{porch.id}.png", False)]]
+    assert store.picture(again).is_file() and not store.picture(hall).is_file()  # one picture a cloud
+    assert list(cloud_scene.pairs(store)) == ["hall|porch"]
 
 
 def test_a_camera_whose_lens_calibration_cant_be_used_is_skipped_with_the_reason(store, tmp_path):

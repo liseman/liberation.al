@@ -27,7 +27,7 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from liberational import logs
-from liberational.spatial import camera_clouds
+from liberational.spatial import camera_clouds, cloud_scene
 
 LOG = logs.get("surroundings")
 
@@ -89,6 +89,8 @@ class Clouds:
         if now < self._wait.get(camera, 0.0):
             return "wait"
         have = self.store.current(camera)
+        if have is not None and not self.store.picture(have).is_file():
+            have = None  # made before pictures were kept: made again once, so the scene has its picture to compare
         collecting = camera in self._clean
         if have is not None and not collecting and now - self._checked.get(camera, -CHECK_EVERY_S) < CHECK_EVERY_S:
             return "fine"
@@ -160,7 +162,14 @@ def for_service(
 
     def refresh(camera: str, picture: np.ndarray, now: float, frames: int, thumb: Sequence[float]) -> object:
         return camera_clouds.refresh(
-            store, camera, picture, now, run=camera_clouds.runner(), frames=frames, thumb=thumb
+            store,
+            camera,
+            picture,
+            now,
+            run=camera_clouds.runner(),
+            frames=frames,
+            thumb=thumb,
+            spots=lambda: cloud_scene.spots_of(Path(str(state))),
         )
 
     return Clouds(store, refresh, detect, lit, thumbnail, configured=lambda: camera_clouds.runtime() is not None)
