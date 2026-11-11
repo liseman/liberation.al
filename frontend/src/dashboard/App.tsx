@@ -84,7 +84,7 @@ function BottomNav({ content, known }: { content: TabId; known: string }) {
             aria-current={content === b.id ? 'page' : undefined}
           >
             <b.icon size={22} stroke={1.75} aria-hidden />
-            <span>{b.id === 'inbox' ? <InboxLabel /> : t?.label}</span>
+            <span>{t?.label}</span>
           </a>
         );
       })}
@@ -239,7 +239,7 @@ export function App() {
               key={t.id}
               className={classes.tab}
               data-tab={t.id}
-              href={href(t.id === 'known' ? (KNOWN_TABS.find(k => k.id === known)?.path ?? t.path) : t.path)}
+              href={href(pathOf(t.id, known))}
               onClick={linkClick}
               aria-current={content === t.id ? 'page' : undefined}
             >
