@@ -231,6 +231,12 @@
 .sourceCamera {
   min-width: 0;
 }
+.sourceName {
+  overflow-wrap: anywhere;
+}
+.sourceCount {
+  white-space: nowrap;
+}
 .sourceViews {
   margin-top: 2px;
   margin-left: calc(var(--mantine-spacing-lg) + 2px);

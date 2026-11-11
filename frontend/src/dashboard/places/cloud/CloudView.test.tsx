@@ -352,8 +352,9 @@ it("hides a camera's points and splats at once, and its views one by one, withou
   await userEvent.click(kitchen);
   await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([1])));
   expect((kitchen as HTMLInputElement).checked).toBe(false);
+  expect(screen.getByText('2 pictures hidden')).toBeTruthy();
   // one of its views back: the camera's box is half on
-  await userEvent.click(screen.getByRole('button', { name: '2 views' }));
+  await userEvent.click(screen.getByRole('button', { name: '2 pictures' }));
   await userEvent.click(await screen.findByRole('checkbox', { name: /· 100 splats$/ }));
   await waitFor(() => expect(viewsShown.at(-1)?.[0]).toEqual(new Set([1, 2])));
   expect((kitchen as HTMLInputElement).indeterminate).toBe(true);
@@ -382,7 +383,9 @@ it('shows the cameras unavailable, with why, for a map made before maps said whe
   renderPage(<CloudView place="p1" />);
   const kitchen = await screen.findByRole('checkbox', { name: 'kitchen' });
   expect((kitchen as HTMLInputElement).disabled).toBe(true);
-  expect(screen.getByText(/gains it the next time it's rebuilt/)).toBeTruthy();
+  expect(screen.getByText(/It will after its next rebuild\./)).toBeTruthy();
+  expect((screen.getByRole('button', { name: 'All' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'None' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 const CAMERA = { pose: new Array<number>(16).fill(0), focal: 100, width: 64, height: 36, at: 1 };

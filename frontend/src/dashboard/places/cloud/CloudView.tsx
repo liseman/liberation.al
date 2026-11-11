@@ -350,7 +350,7 @@ export default function CloudView({ place }: { place: string }) {
           />
           <Checkbox
             size="xs"
-            label={`Cameras${cams.length ? ` (${cams.length})` : ''}`}
+            label={`Camera marks${cams.length ? ` (${cams.length})` : ''}`}
             checked={show.cameras}
             onChange={e => setShow(s => ({ ...s, cameras: e.currentTarget.checked }))}
           />

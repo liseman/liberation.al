@@ -7,3 +7,9 @@
 [data-mantine-color-scheme="dark"] .mantine-Input-wrapper[data-variant="filled"] {
   --input-bd-focus: var(--mantine-color-anchor);
 }
+/* An unchecked box's border meets 3:1 on a card in both schemes: the default border is about the card's own colour
+   in dark, and off is a state people look for (the 3D view's per-camera boxes). Checked, mixed, and disabled boxes
+   keep Mantine's. */
+.mantine-Checkbox-input:not(:checked):not([data-indeterminate]):not(:disabled) {
+  border-color: var(--mantine-color-dimmed);
+}

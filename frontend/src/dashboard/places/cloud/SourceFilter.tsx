@@ -28,43 +28,52 @@ export function SourceFilter({
   /** The splat drawn doesn't say which view each of its Gaussians came from: the boxes change only the points. */
   splatUntold: boolean;
 }) {
-  if (!sources?.views.length) {
-    if (!cameras.length) return null;
-    return (
-      <Stack gap={4} mt="xs" role="group" aria-label="Show what each camera added">
-        <Group gap="md">
-          {cameras.map(name => (
-            <Checkbox key={name} size="xs" label={name} checked disabled readOnly />
-          ))}
-        </Group>
+  const views = sources?.views ?? [];
+  if (!views.length && !cameras.length) return null;
+  const all = views.map(v => v.id);
+  const off = all.filter(id => hidden.has(id)).length;
+  const header = (
+    <Group gap="xs" wrap="wrap">
+      <Text size="xs" fw={500}>
+        Show what each camera added
+      </Text>
+      <Button size="compact-xs" variant="subtle" onClick={() => onChange(new Set())} disabled={off === 0}>
+        All
+      </Button>
+      <Button
+        size="compact-xs"
+        variant="subtle"
+        onClick={() => onChange(new Set(all))}
+        disabled={!all.length || off === all.length}
+      >
+        None
+      </Button>
+      {off > 0 && (
         <Text size="xs" c="dimmed">
-          Showing each camera's part isn't available for this map yet. The map gains it the next time it's rebuilt.
+          {plural(off, 'picture', 'pictures')} hidden
+        </Text>
+      )}
+    </Group>
+  );
+  if (!sources || !views.length)
+    return (
+      <Stack gap={4} mt="sm" role="group" aria-label="Show what each camera added">
+        {header}
+        <div className={classes.sourceList}>
+          {cameras.map(name => (
+            <Checkbox key={name} size="xs" label={<Label name={name} count="" />} checked disabled readOnly />
+          ))}
+        </div>
+        <Text size="xs" c="dimmed">
+          This map can't show each camera's part yet. It will after its next rebuild.
         </Text>
       </Stack>
     );
-  }
-  const { views } = sources;
-  const all = views.map(v => v.id);
   const count = (points: number, gaussians: number | null) =>
     countText(noun === 'points' ? points : (gaussians ?? null), noun);
   return (
-    <Stack gap={4} mt="xs" role="group" aria-label="Show what each camera added">
-      <Group gap="xs" wrap="wrap">
-        <Text size="xs" c="dimmed">
-          Show what each camera added
-        </Text>
-        <Button size="compact-xs" variant="subtle" onClick={() => onChange(new Set())} disabled={hidden.size === 0}>
-          All
-        </Button>
-        <Button
-          size="compact-xs"
-          variant="subtle"
-          onClick={() => onChange(new Set(all))}
-          disabled={all.every(id => hidden.has(id))}
-        >
-          None
-        </Button>
-      </Group>
+    <Stack gap={4} mt="sm" role="group" aria-label="Show what each camera added">
+      {header}
       <div className={classes.sourceList}>
         {sources.cameras.map(camera => {
           const own = camera.views.flatMap(i => (views[i] ? [views[i]] : []));
@@ -74,7 +83,7 @@ export function SourceFilter({
             <div key={camera.name} className={classes.sourceCamera}>
               <Checkbox
                 size="xs"
-                label={counted ? `${camera.name} · ${counted}` : camera.name}
+                label={<Label name={camera.name} count={counted} />}
                 checked={state === 'on'}
                 indeterminate={state === 'mixed'}
                 onChange={() =>
@@ -92,7 +101,7 @@ export function SourceFilter({
                   lazy
                   summary={
                     <Text size="xs" c="dimmed" span>
-                      {plural(own.length, 'view', 'views')}
+                      {plural(own.length, 'picture', 'pictures')}
                     </Text>
                   }
                   className={classes.sourceViews}
@@ -105,7 +114,7 @@ export function SourceFilter({
                         <Checkbox
                           key={v.id}
                           size="xs"
-                          label={n ? `${when} · ${n}` : when}
+                          label={<Label name={when} count={n} />}
                           checked={!hidden.has(v.id)}
                           onChange={e => onChange(toggled(hidden, [v.id], e.currentTarget.checked))}
                         />
@@ -124,5 +133,23 @@ export function SourceFilter({
         </Text>
       )}
     </Stack>
+  );
+}
+
+/** A box's label: the name in the text colour, then its count dimmed and kept on one line, so a long name wraps
+ *  without leaving the count behind on a line of its own. */
+function Label({ name, count }: { name: string; count: string }) {
+  return (
+    <>
+      <span className={classes.sourceName}>{name}</span>
+      {count && (
+        <>
+          {' '}
+          <Text span c="dimmed" inherit className={classes.sourceCount}>
+            · {count}
+          </Text>
+        </>
+      )}
+    </>
   );
 }
