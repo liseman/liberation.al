@@ -6,6 +6,7 @@ import plistlib
 import shlex
 import subprocess
 import sys
+import time
 from unittest.mock import create_autospec
 
 import psutil
@@ -918,7 +919,23 @@ def test_fresh_service_launcher_reports_exec_failure(monkeypatch):
         s.exec_service("continuum-tier-worker")
 
 
-def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(systemd, tmp_path):
+@pytest.fixture
+def pacific_time():
+    """These log stamps are Pacific (-07:00 in October). Time-only lines are read in local time."""
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = "America/Los_Angeles"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
+
+
+def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(systemd, tmp_path, pacific_time):
     # An earlier time-only log continued in dated stamps; mtime is far later, so only the dated line
     # can place the old ones: the one before 23:59 is the day before the dated 00:01 line.
     write_log(
