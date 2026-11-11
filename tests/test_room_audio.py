@@ -5,7 +5,7 @@ import asyncio
 import numpy as np
 import pytest
 
-from liberational import continuum_link, room_audio, vision_log
+from liberational import continuum_link, room_audio
 from liberational.listen.pcm import STAMP
 
 
@@ -68,10 +68,23 @@ def test_invalid_explicit_archive_format_does_not_fall_back_to_guessing(format):
 
 
 def test_a_chunk_file_the_catalog_names_but_that_is_missing_is_raised_not_read_as_silence(monkeypatch, tmp_path):
-    from continuum_py import read  # continuum_py is imported where it's used (TID253)
+    from continuum_py import PayloadHeader, encode_header, read  # imported where it's used (TID253)
 
-    header, _ = vision_log.encode(vision_log.OBJECTS, 1, {"cam": "cam0", "objects": {}, "ts_start": 0.0})
-    item = {"header": header, "locator": {"kind": "Chunk", "uri": "continuum/tier/1/h/gone.cnk"}}
+    header: PayloadHeader = {
+        "id": "0190c8e0-0000-7000-8000-000000000001",
+        "stream_id": 1,
+        "start_ns": 0,
+        "end_ns": 0,
+        "layer": "Layer1Raw",
+        "format": "Text",
+        "shape_name": "camera.objects",
+        "parents": [],
+        "subjects": [],
+    }
+    item = {
+        "header": encode_header(header),
+        "locator": {"kind": "Chunk", "uri": "continuum/tier/1/h/gone.cnk"},
+    }
 
     class Catalog:
         async def query(self, stream, start_ns, end_ns, *, all=False):

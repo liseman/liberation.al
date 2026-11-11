@@ -200,19 +200,23 @@ def test_conversations_week_without_any_coverage_is_none_for_every_word():
 
 
 @pytest.mark.parametrize(
-    ("purges", "dropped"),
+    ("build", "dropped"),
     [
-        pytest.param([{"range": [int(at(DAY, 12) * 1e9), int(at(DAY, 13) * 1e9)]}], {DAY}, id="range"),
-        pytest.param([{"kind": "Entity", "range": None}], None, id="person"),
-        pytest.param([{"kind": "Ids", "range": None, "id_count": 3}], None, id="ids"),
-        pytest.param([{"range": [0, int(at(DAY, 13) * 1e9)]}], {"2026-10-18", "2026-10-19", DAY}, id="clipped"),
-        pytest.param([{"range": [0, int(at("2026-10-17", 13) * 1e9)]}], set(), id="before-the-window"),
-        pytest.param([{"range": [int(at(DAY, 1) * 1e9), int(at("2026-11-30", 1) * 1e9)]}], {DAY}, id="after-it"),
+        pytest.param(lambda: [{"range": [int(at(DAY, 12) * 1e9), int(at(DAY, 13) * 1e9)]}], {DAY}, id="range"),
+        pytest.param(lambda: [{"kind": "Entity", "range": None}], None, id="person"),
+        pytest.param(lambda: [{"kind": "Ids", "range": None, "id_count": 3}], None, id="ids"),
+        pytest.param(lambda: [{"range": [0, int(at(DAY, 13) * 1e9)]}], {"2026-10-18", "2026-10-19", DAY}, id="clipped"),
+        pytest.param(lambda: [{"range": [0, int(at("2026-10-17", 13) * 1e9)]}], set(), id="before-the-window"),
         pytest.param(
-            [{"range": [0, int(at(DAY, 13) * 1e9)], "streams": ["worker.checkpoint.a.parts"]}], set(), id="worker"
+            lambda: [{"range": [int(at(DAY, 1) * 1e9), int(at("2026-11-30", 1) * 1e9)]}], {DAY}, id="after-it"
         ),
         pytest.param(
-            [
+            lambda: [{"range": [0, int(at(DAY, 13) * 1e9)], "streams": ["worker.checkpoint.a.parts"]}],
+            set(),
+            id="worker",
+        ),
+        pytest.param(
+            lambda: [
                 {
                     "range": [int(at(DAY, 12) * 1e9), int(at(DAY, 13) * 1e9)],
                     "streams": ["worker.checkpoint.a.parts", "speech.utterance"],
@@ -222,15 +226,21 @@ def test_conversations_week_without_any_coverage_is_none_for_every_word():
             id="one-stream-read",
         ),
         pytest.param(
-            [{"range": [int(at("2026-10-18", 12) * 1e9), int(at("2026-10-18", 13) * 1e9)]}]
-            + [{"range": [0, int(at(DAY, 13) * 1e9)], "streams": ["worker.checkpoint.a.parts"]}] * 5000,
+            lambda: (
+                [{"range": [int(at("2026-10-18", 12) * 1e9), int(at("2026-10-18", 13) * 1e9)]}]
+                + [{"range": [0, int(at(DAY, 13) * 1e9)], "streams": ["worker.checkpoint.a.parts"]}] * 5000
+            ),
             {"2026-10-18"},
             id="many-unread",
         ),
     ],
 )
-def test_purged_days(purges, dropped):
-    assert reports.purged_days(purges, ("2026-10-18", DAY)) == dropped
+def test_purged_days(build, dropped):
+    # Built here, in the zone the `pacific` fixture set, not in the decorator: a parametrization is collected before
+    # that fixture runs, so a case built at import time would use the runner's zone (UTC on the hosted machines) and
+    # `at(DAY, 1)` would land at 18:00 the day before in Pacific. `purged_days` days a purge where it falls, so the
+    # ranges have to be made in the same zone they are judged in.
+    assert reports.purged_days(build(), ("2026-10-18", DAY)) == dropped
 
 
 def make(tmp_path, src, now, purges=None):

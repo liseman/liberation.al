@@ -16,7 +16,7 @@ pytest.importorskip("onnxruntime")
 
 class Made:
     def __init__(self, kind: str, *args: object, **kwargs: object) -> None:
-        self.kind, self.args = kind, args
+        self.kind, self.args, self.kwargs = kind, args, kwargs
 
 
 @pytest.fixture
@@ -73,6 +73,41 @@ def test_an_unknown_backend_is_refused(machine):
 
 
 MODELS = pathlib.Path(__file__).resolve().parents[1] / "data" / "models"
+
+
+def test_the_model_files_are_the_ones_config_names(machine, tmp_path):
+    # see-actions must open the files [models.files.*] names: editing pose_live.path as defaults.toml documents
+    # used to leave the service opening the old filename and failing at camera load.
+    machine["cuda"] = True
+    for name in ("detector.onnx", "pose.onnx", "actions.pth", "stills.pth"):
+        (tmp_path / name).write_bytes(b"")
+    declared = {
+        "person_detector": {"path": str(tmp_path / "detector.onnx")},
+        "pose_live": {"path": str(tmp_path / "pose.onnx")},
+        "action_stgcnpp": {"path": str(tmp_path / "actions.pth")},
+        "action_movinet": {"path": str(tmp_path / "stills.pth")},
+    }
+    with cfg.override({"models": {"files": declared}}):
+        made = cast(Made, vision_backend.load(tmp_path))
+    assert made.args[:2] == (tmp_path / "detector.onnx", tmp_path / "pose.onnx")
+    assert made.kwargs["action_weights"] == tmp_path / "actions.pth"
+    assert made.kwargs["clip_weights"] == tmp_path / "stills.pth"
+    (tmp_path / "stills.pth").unlink()
+    with cfg.override({"models": {"files": declared}}):
+        assert cast(Made, vision_backend.load(tmp_path)).kwargs["clip_weights"] is None, (
+            "a clip model that isn't downloaded leaves the still kinds to ST-GCN++"
+        )
+
+
+def test_the_model_name_a_row_records_is_the_configured_detector_and_pose():
+    declared = {
+        "person_detector": {"path": "elsewhere/rfdetr-large.onnx"},
+        "pose_live": {"path": "elsewhere/pose2.onnx"},
+    }
+    with cfg.override({"models": {"files": declared}}):
+        assert vision_backend.model_name("cuda") == "rfdetr-large+pose2/cuda"
+        assert vision_backend.detector_model() == "rfdetr-large"
+    assert vision_backend.detector_model() == cfg.model_path("person_detector").stem
 
 
 def models() -> pathlib.Path:

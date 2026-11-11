@@ -344,14 +344,15 @@ def people(state: Path, camera: str, now: float) -> tuple[np.ndarray, np.ndarray
 
     from liberational import segment_log
     from liberational.see.actions import POSE_SCHEMA
-    from liberational.see.actions_worker import POSES
 
     root = segment_log.root(state)
     feet, heads = [np.zeros((0, 2))], [np.zeros((0, 2))]
     upto, n = now, 0
     while upto > now - AIM_LOOKBACK_S and n < AIM_ENOUGH:
         lo = upto - footprints.HOUR_S
-        got = read_segments(root, POSES, POSE_SCHEMA, round(lo * footprints.NS), round(upto * footprints.NS), [camera])
+        got = read_segments(
+            root, segment_log.POSE_TRACKS, POSE_SCHEMA, round(lo * footprints.NS), round(upto * footprints.NS), [camera]
+        )
         f, h = walking(got)
         feet.append(f)
         heads.append(h)

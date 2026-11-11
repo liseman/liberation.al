@@ -21,8 +21,8 @@ class ActionsRows:
     def __init__(self, root: Path, cam: str = "cam0") -> None:
         from continuum_py import SegmentWriter
 
-        self.poses = SegmentWriter(root, tf.POSES, cam, POSE_SCHEMA)
-        self.coverage = SegmentWriter(root, tf.COVERAGE, cam, COVERAGE_SCHEMA)
+        self.poses = SegmentWriter(root, segment_log.POSE_TRACKS, cam, POSE_SCHEMA)
+        self.coverage = SegmentWriter(root, segment_log.ACTION_COVERAGE, cam, COVERAGE_SCHEMA)
 
     def people(self, ts_ns: int, tracks: list[tuple[int, list[float]]]) -> None:
         """One frame's tracked people: (track id, [x1, y1, x2, y2]) each."""
@@ -98,7 +98,7 @@ def test_people_waiting_for_their_coverage_are_kept_in_the_cursor_across_a_resta
     rows.sync()
     assert follow.poll(0.5) == []  # no coverage yet: the frame isn't known to be complete
     saved = follow.cursor
-    assert saved[tf.POSES]["cam0"] == 0  # resumes at the held row, not past it
+    assert saved[segment_log.POSE_TRACKS]["cam0"] == 0  # resumes at the held row, not past it
     again = tf.Follow(root, saved)
     rows.covered(T, T + S)
     rows.sync()

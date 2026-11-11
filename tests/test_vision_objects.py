@@ -16,41 +16,38 @@ IMG = np.zeros((4, 4, 3), np.uint8)
 KEY = ("cam0", 0.0)
 
 
-def test_parse_reads_the_models_json():
-    items = objects.parse(GOOD)
+def test_clean_reads_the_models_rows():
+    items = objects.clean(json.loads(GOOD))
     assert [it["label"] for it in items] == ["tv", "guitar", "couch"]  # labels lowercased
     assert items[0]["box"] == [540, 28, 745, 240]
 
 
-def test_parse_tolerates_fences_chatter_and_a_cut_off_tail():
-    text = 'Here you go:\n```json\n[{"label": "lamp", "bbox": [10, 20, 110, 220]},\n {"label": "chair", "bbox_2d": [5'
-    assert objects.parse(text) == [{"label": "lamp", "box": [10, 20, 110, 220]}]
+def test_clean_drops_malformed_off_scale_tiny_whole_image_and_repeated_boxes():
+    rows = [
+        {"label": "a", "bbox_2d": [1, 2, 3]},  # three numbers
+        {"label": "", "bbox_2d": [0, 0, 100, 100]},  # no label
+        {"label": "b", "bbox_2d": ["x", 0, 100, 100]},  # not numbers
+        {"label": "c", "bbox_2d": [100, 100, 1400, 900]},  # pixels, not the 0 to 1000 scale
+        {"label": "d", "bbox_2d": [100, 100, 105, 300]},  # a sliver
+        {"label": "e", "bbox_2d": [0, 0, 1000, 1000]},  # the whole scene
+        {"label": "f", "bbox_2d": [300, 400, 200, 100]},  # corners swapped: kept, put in order
+        {"label": "f", "bbox_2d": [200, 100, 301, 400]},  # the same box again
+    ]
+    assert objects.clean(rows) == [{"label": "f", "box": [200, 100, 300, 400]}]
+    assert objects.clean([]) == []
 
 
-def test_parse_drops_malformed_off_scale_tiny_whole_image_and_repeated_boxes():
-    text = json.dumps(
-        [
-            {"label": "a", "bbox_2d": [1, 2, 3]},  # three numbers
-            {"label": "", "bbox_2d": [0, 0, 100, 100]},  # no label
-            {"label": "b", "bbox_2d": ["x", 0, 100, 100]},  # not numbers
-            {"label": "c", "bbox_2d": [100, 100, 1400, 900]},  # pixels, not the 0 to 1000 scale
-            {"label": "d", "bbox_2d": [100, 100, 105, 300]},  # a sliver
-            {"label": "e", "bbox_2d": [0, 0, 1000, 1000]},  # the whole scene
-            {"label": "f", "bbox_2d": [300, 400, 200, 100]},  # corners swapped: kept, put in order
-            {"label": "f", "bbox_2d": [200, 100, 301, 400]},  # the same box again
-        ]
-    )
-    assert objects.parse(text) == [{"label": "f", "box": [200, 100, 300, 400]}]
-    assert objects.parse("I can't see anything.") == []
-    assert objects.parse(None) == []
-
-
-def test_parse_keeps_variety_when_the_model_repeats_one_kind():
+def test_clean_keeps_variety_when_the_model_repeats_one_kind():
     wall = [{"label": "guitar", "bbox_2d": [100 * i, 0, 100 * i + 60, 200]} for i in range(6)]
-    text = json.dumps(
-        [{"label": "tv", "bbox_2d": [0, 300, 400, 600]}, *wall, {"label": "lamp", "bbox_2d": [700, 300, 760, 900]}]
-    )
-    assert [it["label"] for it in objects.parse(text)] == ["tv", "guitar", "guitar", "lamp"]
+    rows = [{"label": "tv", "bbox_2d": [0, 300, 400, 600]}, *wall, {"label": "lamp", "bbox_2d": [700, 300, 760, 900]}]
+    assert [it["label"] for it in objects.clean(rows)] == ["tv", "guitar", "guitar", "lamp"]
+
+
+def test_a_label_with_a_brace_in_it_is_kept():
+    # The rows are read as values now, not scanned as text, so a brace in a label no longer drops the object.
+    assert objects.clean([{"label": "bag {red}", "bbox_2d": [10, 20, 30, 40]}]) == [
+        {"label": "bag {red}", "box": [10, 20, 30, 40]}
+    ]
 
 
 def test_converts_the_0_to_1000_scale_to_pixels():

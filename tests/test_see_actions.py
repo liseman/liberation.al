@@ -110,9 +110,10 @@ def run(
     poses: Any = None,
     coverage: Any = None,
     long: bool = True,
+    model: str = "test-model",
 ) -> tuple[Any, Any, actions.ActionPipeline]:
     poses, coverage = poses if poses is not None else Rows(), coverage if coverage is not None else Rows()
-    pipeline = actions.ActionPipeline(Script(frames), poses, coverage, "test-model")
+    pipeline = actions.ActionPipeline(Script(frames), poses, coverage, model)
     for i in range(len(frames)):
         pipeline.feed(Decoded(frame_id(i), at(i, gaps, long), gap_before=i in gaps))
     pipeline.flush()
@@ -132,6 +133,13 @@ def test_a_tracked_person_is_a_pose_row_every_frame_appended_about_once_a_second
     assert list(poses.appends[1]["frame_id"][:2]) == [frame_id(26), frame_id(27)]
     assert int(poses.appends[1]["ts_ns"][0]) == T + 26 * STEP
     assert coverage_rows(coverage) == [(T, T + 25 * STEP, 26), (T + 25 * STEP, T + 44 * STEP, 19)]
+
+
+def test_the_pose_and_coverage_rows_record_the_configured_model_name():
+    name = vision_backend.model_name("cuda")
+    poses, coverage, _ = run([person(0.1) for _ in range(actions.MIN_HITS + 1)], model=name)
+    assert {model for append in poses.appends for model in append["model"]} == {name}
+    assert {model for append in coverage.appends for model in append["model"]} == {name}
 
 
 def test_joints_are_stored_normalized_and_scaled_and_an_unplaced_joint_stays_unplaced():
