@@ -141,12 +141,10 @@ def test_this_evening_counts_only_walk_bys_inside_the_parsed_window(detector_day
         "Who was here two days ago at 3pm?",
     ],
 )
-def test_unsupported_clock_count_or_relative_day_refuses_without_guessing(detector_day, question):
+def test_an_unread_clock_count_or_relative_day_never_guesses_a_narrower_window(detector_day, question):
     state, _, end = detector_day
     result = ask.execute(question, state_dir=state, now=end - 1)
-    assert "Unsupported time phrase" in result["answer"]
-    assert "presence" not in result
-    assert not result["evidence"]
+    assert result.get("needs") or result["query"]["window"].startswith("all your recordings (")
 
 
 def test_supported_identity_clock_query_retains_its_instant_scope(detector_day):

@@ -14,7 +14,7 @@ import { Spotlight, useSpotlight } from '@mantine/spotlight';
 import { IconSearch } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { openAsk, openAskHere } from '../ask/openAsk';
+import { openAskHere } from '../ask/openAsk';
 import { isoDay } from '../lib/format';
 import { getPeople, PEOPLE_KEY } from '../people/api';
 import { getPets, PETS_KEY, SIGHTINGS_HASH } from '../people/petLinks';
@@ -74,12 +74,6 @@ export function paletteActions(
       actions: [
         // The one Ask, as the top bar opens it (on Review, with its day as a hint)
         { id: 'do:ask', label: 'Ask', description: 'A question about your recordings', go: () => openAskHere() },
-        {
-          id: 'do:research',
-          label: 'Research a question',
-          description: 'Ask with Deep research on; the report lands in the Inbox',
-          go: () => openAsk({ deep: true }),
-        },
         {
           id: 'do:whos-this',
           label: "Who's this?",
