@@ -1262,12 +1262,8 @@ def _visit_evidence(v: Mapping[str, Any]) -> dict[str, Any]:
 def _who(state: pathlib.Path, query: Mapping[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """(answer, evidence) for "who was here [at T]" from the backfill's visits, on the cameras the question named (any
     camera when it named none)."""
-    if query["at"] is not None:
-        found = _all_visits(state, query["start"], query["end"])
-        when = "around " + _clock(query["at"])
-    else:
-        found = _all_visits(state, query["start"], query["end"])
-        when = _during(query["window"])
+    found = _all_visits(state, query["start"], query["end"])
+    when = "around " + _clock(query["at"]) if query["at"] is not None else _during(query["window"])
     found = [v for v in found if not query["cameras"] or v["cam"] in query["cameras"]]
     # A rematch names every visit by the face gallery now, even one from before its person was tagged, so a visit's
     # name is resolved as of now, not as of the visit (as timeline._visits does). Before the next rematch, an old name
@@ -1599,17 +1595,6 @@ def _movement_evidence(measured: Mapping[str, Any]) -> list[dict[str, Any]]:
     return output
 
 
-def _presence_saved(state: pathlib.Path, query: Mapping[str, Any], now: float) -> bool:
-    """Whether the presence count can answer within Ask's deadline (presence_counts.ready): a window of a day or
-    two, or one whose ended days are kept. Otherwise the walk-by question is answered from the walk-by spans alone."""
-    from liberational.memory import presence_counts
-
-    try:
-        return presence_counts.ready(float(query["start"]), float(query["end"]), query.get("cameras") or ())
-    except ValueError:
-        return False
-
-
 def _day_label(start: float, end: float) -> str:
     """'today', 'yesterday', a weekday and date, or 'then' for a window that isn't one local day."""
     first = dt.datetime.fromtimestamp(start, TZ).date()
@@ -1822,7 +1807,7 @@ def collect(
             if query["usual"] and not unchecked:
                 result["paths"] = ["events", "typical"]
                 measured = typical_counts.answer(
-                    asked, counted, state, stamp, TZ, now, event_counts.answer, person=person
+                    asked, counted, state, stamp, TZ, now, event_counts.answer, person=person, scan=event_counts.scan
                 )
             else:
                 measured = event_counts.answer(asked, counted, state, stamp, TZ, person=person)
@@ -1837,29 +1822,25 @@ def collect(
             from liberational.memory import crossing_counts, walked_past
 
             result["paths"] = ["directions"]
-            if not _presence_saved(state, query, now):
-                result["answer"] = "Directional evidence is unavailable for this window; try a day or two at a time."
-                result["coverage"]["partial"] = True
-            else:
-                crossed = crossing_counts.from_spans(state, query["start"], query["end"], query["cameras"])
-                result["walked_past"] = crossed
-                result["answer"] = walked_past.direction_text(crossed, include_counts=query["measure"] == "count")
-                result["coverage"]["walked_past"] = {"partial": crossed["partial"]}
-                for cam, info in crossed["cameras"].items():
-                    for example in info["direction_examples"]:
-                        selected.append(
-                            dict(
-                                ts=example["ts"],
-                                camera=cam,
-                                source="camera",
-                                quote=f"Observed crossing in the camera image: {example['direction'].replace('_', ' ')}.",
-                                link=example["link"],
-                                method="see-actions' directional crossing witness",
-                                stream="walkby.span",
-                                **({"payload_id": example["payload_id"]} if example.get("payload_id") else {}),
-                            )
+            crossed = crossing_counts.from_spans(state, query["start"], query["end"], query["cameras"])
+            result["walked_past"] = crossed
+            result["answer"] = walked_past.direction_text(crossed, include_counts=query["measure"] == "count")
+            result["coverage"]["walked_past"] = {"partial": crossed["partial"]}
+            for cam, info in crossed["cameras"].items():
+                for example in info["direction_examples"]:
+                    selected.append(
+                        dict(
+                            ts=example["ts"],
+                            camera=cam,
+                            source="camera",
+                            quote=f"Observed crossing in the camera image: {example['direction'].replace('_', ' ')}.",
+                            link=example["link"],
+                            method="see-actions' directional crossing witness",
+                            stream="walkby.span",
+                            **({"payload_id": example["payload_id"]} if example.get("payload_id") else {}),
                         )
-        elif moves(query) and presence_counts.enabled() and _presence_saved(state, query, now):
+                    )
+        elif moves(query) and presence_counts.enabled():
             from liberational.memory import crossing_counts, movement_counts, walked_past
 
             result["paths"] = ["presence"]

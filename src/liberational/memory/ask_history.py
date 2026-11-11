@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from continuum_py import Client
 
 _END = 18_446_744_073.0  # within the catalog's u64 nanosecond range
+_WINDOW_S = 86_400.0  # list_entries reads back a day at a time, then by widening multiples of it
 _CHUNK = 32 * 1024  # base64 plus the JSON envelope remains below the 64 KiB inline limit
 _SURFACES = frozenset({"live", "review", "call", "voice"})
 _SOURCES = frozenset({"transcript", "archive", "camera", "call", "journal"})
@@ -284,10 +285,17 @@ class History:
                     metadata["citations"].append({**citation, "marker": marker_id})
                 self.log.append(memory_log.ASK_STATE, metadata, parents=[root_id])
             except Exception as error:
-                if _gone(error) and not any(row["id"] == root_id for row in self._roots()):
+                exception = error
+            else:
+                exception = None
+            # One read after the write answers both "purged during the write" and "written": a record removed
+            # mid-write and a failed write used to need their own read each.
+            purged = not any(row["id"] == root_id for row in self._roots())
+            if exception is not None:
+                if _gone(exception) and purged:
                     return False
-                raise
-            return any(row["id"] == root_id for row in self._roots())
+                raise exception
+            return not purged
 
     def _append_known(
         self, stream: str, record: Mapping[str, Any], parents: list[str], root_id: str
@@ -404,22 +412,39 @@ class History:
         day: str | None = None,
         limit: int = 20,
         before: str | None = None,
+        since: float | None = None,
     ) -> list[dict[str, Any]]:
-        """Newest first, with an exclusive exchange-ID cursor. Reads retain complete answers."""
+        """Newest first, with an exclusive exchange-ID cursor. Reads retain complete answers.
+
+        The read starts at the newest exchange and goes back in widening windows until `limit` roots follow the
+        cursor, rather than sorting every exchange ever saved; `since` bounds it to exchanges created at or after
+        that time, which is what Ask's pronoun question passes.
+        """
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
             raise ValueError("limit must be between 1 and 100")
+        number = None if since is None else _number(since)
+        if since is not None and number is None:
+            raise ValueError("since must be a finite epoch timestamp")
+        floor = max(0.0, number) if number is not None else 0.0
+        cursor = _canonical(before) if before is not None else None
         with self._lock:
-            roots = sorted(
-                (
+            roots: list[dict[str, Any]] = []
+            end = _END
+            start = max(floor, time.time() - _WINDOW_S)
+            span = _WINDOW_S
+            while True:
+                window = [
                     row
-                    for row in self._roots()
+                    for row in self.log.range(memory_log.ASK_QUESTION, start, end)
                     if (surface is None or row.get("surface") == surface) and (day is None or row.get("day") == day)
-                ),
-                key=lambda row: (row["created_at"], row["id"]),
-                reverse=True,
-            )
-            if before is not None:
-                cursor = _canonical(before)
+                ]
+                roots = sorted(window, key=lambda row: (row["created_at"], row["id"]), reverse=True) + roots
+                if start <= floor or (len(roots) > limit and (cursor is None or any(r["id"] == cursor for r in roots))):
+                    break
+                end = start
+                span *= 4
+                start = max(floor, end - span)
+            if cursor is not None:
                 position = next((n for n, row in enumerate(roots) if row["id"] == cursor), None)
                 if position is None:
                     return []

@@ -28,6 +28,20 @@ def resolve(tmp_path, question, surface="voice"):
     return pronouns.resolve(question, tmp_path, surface, NOW)
 
 
+def test_the_earlier_question_read_is_bounded_to_the_recent_window(tmp_path, monkeypatch):
+    seen: dict[str, object] = {}
+
+    class History:
+        def list_entries(self, *, surface=None, limit=20, **kwargs):
+            seen.update(kwargs, limit=limit, surface=surface)
+            return []
+
+    monkeypatch.setattr(ask_history, "at", lambda state=None: History())
+    monkeypatch.setattr(subject_activity, "_pets", lambda state: [])
+    assert resolve(tmp_path, "where is she") is None
+    assert seen["since"] == NOW - pronouns.RECENT_S
+
+
 def test_she_is_the_animal_the_last_question_asked_about(tmp_path, said):
     said["voice"] = [(120, "what has the cat been doing lately")]
     r = resolve(tmp_path, "how many times did she use the litter box today")
