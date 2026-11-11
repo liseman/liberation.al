@@ -31,6 +31,25 @@ from typing import Any, Protocol
 import numpy as np
 from numpy.typing import NDArray
 
+from liberational import config as cfg
+
+
+def detector_model() -> str:
+    """The configured person (and animal) detector's name, as a row records which model produced it
+    ([models.files.person_detector])."""
+    return cfg.model_path("person_detector").stem
+
+
+def pose_model() -> str:
+    """The configured pose model's name, as a row records it ([models.files.pose_live])."""
+    return cfg.model_path("pose_live").stem
+
+
+def model_name(backend: str) -> str:
+    """What see-actions' pose and coverage rows record as the model that produced them: the configured detector and
+    pose models, then the backend that ran them (`<detector>+<pose>/<backend>`)."""
+    return f"{detector_model()}+{pose_model()}/{backend}"
+
 
 class Frame(Protocol):
     """The part of the shared full-rate decode's `DecodedFrame` see-actions reads."""
@@ -107,7 +126,8 @@ BACKENDS = ("auto", "cuda", "apple", "cpu")
 
 def load(models: Any, device: int | None = None, backend: str = "auto", lens: Any = None) -> Backend[Any]:
     """The backend for this machine, with the person detector, pose model, and action model from `models` (a
-    directory holding the person detector ([models.files.person_detector]), rtmpose-m_halpe26_256x192.onnx, the ST-GCN++ weights, and MoViNet's if downloaded).
+    directory holding [models.files.person_detector], [models.files.pose_live], the ST-GCN++ weights, and MoViNet's
+    if downloaded).
 
     `backend` "auto" picks CUDA when torch sees a CUDA device (`device`, else the last one), then Apple when it sees
     MPS (an Apple Silicon Mac: Core ML for the models, MPS for the rest). "cuda" and "apple" insist on theirs. "cpu"
@@ -122,12 +142,10 @@ def load(models: Any, device: int | None = None, backend: str = "auto", lens: An
     from liberational.see import gpu_pose
 
     root = pathlib.Path(models)
-    from liberational import config as cfg
-
-    files = (root / cfg.model_path("person_detector").name, root / "rtmpose-m_halpe26_256x192.onnx")
-    weights = root / "stgcnpp_ntu120_xsub_hrnet_j.pth"
+    files = (root / cfg.model_path("person_detector").name, root / cfg.model_path("pose_live").name)
+    weights = root / cfg.model_path("action_stgcnpp").name
     # MoViNet for the still kinds (see/action_clips.py), when its weights are downloaded: without them, only ST-GCN++.
-    clips = root / "movinet_a2_k600.pth"
+    clips = root / cfg.model_path("action_movinet").name
     clip_weights = clips if clips.exists() else None
     kind = choose(backend)
     if kind == "cuda":

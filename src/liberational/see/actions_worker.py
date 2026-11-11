@@ -210,7 +210,7 @@ class Camera:
             backend,
             self.counted,
             self.coverage,
-            f"yolox-nano+rtmpose-m-halpe26/{backend.name}",
+            vision_backend.model_name(backend.name),
             windows=self.windows,
             spans=lambda closed: spans.append(segment_log.ACTION_SPANS, camera, closed),
             first_track=int(time.time() * 1000) * 1000 + 1,
