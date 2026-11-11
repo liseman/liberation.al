@@ -383,6 +383,15 @@ learn = false
 # Days an unlabeled animal sighting is listed for labeling on People's Pets section; sightings you label stay
 # references with no cutoff.
 label_days = 14
+# Time-separated classifier checks need enough labels for training, calibration, and an independent test.
+classifier_min_labels = 48
+# Species whose multi-pet classifier may replace nearest-example recognition after a no-increase error check.
+# Single-pet species retain their gallery rule. Every config-reading service needs a restart after changes.
+classifier_species = ["cat"]
+# Logistic regression's inverse regularization strength; calibrated on later, separate visits.
+classifier_regularization = 1.0
+# Window of labeled, held-out sightings reported on each pet's recognition card. Missing days stay unavailable.
+learning_days = 7
 
 # Times someone came into view of a camera: episodes from see-actions' tracked people, which see-zones writes
 # as presence.span rows, over see-actions' coverage. Counts are times, never people, and never who.

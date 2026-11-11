@@ -312,6 +312,7 @@ export function Pets() {
                 pending={data?.seen_pending?.[pet.id] ?? 0}
                 unavailable={data?.seen_unavailable?.[pet.id] ?? 0}
                 check={check}
+                learning={data?.learning?.[pet.id]}
                 onBack={back}
                 onEdit={() => setEditing({ pet })}
                 onRemove={() => void remove(pet)}
