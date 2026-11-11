@@ -12,9 +12,9 @@ import pytest
 from liberational import config as cfg
 from liberational.dashboard import journal as journal_view
 from liberational.demo import cli, dataset
-from liberational.memory import journal, places
+from liberational.memory import journal, places, research
 from liberational.people import pets, registry, transcript_view
-from liberational.spatial import plan_scene
+from liberational.spatial import plan_scene, spots
 
 TODAY = dt.date(2026, 11, 9)
 DAY = dt.date(2026, 11, 8)  # the demo's day is the day before
@@ -123,6 +123,30 @@ def test_people_pet_and_place_are_seeded(seeded):
     (place,) = places.places(seeded)
     assert place.name == "Demo house"
     assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("owner", 6)
+
+
+@pytest.mark.parametrize("camera", ["front-room", "kitchen", "porch", "study"])
+def test_demo_camera_can_place_people_on_its_plan(seeded, camera):
+    spot = spots.read(seeded)[camera]
+
+    assert spot.missing == ()
+    assert spot.pose is not None
+    assert spot.aim is not None
+    assert spot.aim.pitch == pytest.approx(28.63, abs=0.1)
+
+
+def test_demo_inbox_has_readable_reports_and_a_waiting_question(seeded):
+    store = research.Store(seeded)
+    jobs = store.jobs()
+
+    assert [j["status"] for j in jobs] == ["queued", "done", "done", "done"]
+    report = store.get(jobs[1]["id"])
+    assert report is not None
+    assert "pasta" in report["result"]["answer"]
+    assert report["result"]["evidence"]
+    assert store.mark(report["id"], True)
+    saved = store.get(report["id"])
+    assert saved is not None and saved["read"] is True
 
 
 def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):

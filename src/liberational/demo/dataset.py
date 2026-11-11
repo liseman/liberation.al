@@ -25,10 +25,10 @@ from typing import Any
 
 from liberational.dashboard.journal import event_level
 from liberational.domain.identity import Basis
-from liberational.memory import history_qa, journal, journal_pages, places
+from liberational.memory import history_qa, journal, journal_pages, places, research
 from liberational.memory_log import JOURNAL, PAGES, MemoryLog
 from liberational.people import pets, registry
-from liberational.spatial import plan_scene
+from liberational.spatial import plan_import, plan_scene, spots
 
 OWNER = "Alice"
 PEOPLE = (OWNER, "Dana", "Sam")
@@ -417,7 +417,89 @@ def seed_place(state: Path, now: float) -> str:
     rev = places.revise(state, None, producer=SOURCE, plan=PLAN, now=now)
     places.name(state, rev.place, PLACE, now=now)
     places.correct_plan(state, rev.place, PLAN, base=rev.id, now=now)
+    # The renderer's cameras have no roll and all look down at the same angle. Keep the real aim format,
+    # including its basis, so editing a spot invalidates this prepared fit just as it does on a real install.
+    pitch = math.atan2(CAMERA_EYE[2] - CAMERA_TARGET[2], math.dist(CAMERA_EYE[:2], CAMERA_TARGET[:2]))
+    up = (0.0, -math.cos(pitch), -math.sin(pitch))
+    spots.save_aims(
+        state,
+        {
+            camera.id: spots.Aim(up, 960, 540, 160, 1.7, now, spots._basis(camera, None))
+            for camera in plan_import.spots(PLAN)
+        },
+    )
     return rev.place
+
+
+def seed_research(state: Path, day: dt.date) -> None:
+    """Prepared reports with real transcript citations; no research worker or model is started."""
+    store = research.Store(state)
+    reports = (
+        (
+            (10, 0),
+            "What changed about the project deadline?",
+            (
+                "The deadline moved to Friday. Alice said Dana would help with the slides. [T1] "
+                "The morning journal also records a video call about the change. [J1]"
+            ),
+            (9, 5, 0),
+            9,
+        ),
+        (
+            (14, 0),
+            "Did Rex get a walk before the rain?",
+            (
+                "Alice and Dana took Rex out at 12:45, after lunch. [J1] Alice asked for the umbrella just before "
+                "they left because rain looked close. [T1] They were back during the next hour, when Dana dried Rex "
+                "in the hall. The records support a lunchtime walk, but do not give its exact length. [J2]"
+            ),
+            (12, 44, 0),
+            12,
+        ),
+        (
+            (18, 30),
+            "What is planned for dinner?",
+            (
+                "Alice is making pasta. Alice started the pasta "
+                "water at 18:02, and Sam set the table in the living room at 18:15. [J1]"
+            ),
+            None,
+            18,
+        ),
+    )
+    for when, question, answer, spoken, hour in reports:
+        at = _local(day, *when)
+        evidence: list[dict[str, Any]] = []
+        if spoken is not None:
+            line = next(line for line in TRANSCRIPT if line.at == spoken)
+            ts = _local(day, spoken[0], spoken[1]) + spoken[2]
+            evidence.append(
+                {
+                    "id": "T1",
+                    "source": "transcript",
+                    "ts": ts,
+                    "text": line.text,
+                    "speaker": line.speaker,
+                    "href": f"/review#day={day.isoformat()}&t={ts}",
+                }
+            )
+        for n, entry in enumerate(h for h in DAY if h.at in ({12, 13} if hour == 12 else {hour})):
+            ts = _local(day, entry.at)
+            # The dinner report predates the meal: cite only events that have already happened.
+            text = entry.text if hour != 18 else " ".join(text for minute, text in entry.events if minute < 30)
+            evidence.append(
+                {
+                    "id": f"J{n + 1}",
+                    "source": "journal",
+                    "ts": ts,
+                    "text": text,
+                    "href": f"/review#day={day.isoformat()}&t={ts}",
+                }
+            )
+        job = store.submit(question, day.isoformat(), now=at)
+        store.claim("demo", now=at + 1)
+        store.finish(job["id"], "demo", {"status": "ok", "answer": answer, "evidence": evidence}, now=at + 61)
+    store.submit("How did the household spend the afternoon?", day.isoformat(), now=_local(day, 18, 32))
 
 
 def seed_journal(mlog: MemoryLog, day: dt.date, ids: dict[str, str], hours: Sequence[Hour] = DAY) -> list[str]:
@@ -496,6 +578,7 @@ def seed(
     seed_pet_examples(state, _local(day, 20))
     seed_place(state, _local(day, 6))
     seed_journal(mlog, day, ids)
+    seed_research(state, day)
     if say is not None:
         seed_transcript(state, say, day)
     return day

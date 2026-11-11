@@ -25,6 +25,94 @@ from liberational.people import registry
 from liberational.spatial import camera_clouds, cloud_scene, ply, positions
 
 
+def video(picture: Path, clip: Path, seconds: int = 30) -> None:
+    """Encode one generated still as a short seekable recording."""
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-loop",
+            "1",
+            "-i",
+            str(picture),
+            "-t",
+            str(seconds),
+            "-r",
+            "5",
+            "-c:v",
+            "libx264",
+            "-threads",
+            "1",
+            "-preset",
+            "fast",
+            "-crf",
+            "25",
+            "-pix_fmt",
+            "yuv420p",
+            "-g",
+            "5",
+            "-bf",
+            "0",
+            "-movflags",
+            "+faststart",
+            str(clip),
+        ],
+        check=True,
+        timeout=60,
+    )
+
+
+def review_recordings(folder: Path, day: dt.date) -> list[dict[str, object]]:
+    """Short views at the transcript's moments, registered through the same video index as real imports.
+
+    Each minute gets a distinct hard link: the importer identifies a recording by its file path. Reusing one
+    path at several timestamps would keep only its last timestamp. Render and encode each household scene once.
+    """
+    scenes_at = {
+        7: ("kitchen", (0, 2), True),
+        9: ("study", (0,), False),
+        12: ("kitchen", (0, 1), False),
+        13: ("kitchen", (), False),
+        17: ("front-room", (0, 2), False),
+        18: ("front-room", (0, 1, 2), True),
+        19: ("front-room", (0, 1, 2), True),
+        22: ("porch", (0,), True),
+    }
+    encoded: dict[tuple[str, tuple[int, ...], bool], Path] = {}
+    index: list[dict[str, object]] = []
+    for hour, minute in sorted({line.at[:2] for line in dataset.TRANSCRIPT}):
+        # At 12:04 Dana is still in the hall and Alice is in the living room; they reach the kitchen at 12:09.
+        scene = ("kitchen", (), False) if (hour, minute) == (12, 4) else scenes_at[hour]
+        camera, people, pet = scene
+        if scene not in encoded:
+            mesh = scenes.room(camera, occupied=False)
+            for who, (x, y) in zip(people, ((1.45, 2.3), (2.5, 1.65), (3.35, 2.4)), strict=False):
+                scenes.person(mesh, x, y, who)
+            if pet:
+                scenes.dog(mesh, 1.0, 1.0)
+            jpg, _, _, _ = scenes.render(mesh)
+            picture = folder / f"review-scene-{len(encoded)}.jpg"
+            picture.write_bytes(jpg)
+            encoded[scene] = picture.with_suffix(".mp4")
+            video(picture, encoded[scene], seconds=60)
+        clip = folder / f"review-{hour}-{minute}.mp4"
+        clip.hardlink_to(encoded[scene])
+        index.append(
+            {
+                "cam": camera,
+                "file": clip.name,
+                "start": dataset._local(day, hour, minute),
+                "fps": 5.0,
+                "w": 960,
+                "h": 540,
+            }
+        )
+    return index
+
+
 def media(state: Path, day: dt.date) -> None:
     """Render four distinct rooms and portraits, register short H.264 recordings, and keep each camera's cloud."""
     folder = state / "demo"
@@ -37,42 +125,7 @@ def media(state: Path, day: dt.date) -> None:
         picture = folder / f"{camera}.jpg"
         picture.write_bytes(jpg)
         clip = folder / f"{camera}.mp4"
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-loop",
-                "1",
-                "-i",
-                str(picture),
-                "-t",
-                "30",
-                "-r",
-                "5",
-                "-c:v",
-                "libx264",
-                "-threads",
-                "1",
-                "-preset",
-                "fast",
-                "-crf",
-                "25",
-                "-pix_fmt",
-                "yuv420p",
-                "-g",
-                "5",
-                "-bf",
-                "0",
-                "-movflags",
-                "+faststart",
-                str(clip),
-            ],
-            check=True,
-            timeout=60,
-        )
+        video(picture, clip)
         index.append({"cam": camera, "file": clip.name, "start": start, "fps": 5.0, "w": 960, "h": 540})
         # Normalize the renderer's world coordinates exactly as real camera clouds are stored:
         # floor z=0, camera above the origin, forward along +y.
@@ -96,6 +149,7 @@ def media(state: Path, day: dt.date) -> None:
                 cloud, ply.dumps(points, colors), np.asarray(Image.open(io.BytesIO(jpg)))[:, :, ::-1].copy()
             )
         )
+    index.extend(review_recordings(folder, day))
     camera_pairs(state)
     (folder / "index.jsonl").write_text("".join(json.dumps(row) + "\n" for row in index))
     for n, name in enumerate(dataset.PEOPLE):

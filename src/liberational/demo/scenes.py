@@ -108,7 +108,7 @@ def dog(mesh: Mesh, x: float, y: float) -> None:
     mesh.oval((x, y - 0.39, 0.5), (0.09, 0.35, 0.13), fur)
 
 
-def room(camera: str, variant: int = 0) -> Mesh:
+def room(camera: str, variant: int = 0, *, occupied: bool = True) -> Mesh:
     mesh = Mesh([])
     wood, cream = (160, 127, 95), (224, 219, 207)
     # Dimensions follow the five-room demo plan; the porch is just outside its entry.
@@ -143,9 +143,10 @@ def room(camera: str, variant: int = 0) -> Mesh:
             for y in (1.6, 2.7):
                 mesh.box((x, y, 0.23), (0.06, 0.06, 0.46), (73, 65, 54))
         mesh.box((2.8, 2.1, 0.53), (0.34, 0.46, 0.04), (89, 111, 117))
-        person(mesh, 1.7, 2.3, 2)
-        person(mesh, 3.4, 3.0, 1)
-        dog(mesh, 2.0, 1.0)
+        if occupied:
+            person(mesh, 1.7, 2.3, 2)
+            person(mesh, 3.4, 3.0, 1)
+            dog(mesh, 2.0, 1.0)
     elif camera == "kitchen":
         mesh.box((2.0, 3.13, 0.45), (3.8, 0.72, 0.9), (175, 182, 167))
         mesh.box((2.0, 3.13, 0.93), (3.9, 0.79, 0.07), (229, 225, 212))
@@ -157,7 +158,8 @@ def room(camera: str, variant: int = 0) -> Mesh:
         mesh.box((3.6, 1.3, 0.76), (0.72, 1.6, 0.08), wood)
         for y in (0.7, 1.9):
             mesh.box((3.6, y, 0.38), (0.08, 0.08, 0.76), wood)
-        person(mesh, 1.45 + variant * 0.12, 2.3, 0)
+        if occupied:
+            person(mesh, 1.45 + variant * 0.12, 2.3, 0)
     elif camera == "study":
         mesh.box((3.7, 2.8, 0.76), (2.0, 0.85, 0.08), wood)
         for x in (2.85, 4.55):
