@@ -82,3 +82,29 @@ def test_room_noise_near_the_floor_is_not_a_near_miss():
     noise = np.concatenate([tone(-88 + rng.uniform(-1.5, 1.5), 0.02) for _ in range(3000)])  # a minute, wobbling
     assert list(vad.feed(noise)) == []
     assert list(vad.near_misses) == []
+
+
+def test_a_running_pipeline_follows_a_sensitivity_rewrite(pack_toml):
+    """The live worker's VAD takes its mic's setting, and re-reads it within a second, without a restart."""
+    from liberational.listen.pcm import Format
+    from liberational.listen.worker import Mic, MicPipeline
+
+    class Clock:
+        def utc_ns(self, host_ns: int) -> int:
+            return host_ns
+
+    now = [0.0]
+    pack_toml.write_text("[audio.mic_sensitivity]\ntestmic = 0\n")
+    p = MicPipeline(
+        Mic("testmic"),
+        Format.of("PCM_S16LEx1", 16 + 160 * 2, block_ms=10),
+        Clock(),  # ty: ignore[invalid-argument-type]
+        gate.VAD,
+        monotonic=lambda: now[0],
+    )
+    p.feed(host_ns=0, first=0, x=np.zeros(160, np.float32))
+    assert p.vad.margin == pytest.approx(12.0)  # ty: ignore[unresolved-attribute]
+    now[0] = 1.0
+    pack_toml.write_text("[audio.mic_sensitivity]\ntestmic = 100\n")
+    p.feed(host_ns=10_000_000, first=160, x=np.zeros(160, np.float32))
+    assert p.vad.margin == pytest.approx(4.0)  # ty: ignore[unresolved-attribute]

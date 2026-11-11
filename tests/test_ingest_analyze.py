@@ -238,7 +238,7 @@ def test_each_speech_span_waits_for_a_quiet_voice_turn_and_video_frames_do_not(m
         yield np.zeros(int(analyze.SR * analyze.AUDIO_BLOCK_S), np.float32)
         yield np.zeros(int(analyze.SR * analyze.AUDIO_BLOCK_S), np.float32)
 
-    speech = analyze.Speech(None, Transcriber(), None, lambda: Vad())
+    speech = analyze.Speech(None, Transcriber(), None, lambda device: Vad())
     worker = analyze.Analyzer(
         captions=(FakeCaptionWorker(), no_caption),
         speech=speech,
@@ -664,7 +664,9 @@ def test_a_speech_purge_clears_recent_embeddings_and_a_repeat_of_the_same_mark_d
 
     marks = {"id": initial_mark}
     matcher = Matcher()
-    speech = analyze.Speech(Client(), Transcriber(), matcher, lambda: Vad(), newest_purge=lambda _after: marks["id"])
+    speech = analyze.Speech(
+        Client(), Transcriber(), matcher, lambda device: Vad(), newest_purge=lambda _after: marks["id"]
+    )
 
     def run() -> None:
         asyncio.run(
@@ -750,7 +752,7 @@ def test_a_second_pass_files_the_same_voice_embedding_ids_and_writes_nothing_to_
 
     client = Client()
     cw = CaptionWorker(client, [], lambda _cam: None, model="fake", segments=segment_log.Writers(tmp_path))  # ty: ignore[invalid-argument-type]  # stand-in: only _handle runs
-    speech = analyze.Speech(client, Transcriber(), matcher, lambda: Vad(), segments=store)
+    speech = analyze.Speech(client, Transcriber(), matcher, lambda device: Vad(), segments=store)
     worker = analyze.Analyzer(
         captions=(cw, lambda _cam: Cap()),
         speech=speech,
@@ -886,7 +888,7 @@ def test_purge_during_a_long_file_stops_using_deleted_voice_before_the_next_matc
         SimpleNamespace(ingest=lambda _header, **_kwargs: None),
         transcribe,
         Matcher(),
-        Vad,
+        lambda device: Vad(),
         newest_purge=lambda _after: marks["id"],
     )
     assert (
@@ -1000,7 +1002,7 @@ def purge_preflight(tmp_path):
             state.decoded.append(state.held)
             yield np.zeros(160, np.float32)
 
-        speech = analyze.Speech(Client(), transcribe, Matcher(), Vad)
+        speech = analyze.Speech(Client(), transcribe, Matcher(), lambda device: Vad())
         worker = analyze.Analyzer(speech=speech, audio=audio)
         ledger = analyze.Ledger(tmp_path / "analysis.json")
         return SimpleNamespace(worker=worker, store=ItemStore(), ledger=ledger, state=state, item=item)
@@ -1504,3 +1506,16 @@ def test_deleted_import_vision_tombstones_reject_late_writer_output(analyzed_imp
     assert env.snapshot() == keep
     env.replay(deleted)
     assert env.snapshot() == keep
+
+
+def test_ingest_speech_uses_the_mics_own_sensitivity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The stored-audio pass cut utterances at the VAD constructor's 9 dB and -45 dBFS, ignoring the setting the
+    owner tuned. `_vad_for` reads the device's sensitivity, as the live worker's per-mic VAD does."""
+    from liberational import config as cfg
+
+    pack = tmp_path / "pack.toml"
+    monkeypatch.setattr(cfg, "local_config", lambda: pack)
+    pack.write_text("[audio.mic_sensitivity]\nmic = 0\n")
+    vad = analyze._vad_for("mic")
+    assert (vad.margin, vad.min_dbfs) == (pytest.approx(12.0), pytest.approx(-40.0))
+    assert analyze._vad_for("other").margin == pytest.approx(6.4)  # audio.sensitivity's default 70

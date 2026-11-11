@@ -297,7 +297,7 @@ def test_an_empty_store_reads_as_empty(store: Path) -> None:
         log.close()
 
 
-def test_retained_is_every_utterance_in_time_order_and_is_not_copied_per_call(
+def test_retained_is_every_utterance_in_time_order_as_read_only_rows(
     broker: Path, store: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write(
@@ -312,28 +312,12 @@ def test_retained_is_every_utterance_in_time_order_and_is_not_copied_per_call(
     try:
         got = speech_log.retained()
         assert "seq" not in got[0]
-        again = speech_log.retained()
-        assert [line["text"] for line in again] == ["sooner", "later"]
-        # The rows are shared, not copied per request: seven callers, several of them behind polled routes.
-        assert again[0] is got[0]
+        assert isinstance(got, tuple), "a caller cannot append to the cache"
+        assert speech_log.retained() is got, "the same rows, no copy per call"
+        transcript_view.View(store).lines(got)  # a projection reads them without changing them
+        assert [line["text"] for line in speech_log.retained()] == ["sooner", "later"], "the projection leaves them"
         write(store, "mic", (speech_log.UTTERANCES, {"ts_start": T + 3, "text": "new"}))
         assert [line["text"] for line in speech_log.retained()] == ["sooner", "new", "later"], "a new line is seen"
-    finally:
-        log.close()
-
-
-def test_a_reader_annotates_its_own_dict_so_retained_rows_stay_as_stored(
-    broker: Path, store: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A reader that puts something on a line (clone_say's `confirmed`, a name) goes through a View, which hands back
-    a dict of its own, so what it wrote never lands on the shared rows."""
-    write(store, "mic", (speech_log.UTTERANCES, {"ts_start": T + 1, "text": "sooner", "speaker_id": 1}))
-    log = speech_log.SpeechLog(broker, segments=store)
-    monkeypatch.setattr(speech_log, "shared", lambda: log)
-    try:
-        read = transcript_view.View(store.parent).lines(speech_log.retained())
-        read[0]["confirmed"] = True
-        assert "confirmed" not in speech_log.retained()[0]
     finally:
         log.close()
 

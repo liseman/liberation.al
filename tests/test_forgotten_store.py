@@ -55,6 +55,11 @@ def test_state_selection_is_independent_and_reset_does_not_erase_suppression(tmp
         assert forgotten.store(other).has("Erin")
 
 
+def test_store_wraps_the_process_wide_knowledge_store(tmp_path):
+    with cfg.override({"paths": {"state": str(tmp_path)}}):
+        assert forgotten.store().backend is knowledge.at(tmp_path / "knowledge.sqlite3")
+
+
 def test_disabled_suppression_does_not_create_a_knowledge_database(tmp_path):
     with cfg.override({"paths": {"state": str(tmp_path)}, "assistant": {"forgotten_reply": False}}):
         assert forgotten.remember(["Dana"], tmp_path) == 0

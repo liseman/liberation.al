@@ -226,10 +226,10 @@ REFINE_LOG = (
 
 
 def request_voice_tags(ts_starts: object, name: object, control: bool = False, lines: object = None) -> Reply:
-    """(code, body): queue "these lines were NAME" for the microphone service, which relabels them and learns the
-    voice from their audio (audio/ambient.py Transcriber.process_tags). The dashboard never rewrites the transcript.
-    Lines are tagged as the owner only from this machine (`control`): the tag teaches the owner's voice their sound,
-    and an owner tag is what makes a voice the owner's (registry.owner_voice)."""
+    """(code, body): queue "these lines were NAME" for the microphone service's voice tags (`listen/voices.py`
+    VoiceTags), which labels each line in the event log and learns the voice from its audio. The dashboard never
+    rewrites the transcript. Lines are tagged as the owner only from this machine (`control`): the tag teaches the
+    owner's voice their sound, and an owner tag is what makes a voice the owner's (registry.owner_voice)."""
     name = people_list._person_name(name)
     if not name:
         return 400, {"ok": False, "error": "Names start with a letter and use letters, spaces, . ' or -"}
@@ -481,7 +481,6 @@ def speakers_refine(action: object, body: dict[str, Any]) -> Reply:
             **({"denied": denied} if denied else {}),
         }
     )
-    transcript_view.rebuild_quietly(context.STATE, [transcript_view.day_of(hit["ts_start"])])
     return 200, {"ok": True, "action": action, "entry": hit}
 
 
@@ -549,7 +548,7 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
                 seen.add(at)
             uniq.append(e)
         todo = uniq
-    undone, errors, days = [], [], set()
+    undone, errors = [], []
     for e in todo:
         old = e.get("old") or {}
         try:
@@ -570,9 +569,6 @@ def speakers_refine_undo(body: dict[str, Any]) -> Reply:
         key = registry.key_of(stored)
         _refine_log({"action": "undo", "ts_start": e["ts_start"], "line": key, "undone_ts": e["ts"], "restored": old})
         undone.append({"ts_start": e["ts_start"], "line": key, "text": e.get("text"), "speaker": hit.get("speaker")})
-        days.add(transcript_view.day_of(hit["ts_start"]))
-    if days:
-        transcript_view.rebuild_quietly(context.STATE, sorted(days))
     LOG.info(f"refine undo: {len(undone)} line(s) restored")
     return 200, {"ok": not errors, "undone": undone, "errors": errors}
 
@@ -679,7 +675,6 @@ def _post_transcript_unlabel(h: H, body: Any) -> None:
         voice = view.canonical(stored.get("speaker_id"))
         _label_line(registry.utterance_of(stored), None, voice, label=transcript_view.UNKNOWN)
         hit = transcript_lines._view().line(stored)
-        transcript_view.rebuild_quietly(context.STATE, [transcript_view.day_of(hit["ts_start"])])
         return h._json({"ok": True, "entry": hit})
     except people_reads.AmbiguousLine as ex:
         return h._json({"error": str(ex)}, 409)

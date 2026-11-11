@@ -2,7 +2,7 @@
 
 Web pages are evidence, not inferred identities. Credentials come only from the
 service environment or dedicated .env.search. No media, agent configuration, or stored notes are read.
-Wikidata remains available as a separate supplementary lookup.
+The returned candidates carry a link to a Wikidata search, which the owner opens; nothing here queries Wikidata.
 """
 
 import json
@@ -16,7 +16,6 @@ import requests
 
 from liberational import config as cfg
 
-API = "https://www.wikidata.org/w/api.php"
 MAX_RESPONSE = 2 * 1024 * 1024
 _STOP = frozenset(
     [
@@ -40,29 +39,6 @@ _STOP = frozenset(
         "with",
     ]
 )
-
-
-def _get(parameters: dict[str, str]) -> dict[str, Any]:
-    deadline = time.monotonic() + 25
-    with requests.get(
-        API,
-        params={"format": "json", **parameters},
-        headers={"User-Agent": "Liberational-PeopleLookup/1.0 (explicit public name lookup)"},
-        timeout=(5, 15),
-        allow_redirects=False,
-        stream=True,
-    ) as response:
-        if response.status_code != 200:
-            raise ValueError(f"Wikidata returned HTTP {response.status_code}. Retry later or add manually.")
-        raw = bytearray()
-        for chunk in response.iter_content(65536):
-            if time.monotonic() > deadline or len(raw) + len(chunk) > MAX_RESPONSE:
-                raise ValueError("Wikidata response exceeded its time/size limit. Refine the name and retry.")
-            raw.extend(chunk)
-    result = json.loads(raw)
-    if not isinstance(result, dict) or "error" in result:
-        raise ValueError("Wikidata returned an unusable response. Retry later or add manually.")
-    return result
 
 
 def tokens(value: str) -> set[str]:

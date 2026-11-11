@@ -17,7 +17,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from typing import TYPE_CHECKING, Any
@@ -50,7 +50,9 @@ def speech_mark() -> int:
     return speech_log.shared().mark((speech_log.UTTERANCES, speech_log.REPLIES))[0]
 
 
-def speakers_with_audio(raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None) -> set[int]:
+def speakers_with_audio(
+    raw: Sequence[dict[str, Any]] | None = None, view: transcript_view.View | None = None
+) -> set[int]:
     """The (merged-resolved) speaker ids that still have at least one line with audio, not counting lines marked as
     a TV's: a voice heard only from one is nobody to name."""
     view = view if view is not None else transcript_lines._view()
@@ -937,7 +939,7 @@ def voice_clips(
     sims: dict[int, list[float]] | None = None,
     spans: dict[int, list[tuple[float, float]]] | None = None,
     *,
-    raw: list[dict[str, Any]] | None = None,
+    raw: Sequence[dict[str, Any]] | None = None,
     view: transcript_view.View | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Playable clips of unnamed voices, most useful to label first (value ranking below), and the total available.

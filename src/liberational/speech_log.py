@@ -279,19 +279,14 @@ def shared() -> SpeechLog:
 _retained_lock = threading.Lock()
 _retained_log: SpeechLog | None = None
 _retained_mark: tuple[object, ...] | None = None
-_retained_rows: list[dict[str, Any]] = []
+_retained_rows: tuple[dict[str, Any], ...] = ()
 
 
-def retained() -> list[dict[str, Any]]:
+def retained() -> tuple[dict[str, Any], ...]:
     """Every utterance kept, in time order, cached until a line is written or a purge may have taken one. People and
     clone totals need complete history. Raw rows only: each request applies a fresh identity View, so names and
-    corrections never wait for new speech.
-
-    The rows come back as they are kept, not as copies: this is the most-read speech read, and copying the whole
-    corpus per request (there are seven callers, several behind polled routes) cost more than reading it. A reader
-    must not change a row. Readers that put something on a line (a name, `confirmed`, a twin marker) read the rows
-    through `transcript_view.View`, whose `lines`/`named`/`individual_lines`/`line` each hand back a dict of their
-    own, so annotating what a reader got cannot reach this cache or another request's input."""
+    corrections never wait for new speech. The rows are read-only: a reader projects them with a `View` (which copies
+    each line) rather than annotating them in place, so no request changes the cache another request reads."""
     global _retained_log, _retained_mark, _retained_rows
     log = shared()
     with _retained_lock:
@@ -300,9 +295,8 @@ def retained() -> list[dict[str, Any]]:
         state = getattr(log, "segments", segment_log.root()).parent
         mark = (*log.mark(), revisions.review_revision(state))
         if log is not _retained_log or mark != _retained_mark:
-            rows = log.all_lines()
-            _retained_log, _retained_mark, _retained_rows = log, mark, rows
-        return list(_retained_rows)  # a new list, the same rows: a caller's sort or append can't reach the cache
+            _retained_log, _retained_mark, _retained_rows = log, mark, tuple(log.all_lines())
+        return _retained_rows
 
 
 WORKER_STREAM_PREFIX = "worker."  # the broker's own worker state, such as worker.checkpoint.<hash>.parts
@@ -521,14 +515,13 @@ class SpeechLog:
         """Each microphone stream (a PCM ring named `<device>.audio`) and the end of its newest audio in the last
         `window_s` seconds (UTC ns; now while the ring holds records newer than its last batch), else None."""
 
-        async def go(broker: Client) -> dict[str, int | None]:
+        async def go(client: Client) -> dict[str, int | None]:
             out: dict[str, int | None] = {}
-            for s in await broker.list_streams():
+            for s in await client.list_streams():
                 if not (s["name"].endswith(".audio") and str(s["shape_name"]).startswith("PCM_")):
                     continue
                 now = time.time_ns()
-                # A read of this stream's records over a window (Continuum's broker client): no query text is built.
-                r = await broker.query(s["name"], now - int(window_s * 1e9), now + 1_000_000_000, all=False)
+                r = await client.query(s["name"], now - int(window_s * 1e9), now + 1_000_000_000, all=False)
                 newest = max((continuum_py.decode_header(i["header"])["end_ns"] for i in r["items"]), default=None)
                 out[s["name"]] = now if r.get("tail") else newest
             return out

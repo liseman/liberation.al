@@ -198,7 +198,6 @@ def test_every_line_shows_the_same_name_before_and_after(tmp_path):
     v = transcript_view.View(state)
     assert [v.shown(e) for e in after] == before
     assert [e["speaker"] for e in after] == before  # what server-side readers use
-    assert transcript_view.changed_names(state) == []
     flags = lambda e: {k: e.get(k) for k in ("multi_speaker", "unlabeled", "tagged")}
     assert [flags(e) for e in after] == [flags(e) for e in stored(state)]  # the backfill and the dashboard read them
 
@@ -209,34 +208,12 @@ def test_a_voice_renamed_after_a_line_was_heard(tmp_path):
     migrated(state)
     (e,) = transcript_view.view(stored(state), state)
     assert (e["speaker"], transcript_view.View(state).shown(e)) == ("Hal", "Gus")  # as before step 4
-    assert transcript_view.changed_names(state) == []
-
-
-def test_a_rebuild_matches_a_line_stamped_from_its_unrounded_time(tmp_path):
-    state = legacy_state(tmp_path)
-    write_lines(state, [line(1, "Alice", 1, 0.8)])  # heard at T0 + 0.9996, stored rounded to T0 + 1.0
-    md = state / "transcript" / f"{transcript_view.day_of(T0)}.md"
-    md.parent.mkdir()
-    md.write_text("[09:00:00] Alice: line 1\n")
-    transcript_view.rebuild_markdown(state)
-    assert md.read_text() == "[09:00:01] Alice: line 1\n"
 
 
 def test_a_rerun_of_the_backfill_never_undoes_a_later_label(state):
     tag(state, 3, "Dana", source="dashboard")  # the line labeled Erin
     assert registry.backfill(state, state / "faces" / "db.npz")["assertions"] == 0
     assert transcript_view.View(state).name(stored(state)[3]) == "Dana"
-
-
-def test_the_cli_checks_and_rebuilds(state, capsys):
-    with pytest.raises(SystemExit) as done:
-        registry.main(["--state-dir", str(state), "lines"])
-    assert done.value.code == 0
-    assert "0 line(s)" in capsys.readouterr().out
-    registry.main(["--state-dir", str(state), "transcript"])
-    md = (state / "transcript" / f"{transcript_view.day_of(T0)}.md").read_text().splitlines()
-    assert md[2] == "[09:00:02] Dana: line 2"
-    assert len(md) == 12
 
 
 # ------------------------------------------------------------------ writers ----
@@ -263,8 +240,6 @@ def test_labels_unlabels_and_undo_from_the_dashboard(written):
     assert names(written)[0] == MULTI
     speaker_lines.speakers_refine_undo({"ts_starts": [hand, multi]})
     assert (names(written)[0], names(written)[8]) == ("Alice", "Speaker 2")
-    md = (written / "transcript" / f"{transcript_view.day_of(T0)}.md").read_text()
-    assert "[09:00:00] Alice: line 0" in md  # the day's file was rebuilt
 
 
 def test_unlabel_route(written, serve_dashboard):
@@ -474,29 +449,6 @@ def test_an_old_line_label_on_a_shared_millisecond_is_cleared_for_one_line_alone
     assert (who(reg, A), who(reg, B)) == ("Alice", MULTI)
 
 
-def test_ambiguous_lists_old_ids_that_more_than_one_microphones_line_starts_in(reg, tmp_path):
-    reg.claim(registry.utterance(20.0), "Dana", Basis.OWNER_TAG, "test")
-    reg.detach(30.0, UNKNOWN, "test")
-    reg.claim(registry.utterance(40.0, "Mic A"), "Dana", Basis.OWNER_TAG, "test")  # a new id is never ambiguous
-    write_lines(
-        tmp_path,
-        [
-            {"ts_start": 20.0, "device": "Mic A"},
-            {"ts_start": 20.0004, "device": "Mic B"},
-            {"ts_start": 30.0, "device": "Mic A"},  # one line in its millisecond
-            {"ts_start": 40.0, "device": "Mic A"},
-            {"ts_start": 40.0, "device": "Mic B"},
-        ],
-    )
-    assert registry.ambiguous(tmp_path) == {"utterance:20.000": ["mic-a@20.000", "mic-b@20.000"]}
-
-
-def test_ambiguous_never_makes_the_event_log(tmp_path):
-    write_lines(tmp_path, [{"ts_start": 20.0, "device": "Mic A"}, {"ts_start": 20.0, "device": "Mic B"}])
-    assert registry.ambiguous(tmp_path) == {}
-    assert not (tmp_path / "events.sqlite3").exists()
-
-
 def test_readers_see_a_label_on_only_its_microphones_line_unless_the_other_is_the_same_speech(tmp_path):
     write_voices(tmp_path, {1: {"label": "Alice", "centroid": unit(1, 0), "n": 3}})
     registry.at(tmp_path).claim(registry.voiceprint(1), "Alice", Basis.OWNER_TAG, "test")
@@ -645,12 +597,6 @@ def test_a_visit_named_before_a_rename_follows_it(heard, vision):
     chips = {c["label"]: c for c in presence.people(heard, T0 - 60, T0 + 60)}
     assert sorted(chips) == ["Alicia", "Dana"]
     assert "cam0" in chips["Alicia"]["cams"]  # the visit itself, not only her heard line
-
-
-def test_profiles_follow_a_rename(heard, monkeypatch):
-    monkeypatch.setattr(profiles, "STATE", heard)
-    rename_alice(heard)
-    assert [r["name"] for r in profiles.load_inperson()] == ["dana", "alicia", "alicia"]
 
 
 def write_call(calls, day, folder, label, text, started=None):

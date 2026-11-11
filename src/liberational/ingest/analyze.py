@@ -271,15 +271,28 @@ def audio_blocks(path: Path) -> Iterator[np.ndarray]:
         drainer.join(timeout=5)
 
 
+def _vad_for(device: str) -> Any:
+    """The energy VAD for `device`, tuned to that device's sensitivity (audio/sensitivity.py), as the live worker's
+    per-mic VAD is. The constructor's old 9 dB and -45 dBFS are what audio/sensitivity.py measured 5 of 468 speech
+    stretches getting past; a mic's own setting is what the owner tuned."""
+    from liberational.audio import sensitivity
+    from liberational.listen import gate
+
+    t = sensitivity.tuning(sensitivity.value(device))
+    return gate.VAD(margin_db=t.margin_db, min_dbfs=t.min_dbfs)
+
+
 class Speech:
-    """Utterances from a file: the energy VAD, the listen worker's transcriber and voice matcher, `speech.utterance`."""
+    """Utterances from a file: the energy VAD, the listen worker's transcriber and voice matcher, `speech.utterance`.
+
+    `vad` is a factory by device name, so a stored file's utterance cut uses its own microphone's sensitivity."""
 
     def __init__(
         self,
         client: Any,
         transcriber: Any,
         matcher: Any,
-        vad: Callable[[], Any],
+        vad: Callable[[str], Any],
         newest_purge: Callable[[str | None], str | None] | None = None,
         segments: Path | None = None,
     ) -> None:
@@ -352,7 +365,7 @@ class Speech:
 
         if not await self._notice_purge():
             raise RuntimeError("speech purge mark unavailable; retry")
-        vad, n = self.new_vad(), 0
+        vad, n = self.new_vad(device), 0
         spans: list[tuple[int, int, Any]] = []
         loop = asyncio.get_running_loop()
         for block in blocks:
@@ -838,7 +851,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             segments=segment_log.Writers(segment_log.root(state)),
         )
         transcriber = listen.Transcriber(
-            ASR, gate=gate.speech_gate(), embed=listen.SpeakerEmbedding(Path(cfg.model_path("speaker_embedding")))
+            ASR, gate_for=gate.Gates(), embed=listen.SpeakerEmbedding(Path(cfg.model_path("speaker_embedding")))
         )
         try:
             matcher = voices.VoiceMatcher(
@@ -852,7 +865,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 slot="ingest",
                 references=voices.ReferenceGallery(state),
             )
-            speech = Speech(client, transcriber, matcher, gate.VAD, segments=segment_log.root(state))
+            speech = Speech(client, transcriber, matcher, _vad_for, segments=segment_log.root(state))
             from liberational.ingest.faces import open_faces
 
             faces = open_faces(cw.segments, state)
