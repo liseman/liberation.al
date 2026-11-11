@@ -73,6 +73,7 @@ export interface Learning {
   automatic_percent: number | null;
   references: number;
   stranded: number;
+  no_photo: number; // taught sightings with no saved picture kept with them
 }
 export interface SightingGroup {
   id: string;
