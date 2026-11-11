@@ -32,6 +32,7 @@ it does. A document that still mixes kinds is listed under the one it mostly is.
 | [Network](NETWORK.md) | Set up network inventory, device links, and network cameras |
 | [Measurement](MEASUREMENT.md) | Make hand-made labels and score the pack against them |
 | [Profiling](PROFILING.md) | Find where CPU goes |
+| [Workers](WORKERS.md) | Add a Python worker that follows Continuum: input, output, checkpoints, the service entry, and tests |
 | [Contributing](../CONTRIBUTING.md) | Set up for development and get a change merged |
 
 ## Reference: look something up
