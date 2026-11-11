@@ -197,8 +197,44 @@ export interface CameraView {
   /** When its cloud was made (epoch seconds), how many points it has, and how it was sized; null without one. */
   at: number | null;
   points: number | null;
-  size: 'height' | 'approximate' | null;
+  size: 'approximate' | null;
   why: ViewWhy | null;
+}
+
+/** One camera in a place's scene of all its cameras' clouds: how its cloud is placed, or why it isn't in the scene. */
+export interface ScenePlaced {
+  camera: string;
+  points: number;
+  placed: boolean;
+  /** "spot": from its spot on the plan alone; "adjusted": from its spot, corrected against the cameras in `against`
+   *  by what their pictures share; "moved": it moved, and its cloud followed by what its pictures measured;
+   *  "moved_against": it moved, and is placed from what it shares with the camera in `against`. Not in the scene:
+   *  "no_spot", "no_facing", and "moved_unplaced" (it moved, and its picture matches nothing). */
+  how: 'spot' | 'adjusted' | 'moved' | 'moved_against' | 'no_spot' | 'no_facing' | 'moved_unplaced';
+  size: 'approximate';
+  against: string[];
+  /** How far from its spot it is placed: metres, and degrees of facing. */
+  shift_m: number;
+  turn_deg: number;
+  /** The spot offered for a camera that moved: plan x and y, and facing in degrees. Saved only when taken. */
+  suggest: [number, number, number] | null;
+}
+
+/** What two cameras' pictures said of each other. */
+export interface ScenePair {
+  a: string;
+  b: string;
+  /** "tightened": they match, and adjust the pair; "apart": they show different space; "unsure": they share some,
+   *  but don't agree well enough; "disagrees": they match, but farther from the spots than a correction may go;
+   *  "moved": one of the two has moved since; "stale": measured at another spot. */
+  state: 'tightened' | 'apart' | 'unsure' | 'disagrees' | 'moved' | 'stale';
+  /** How far what they measured is from what the spots say: metres, and degrees. */
+  off_m: number;
+  off_deg: number;
+  /** When the measurement in use was made (epoch seconds). */
+  measured: number | null;
+  /** Why a newer look wasn't used in its place, when one wasn't (a night picture that didn't match, say). */
+  latest: string | null;
 }
 
 /** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
@@ -243,17 +279,32 @@ export interface Scene {
   learning?: Learning;
   /** The cameras whose own clouds the view offers. */
   views?: CameraView[];
+  /** The scene of all the place's cameras' clouds, each placed where its camera is (asked for with `all`): every
+   *  camera with how it is placed or why it isn't, in the order the points name them, and each pair's reading. */
+  combined?: { place: string; id: string; cameras: ScenePlaced[]; pairs: ScenePair[] };
   /** The camera whose own cloud this scene is (its points, in a level frame of its own, with the camera in it), with
    *  how it was sized: by the camera's measured mounting height, or left in the model's approximate metres. Only
    *  `camera` while that camera has no cloud yet. */
   view?: {
     camera: string;
-    size?: 'height' | 'approximate';
+    size?: 'approximate';
     floor_found?: boolean;
     points?: number;
     at?: number;
   };
 }
+
+/** Take the spot the scene suggests for a camera that moved: its spot on the owner's plan is moved and turned to
+ *  it, saved as a new version of the plan. */
+export const acceptSpot = (place: string, camera: string) =>
+  request<{ ok: true; spot: { at: [number, number]; yaw: number }; previous: string | null }>('/places/scene/spot', {
+    place,
+    camera,
+  });
+
+/** Take that back: the plan version it replaced (`record`) holds again, and the camera is a moved one once more. */
+export const undoSpot = (place: string, camera: string, record: string) =>
+  request<{ ok: true }>('/places/scene/spot/undo', { place, camera, record });
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
  *  often while learning is on, and the view draws it without a reload. With learning off it asks seldom, to notice
@@ -261,14 +312,14 @@ export interface Scene {
 export const SCENE_LEARNING_MS = 10_000;
 export const SCENE_IDLE_MS = 60_000;
 
-/** A place's scene; with `camera`, that camera's own cloud. Changing the camera keeps the scene before it on screen
- *  until the new one answers. */
-export const sceneQuery = (place: string, camera?: string | null) =>
+/** A place's scene; with `camera`, that camera's own cloud; with `all`, every camera's cloud placed in the place.
+ *  Changing the camera keeps the scene before it on screen until the new one answers. */
+export const sceneQuery = (place: string, camera?: string | null, all = false) =>
   queryOptions({
-    queryKey: ['places', 'scene', place, camera ?? null],
+    queryKey: ['places', 'scene', place, all ? '@all' : (camera ?? null)],
     queryFn: ({ signal }) =>
       request<Scene>(
-        `/places/scene?${new URLSearchParams({ place, ...(camera ? { camera } : {}) })}`,
+        `/places/scene?${new URLSearchParams({ place, ...(all ? { all: '1' } : camera ? { camera } : {}) })}`,
         undefined,
         signal,
       ),

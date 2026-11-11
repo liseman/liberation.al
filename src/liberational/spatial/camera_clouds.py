@@ -10,23 +10,31 @@ camera's own frame and a confidence. Then, in the pack:
 
 1. *Which pixels count.* A point is kept when the model is sure of it (`CONF`, MASt3R's own bar) and its pixel isn't
    one the camera burns its clock or name into (the device manifest's `masks`, spatial/lens.py). Bright windows,
-   glass, and sky usually fall out here.
+   glass, and sky usually fall out here. Then the points that aren't on a surface the camera really saw go
+   (`clean`): a pixel at a jump in depth, where the model strings points between a near thing and the far one
+   behind it (`JUMP`); a pixel of a surface seen so nearly edge-on that its depth is a guess (`GRAZING`); and a
+   speck, a patch of fewer than `SPECK` pixels left standing alone. These are the long sheets and streaks a cloud
+   shows from anywhere but its own camera.
 2. *Accept or reject.* A picture the model is unsure about over most of it gives no cloud (`MIN_SHARE` of its pixels
    must count: the six cameras on the Linux machine kept 0.60 to 0.88), nor does one with no depth to speak of
    (`MIN_DEPTH_SPREAD`). The reason is kept (`Store.note`) and the camera's earlier cloud stays.
 3. *The floor* (`floor`). The plane with the most points on it among those that face roughly up in the picture, pass
    under the camera, and have next to nothing under them: the floor is the lowest big surface, which rules out a
-   table top. Found on five of those six cameras; the sixth sees almost no floor.
-4. *Size* (`Cloud.size`). MASt3R's metres are approximate: on three cameras with a measured mounting height they
-   read 17 to 25 percent off, either way. A camera with a height in the device manifest (`mount.height_m`) and a
-   floor in view is sized by it: the cloud is scaled so the camera stands that high above its floor ("height").
-   Any other cloud stays as the model gave it ("approximate"), and the page says which.
+   table top. Found on five of those six cameras; the sixth sees almost no floor. A camera's measured mounting
+   height (the device manifest's `mount.height_m`), when it has one, checks the find: a plane that puts the camera
+   outside `HEIGHT_FITS` of that height isn't its floor (a sofa seat, with the floor out of sight, read 0.32 m
+   under a camera hung at 1.47 m), and is passed over.
+4. *Size* (`Cloud.size`). The cloud is left in MASt3R's own metres, and says so: "approximate". Sizing it by the
+   mounting height was tried and made it worse. The height reads the floor a metre or two from the camera, the walls
+   are six or seven away, and the model's near and far depth don't share one scale: on two cameras the walls landed
+   1.11 and 1.24 times too far on the owner's plan when sized by height, against 0.96 and 1.00 in the model's own
+   metres (and 1.06 on a third).
 5. *Its frame* (`level`). The cloud is turned level: z is up, the floor is z = 0, the camera stands on the z axis
    looking along +y. With no floor found the camera is taken to be upright and the lowest points stand in for the
    floor, so the view still has a ground to stand on.
 
 **Keeping one** (`Store`): `state/camera_clouds/<camera>/` holds the camera's one cloud, `<id>.ply` (binary, x y z
-and red green blue) and `cloud.json` (`Cloud`: when, how many points, how it was sized, the camera's pose and focal
+and red green blue) and `cloud.json` (`Cloud`: when, how many points, the camera's pose and focal
 in the cloud's frame, the floor, and the thumbnail of the picture it was made from, which is how a changed view is
 noticed). A new cloud replaces the old one: nothing is carried forward. `notes.json` beside the folders says, per
 camera, why its last try made no cloud. None of this is a place's revision: a revision's cameras are registrations
@@ -46,8 +54,8 @@ import subprocess
 import tempfile
 import time
 import uuid
-from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +75,10 @@ NEED_GB = 4.0  # free GPU memory a pass needs: 2.9 GB measured, with room for th
 NICE = 10
 TIMEOUT_S = 180.0
 CONF = 1.5  # MASt3R's confidence bar for a usable point
-MIN_SHARE = 0.3  # of a picture's pixels that must give a point; live pictures gave 0.60 to 0.88
+MIN_SHARE = 0.25  # of a picture's pixels that must give a point; live pictures gave 0.50 to 0.80 after `clean`
+JUMP = 0.04  # a neighbour this much nearer or farther (of the nearer depth) is another surface
+GRAZING = 0.17  # the cosine between a surface's normal and the ray to it: under it, the surface is within 10 degrees of edge-on
+SPECK = 40  # pixels: a smaller patch standing alone is dropped
 MIN_DEPTH_SPREAD = 1.15  # the far tenth of the points must be this many times as far as the near tenth
 FLOOR_TOL_M = 0.025
 FLOOR_TRIES = 1500
@@ -75,7 +86,11 @@ FLOOR_SAMPLE = 40000
 FLOOR_UP = 0.5  # cosine: a floor's normal is within 60 degrees of the camera's own up
 FLOOR_UNDER = (0.06, 0.02)  # at most this share of points may lie more than this far (m) under the floor
 FLOOR_MIN = 0.04  # of the sampled points must be on it
-FLOOR_BELOW_M = 0.2  # the floor passes at least this far under the camera
+FLOOR_BELOW_M = 0.5  # the floor passes at least this far under the camera: nearer is a table top or a shelf
+HEIGHT_FITS = (
+    0.6,
+    1.7,
+)  # a floor is the camera's when its measured height over the height found is in this; live: 0.85 to 1.25
 #: Why a camera has no cloud, or no newer one (`Store.note`).
 REASONS = ("no_runtime", "dark", "people", "lens", "gpu", "failed", "unsure", "flat")
 
@@ -137,15 +152,22 @@ class Pointmap:
     covered: np.ndarray  # H x W bool: overlay pixels
     seconds: float = 0.0
     peak_gpu_gb: float = 0.0
+    #: What the picture matched of each picture it was compared with, in the order asked (spatial/cloud_scene.py).
+    matches: tuple[dict[str, Any] | None, ...] = ()
 
 
 class NoGpu(RuntimeError):
     """No GPU has the memory a pass needs right now."""
 
 
-def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None) -> Pointmap:
-    """`picture` (BGR) through the runner in `found`, niced, on the GPU with the most free memory. Raises NoGpu when
-    none has NEED_GB free, and RuntimeError when the runner fails."""
+#: A picture to compare the new one with, and whether that picture is the one seen from (the reference).
+Other = tuple[Path, bool]
+
+
+def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None, others: Sequence[Other] = ()) -> Pointmap:
+    """`picture` (BGR) through the runner in `found`, niced, on the GPU with the most free memory, and compared with
+    each of `others` in the same run (one load of the model). Raises NoGpu when none has NEED_GB free, and
+    RuntimeError when the runner fails."""
     import cv2
 
     gpu = free_gpu()
@@ -163,6 +185,14 @@ def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None) ->
             "weights": str(found.weights),
             "out": str(folder / "report.json"),
             "views": [{"image": str(folder / "picture.png"), "mask": mask, "out": str(folder / "points.npz")}],
+            "pairs": [
+                {
+                    "a": str(path if first else folder / "picture.png"),
+                    "b": str(folder / "picture.png" if first else path),
+                    "out": str(folder / f"pair{i}.json"),
+                }
+                for i, (path, first) in enumerate(others)
+            ],
         }
         (folder / "job.json").write_text(json.dumps(job))
         env = {**os.environ, "CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": str(gpu[0])}
@@ -181,6 +211,7 @@ def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None) ->
         except subprocess.TimeoutExpired as e:
             raise RuntimeError(f"the point map runner took over {TIMEOUT_S:.0f} s") from e
         report = json.loads((folder / "report.json").read_text())["views"][0]
+        matches = tuple(json_state.read(folder / f"pair{i}.json") for i in range(len(others)))
         with np.load(folder / "points.npz") as got:
             return Pointmap(
                 got["points"],
@@ -189,6 +220,7 @@ def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None) ->
                 got["covered"],
                 report["seconds"],
                 report["peak_gpu_gb"],
+                matches,
             )
 
 
@@ -260,8 +292,7 @@ class Cloud:
     at: float  # when it was made (UTC epoch seconds)
     points: int
     share: float  # of the picture's pixels that gave a point
-    size: str  # "height": scaled by the camera's measured mounting height; "approximate": the model's own metres
-    factor: float  # what the model's metres were multiplied by (1 when approximate)
+    size: str  # "approximate": the model's own metres
     floor_found: bool
     pose: tuple[float, ...]  # camera to cloud, 4 x 4 row by row
     focal: float  # of the picture the model saw, in its pixels
@@ -270,6 +301,7 @@ class Cloud:
     seconds: float = 0.0
     peak_gpu_gb: float = 0.0
     frames: int = 1  # the frames whose median the picture was
+    cleaned: float = 0.0  # of the points the model was sure of, the share `clean` dropped
     thumb: tuple[float, ...] = field(default=(), repr=False)  # the picture's thumbnail, to notice a changed view
 
     @staticmethod
@@ -286,6 +318,7 @@ class Made:
 
     cloud: Cloud
     ply: bytes
+    picture: np.ndarray | None = None  # the picture it was made from (BGR), kept for comparing with later ones
 
 
 class Rejected(ValueError):
@@ -307,12 +340,42 @@ def _focal(points: np.ndarray, keep: np.ndarray) -> float:
     return found if np.isfinite(found) and found > 0 else float(w)
 
 
+def clean(points: np.ndarray, keep: np.ndarray) -> np.ndarray:
+    """`keep` (H x W bool) without the pixels of `points` (H x W x 3, the camera's frame) that aren't on a surface
+    the camera saw: those at a jump in depth, those of a surface seen nearly edge-on, and specks (the module
+    docstring's step 1)."""
+    import cv2
+
+    depth = points[..., 2]
+    jump = np.zeros(keep.shape, dtype=bool)
+    for axis in (0, 1):
+        a, b = np.moveaxis(depth, axis, 0)[:-1], np.moveaxis(depth, axis, 0)[1:]
+        apart = np.abs(a - b) > JUMP * np.minimum(np.abs(a), np.abs(b))
+        both = np.moveaxis(jump, axis, 0)
+        both[:-1] |= apart
+        both[1:] |= apart
+    across = np.zeros_like(points)
+    down = np.zeros_like(points)
+    across[:, 1:-1] = points[:, 2:] - points[:, :-2]
+    down[1:-1] = points[2:] - points[:-2]
+    normal = np.cross(across, down)
+    length = np.linalg.norm(normal, axis=2)
+    ray = points / np.maximum(np.linalg.norm(points, axis=2, keepdims=True), 1e-9)
+    facing = np.abs((normal * ray).sum(axis=2)) / np.maximum(length, 1e-12)
+    grazing = (facing < GRAZING) & (length > 0)
+    out = keep & ~jump & ~grazing
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(out.astype(np.uint8), connectivity=8)
+    small = np.flatnonzero(stats[:, cv2.CC_STAT_AREA] < SPECK)
+    return out & ~np.isin(labels, small[small > 0]) if count > 1 else out
+
+
 def make(
     camera: str, got: Pointmap, height_m: float | None, now: float, frames: int = 1, thumb: Sequence[float] = ()
 ) -> Made:
     """`camera`'s cloud from its picture's point map (the module docstring's steps 1 to 5). Raises Rejected."""
     points = np.asarray(got.points, dtype=np.float64)
-    keep = (got.confidence > CONF) & ~got.covered & np.isfinite(points).all(axis=2) & (points[..., 2] > 0)
+    sure = (got.confidence > CONF) & ~got.covered & np.isfinite(points).all(axis=2) & (points[..., 2] > 0)
+    keep = clean(np.nan_to_num(points), sure)
     share = float(keep.mean())
     if share < MIN_SHARE:
         raise Rejected("unsure", f"only {share:.0%} of the picture gave a point; {MIN_SHARE:.0%} needed")
@@ -321,12 +384,10 @@ def make(
     if far < MIN_DEPTH_SPREAD * near:
         raise Rejected("flat", f"no depth to speak of: {near:.2f} to {far:.2f} m")
     found = floor(kept)
-    factor = 1.0
-    if found is not None and height_m is not None and height_m > 0:
-        factor = height_m / found[1]
-    sized = "height" if factor != 1.0 else "approximate"
-    scaled = kept * factor
-    levelled, pose, floor_found = level(scaled, None if found is None else (found[0], found[1] * factor))
+    fits = found is None or not height_m or HEIGHT_FITS[0] <= height_m / found[1] <= HEIGHT_FITS[1]
+    if not fits:
+        found = None  # not this camera's floor: it would stand far from its measured height above it
+    levelled, pose, floor_found = level(kept, found)
     h, w = keep.shape
     cloud = Cloud(
         id=str(uuid.uuid7()),
@@ -334,8 +395,7 @@ def make(
         at=now,
         points=len(levelled),
         share=round(share, 3),
-        size=sized,
-        factor=round(factor, 4),
+        size="approximate",
         floor_found=floor_found,
         pose=tuple(float(v) for v in pose.ravel()),
         focal=_focal(points, keep),
@@ -345,6 +405,7 @@ def make(
         peak_gpu_gb=got.peak_gpu_gb,
         frames=frames,
         thumb=tuple(float(v) for v in thumb),
+        cleaned=round(1.0 - float(keep.sum()) / max(int(sure.sum()), 1), 3),
     )
     return Made(cloud, ply.dumps(levelled, got.colour[keep]))
 
@@ -353,7 +414,7 @@ def root(state: Path | str) -> Path:
     return Path(state) / DIR
 
 
-def _slug(camera: str) -> str:
+def slug(camera: str) -> str:
     """A camera's folder name: its own name where that is a plain file name, else that with the rest replaced."""
     slug = re.sub(r"[^A-Za-z0-9._-]", "_", camera).strip(".")
     if not slug:
@@ -372,7 +433,7 @@ class Store:
     def current(self, camera: str) -> Cloud | None:
         """`camera`'s cloud, or None: it has none, or its record doesn't read."""
         try:
-            value = json.loads((self.folder / _slug(camera) / "cloud.json").read_text())
+            value = json.loads((self.folder / slug(camera) / "cloud.json").read_text())
             cloud = Cloud.from_dict(value)
         except OSError, ValueError, KeyError, TypeError:
             return None
@@ -391,17 +452,27 @@ class Store:
     def file(self, cloud: Cloud) -> Path:
         if not re.fullmatch(r"[0-9a-f-]{36}", cloud.id):
             raise ValueError("a cloud's id is a uuid")
-        return self.folder / _slug(cloud.camera) / f"{cloud.id}.ply"
+        return self.folder / slug(cloud.camera) / f"{cloud.id}.ply"
+
+    def picture(self, cloud: Cloud) -> Path:
+        """Where the picture `cloud` was made from is kept (whether or not it is there)."""
+        return self.file(cloud).with_suffix(".png")
 
     def replace(self, made: Made) -> None:
         """Keep `made` as its camera's cloud. Its file is written first and its record after, so a reader never finds
         a record whose points aren't there; the cloud before it goes last."""
-        folder = self.folder / _slug(made.cloud.camera)
+        import cv2
+
+        folder = self.folder / slug(made.cloud.camera)
         folder.mkdir(parents=True, exist_ok=True)
         places.write_whole(self.file(made.cloud), made.ply)
+        if made.picture is not None:
+            ok, png = cv2.imencode(".png", made.picture)
+            if ok:
+                places.write_whole(self.picture(made.cloud), png.tobytes())
         json_state.write(folder / "cloud.json", asdict(made.cloud))
-        for old in folder.glob("*.ply"):
-            if old.name != f"{made.cloud.id}.ply":
+        for old in [*folder.glob("*.ply"), *folder.glob("*.png")]:
+            if old.stem not in (made.cloud.id, "anchor"):  # the anchor is spatial/cloud_scene.py's to keep
                 old.unlink(missing_ok=True)
         self.note(made.cloud.camera, None, made.cloud.at)
 
@@ -428,12 +499,13 @@ class Store:
 
     def forget(self, camera: str) -> None:
         """Drop `camera`'s cloud and note."""
-        shutil.rmtree(self.folder / _slug(camera), ignore_errors=True)
+        shutil.rmtree(self.folder / slug(camera), ignore_errors=True)
         self.note(camera, None, time.time())
 
 
-#: A picture's point map: `pointmap` with the runtime bound, or a test's stand-in.
-Runner = Callable[[np.ndarray, np.ndarray | None], Pointmap]
+#: A picture's point map, and what it matched of the pictures it's compared with: `pointmap` with the runtime
+#: bound, or a test's stand-in.
+Runner = Callable[[np.ndarray, np.ndarray | None, Sequence[Other]], Pointmap]
 
 
 def refresh(
@@ -446,12 +518,17 @@ def refresh(
     frames: int = 1,
     thumb: Sequence[float] = (),
     manifest: Path | None = None,
+    spots: Callable[[], Mapping[str, Any]] | None = None,
 ) -> Cloud | None:
     """Remake `camera`'s cloud from `picture` (BGR, with nobody in it): flatten a wide lens and mark the overlays
     (spatial/lens.py), run the model, and keep the cloud if it's accepted. The cloud, or None with the reason noted
-    (`Store.note`) and the earlier cloud left as it was."""
+    (`Store.note`) and the earlier cloud left as it was.
+
+    With `spots` (the cameras' spots on their plans, spatial/cloud_scene.py `spots_of`), the same run compares the
+    picture with the camera's anchor and its neighbours', and what they matched is recorded for the place's scene:
+    whether the camera moved, and how each pair of cameras sits."""
+    from liberational.spatial import cloud_scene, rig
     from liberational.spatial import lens as lenses
-    from liberational.spatial import rig
 
     if run is None:
         store.note(camera, "no_runtime", now)
@@ -464,7 +541,11 @@ def refresh(
         return None
     mount = rig.load(manifest).get(camera)
     try:
-        made = make(camera, run(prepared, overlay), mount.height_m if mount.fixed else None, now, frames, thumb)
+        placed = spots() if spots is not None else {}
+        compared = cloud_scene.compare(store, camera, placed)
+        got = run(prepared, overlay, [(path, label == "anchor") for label, path in compared])
+        made = make(camera, got, mount.height_m if mount.fixed else None, now, frames, thumb)
+        made = replace(made, picture=prepared)
     except NoGpu as e:
         store.note(camera, "gpu", now, str(e))
         return None
@@ -476,11 +557,18 @@ def refresh(
         store.note(camera, "failed", now, str(e)[-300:])
         return None
     store.replace(made)
+    if compared:
+        try:
+            matches = dict(zip((label for label, _ in compared), got.matches, strict=False))
+            cloud_scene.record(store, made.cloud, matches, placed)
+        except (OSError, ValueError, KeyError, TypeError) as e:  # the cloud is kept; only its place in the scene isn't
+            LOG.warning("%s: its place in the scene wasn't worked out: %s", camera, e)
+    elif placed:
+        cloud_scene.record(store, made.cloud, {}, placed)
     LOG.info(
-        "%s: a cloud of %d points (%s size, %.2f s, %.1f GB)",
+        "%s: a cloud of %d points (%.2f s, %.1f GB)",
         camera,
         made.cloud.points,
-        made.cloud.size,
         made.cloud.seconds,
         made.cloud.peak_gpu_gb,
     )
@@ -490,4 +578,4 @@ def refresh(
 def runner() -> Runner | None:
     """`pointmap` in the configured runtime, or None while none is configured."""
     found = runtime()
-    return None if found is None else (lambda picture, overlay: pointmap(found, picture, overlay))
+    return None if found is None else (lambda picture, overlay, others: pointmap(found, picture, overlay, others))

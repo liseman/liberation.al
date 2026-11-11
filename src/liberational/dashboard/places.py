@@ -22,7 +22,8 @@
     POST /places/plan/restore {place, record}
                                        make that earlier owner plan hold again, written as the newest record, so the
                                        one it replaces stays in the history (memory/places.py `restore_plan`)
-    GET /places/scene?place=[&camera=] the 3D view's scene: the newest revision with a map, its map's URL and
+    GET /places/scene?place=[&camera=][&all=1]
+                                       the 3D view's scene: the newest revision with a map, its map's URL and
                                        size, its splat's when it has one (its own, else the newest made in the same
                                        map frame; one from another frame is only named, `splat_stale`) and what
                                        it was trained from (`splat_from`, as its trainer named it), which state the
@@ -36,11 +37,23 @@
                                        again every few seconds while it's open, and draws a newer map or splat
                                        when the reply names one. `views` lists the cameras whose own clouds
                                        the view offers (`camera_views`); with `camera`, or with no map of the place,
-                                       the scene is one camera's own cloud, named in `view` (`_camera_scene`)
+                                       the scene is one camera's own cloud, named in `view` (`_camera_scene`).
+                                       With `all=1` it is every camera's cloud placed in the place
+                                       (`_all_cameras_scene`, spatial/cloud_scene.py): the clouds' points as one
+                                       file, the owner's plan under them, and `combined`: how each camera is placed
+                                       or why it isn't, and what each pair of cameras' pictures said
+    POST /places/scene/spot {place, camera}
+                                       take the spot the scene suggests for a camera that moved: that camera's spot
+                                       on the owner's plan is moved and turned to it, saved as a new version of the
+                                       plan (`accept_spot`); nothing is saved until this is asked
+    POST /places/scene/spot/undo {place, camera, record}
+                                       take that back: the plan version it replaced holds again, and the camera
+                                       is a moved camera once more (`undo_spot`)
     GET /places/map?place=&revision=[&camera=]
                                        that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written. With
-                                       `camera`, that camera's own cloud, whose id is the revision
+                                       `camera`, that camera's own cloud, whose id is the revision; with
+                                       `scene=1`, the points of the scene of all cameras, whose id it is
     GET /places/splat?place=&revision=&format=sog
                                        that revision's 3D Gaussian splat (SOG), served the same way; the scene
                                        names it (`splat`, null while the revision has none). The URL and the ETag
@@ -208,7 +221,7 @@ def camera_views(state: Path, place: str) -> list[dict[str, Any]]:
     """The cameras whose own clouds the 3D view of `place` offers, in name order: the ones learned from now and the
     ones that have a cloud, among the cameras with a spot on this place's plan and the ones with no spot on any
     plan (a camera is an angle, and nothing else says which place it looks at). Each says whether it has a cloud
-    (`cloud`, with `at`, `points`, and `size`: "height" or "approximate") and what keeps it from a cloud or a newer
+    (`cloud`, with `at`, `points`, and `size`: "approximate", the model's own metres) and what keeps it from a cloud or a newer
     one (`why`: "off" while learning is off, "not_chosen", one of camera_clouds.REASONS from its last try, or
     "waiting" for a clean picture; None for a camera whose cloud is kept up to date)."""
     from liberational.spatial import camera_clouds, surroundings
@@ -291,13 +304,137 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
     }
 
 
-def scene(state: Path, place: str, camera: str | None = None) -> Reply:
+def _scene_of(state: Path, held: places.Place) -> Any:
+    """`held`'s scene of all its cameras as it stands (spatial/cloud_scene.py `scene`), with the owner's plan's rooms
+    for the view to leave out what lies outside them."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    spots = cloud_scene.spots_of(state)
+    mirrored = next((s.mirrored for s in spots.values() if s.place == held.id), False)
+    rooms = cloud_scene.rooms_of(held.plan if held.plan_source == "owner" else None, mirrored)
+    return cloud_scene.scene(camera_clouds.Store(camera_clouds.root(state)), held.id, spots, rooms)
+
+
+def _all_cameras_scene(state: Path, held: places.Place, learning: dict[str, Any], views: list[dict[str, Any]]) -> Reply:
+    """The scene of every camera's cloud placed in the place (spatial/cloud_scene.py), in the plan's metres: the
+    clouds' points as one file, each point saying whose it is, the plan under them, each placed camera where it
+    stands, and `combined`: how every camera is placed, or why it isn't, and what each pair of cameras' pictures said
+    of each other. `revision` is None while no camera is placed."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    store = camera_clouds.Store(camera_clouds.root(state))
+    found = _scene_of(state, held)
+    base = {"place": held.id, "learning": learning, "views": views, "combined": cloud_scene.as_dict(found)}
+    placed = [p for p in found.cameras if p.placed]
+    if not placed:
+        return 200, {**base, "revision": None}
+    clouds = {p.camera: store.current(p.camera) for p in placed}
+    cameras = {
+        p.camera: {"pose": list(p.pose or ()), "focal": c.focal, "width": c.width, "height": c.height, "at": c.at}
+        for p in placed
+        if (c := clouds[p.camera]) is not None
+    }
+    turned = -1.0 if not found.mirrored else 1.0  # the scene is right-handed; a page's y runs the other way
+    return 200, {
+        **base,
+        "revision": found.id,
+        "at": max(c.at for c in clouds.values() if c is not None),
+        "map": "/places/map?" + urlencode({"place": held.id, "revision": found.id, "scene": "1"}),
+        "map_format": "ply",
+        "map_bytes": cloud_scene.drawn(store, found).stat().st_size,
+        "splat": None,
+        "floor": [0.0, 0.0, 1.0, 0.0],
+        "plan_transform": [1.0, 0.0, 0.0, 0.0, 0.0, turned, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        "cameras": cameras,
+        "plan": held.plan if held.plan_source == "owner" else None,
+        "plan_source": "owner",
+        "plan_aligned": True,
+    }
+
+
+def scene_file(state: Path, place: str, revision: str) -> Path | None:
+    """GET /places/map with `scene`: the points of the place's scene of all its cameras, when `revision` is still the
+    scene there is."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    held = places.get(state, place)
+    if held is None:
+        return None
+    store = camera_clouds.Store(camera_clouds.root(state))
+    found = _scene_of(state, held)
+    return cloud_scene.drawn(store, found) if found.id == revision and any(p.placed for p in found.cameras) else None
+
+
+def accept_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
+    """POST /places/scene/spot: the owner takes the spot the scene suggests for a camera that moved. The camera's
+    spot on their plan is moved and turned to it and the plan saved as a new version, the way the plan editor saves
+    one (`places.correct_plan`); nothing else of the plan changes. `control` is the handler's _can_teach."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    if not control:
+        return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
+    place, camera = body.get("place"), body.get("camera")
+    if not isinstance(place, str) or not isinstance(camera, str):
+        return 400, {"ok": False, "error": "send the place's id and the camera"}
+    held = places.get(state, place)
+    if held is None:
+        return 404, {"ok": False, "error": "no such place"}
+    if held.plan_source != "owner" or not held.plan:
+        return 400, {"ok": False, "error": "the place has no plan of yours to set a spot on"}
+    if held.view is not None:
+        return 400, {"ok": False, "error": "this plan was drawn on its own page: move the spot in the plan editor"}
+    store = camera_clouds.Store(camera_clouds.root(state))
+    found = _scene_of(state, held)
+    offered = next((p.suggest for p in found.cameras if p.camera == camera), None)
+    if offered is None:
+        return 400, {"ok": False, "error": "no spot is suggested for that camera now"}
+    try:
+        plan = plan_scene.with_spot(held.plan, camera, (offered[0], offered[1]), offered[2])
+    except KeyError, plan_scene.SceneError:
+        return 400, {"ok": False, "error": "that camera has no spot on the plan to move"}
+    history = places.plan_history(state, place)
+    places.correct_plan(state, place, plan, now=now, base=held.plan_revision)
+    spot = cloud_scene.spots_of(state).get(camera)
+    if spot is not None:
+        cloud_scene.accept(store, camera, spot.basis)  # its picture now is the one it's placed with
+    return 200, {
+        "ok": True,
+        "spot": {"at": [offered[0], offered[1]], "yaw": offered[2]},
+        # the version this one replaced, for Undo (POST /places/scene/spot/undo)
+        "previous": history[-1].id if history else None,
+    }
+
+
+def undo_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
+    """POST /places/scene/spot/undo: take back a spot accepted from the scene. The plan version it replaced
+    (`record`) holds again, written on top as a new version (`places.restore_plan`), and the camera is once more one
+    that moved from the picture it was placed with: it isn't left at its old spot."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    if not control:
+        return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
+    place, camera, record = body.get("place"), body.get("camera"), body.get("record")
+    if not isinstance(place, str) or not isinstance(camera, str) or not isinstance(record, str):
+        return 400, {"ok": False, "error": "send the place's id, the camera, and the plan version to put back"}
+    if places.get(state, place) is None:
+        return 404, {"ok": False, "error": "no such place"}
+    try:
+        places.restore_plan(state, place, record, now=now)
+    except (KeyError, ValueError) as e:
+        return 400, {"ok": False, "error": str(e)}
+    cloud_scene.take_back(camera_clouds.Store(camera_clouds.root(state)), camera)
+    return 200, {"ok": True}
+
+
+def scene(state: Path, place: str, camera: str | None = None, combined: bool = False) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). While the place has an
     owner's plan, that is the plan, whatever the map: `plan_source` is "owner", and no machine plan is given in its
     place. It's laid on the map only when it's drawn in this revision's frame (`plan_transform`, with `plan_aligned`
     true); otherwise the transform is None, and the view draws the map alone. A place with no owner's plan gives the
     revision's own machine plan, in its frame. No map is made at present (the 3D map is being rebuilt with a new
     method), so `revision` is None until a producer of today writes one (`places.SHOWN_PRODUCERS`).
+
+    With `combined`, the scene is every camera's cloud placed in the place (`_all_cameras_scene`).
 
     What there is meanwhile is each camera's own cloud (`camera_views`, always given as `views`). With `camera`, the
     scene is that camera's cloud (`_camera_scene`); with none, and no map of the place, it's the first camera's that
@@ -307,6 +444,8 @@ def scene(state: Path, place: str, camera: str | None = None) -> Reply:
         return 404, {"error": "no such place"}
     learning = _learning()
     views = camera_views(state, place)
+    if combined:
+        return _all_cameras_scene(state, held, learning, views)
     if camera is not None:
         return _camera_scene(state, place, camera, learning, views)
     rev = _map_revision(state, place)
@@ -741,7 +880,7 @@ def _get_places(h: H) -> None:
 @routes.get("/places/scene")
 def _get_places_scene(h: H) -> None:
     q = h._query()
-    code, reply = scene(h.state, q.get("place", ""), q.get("camera") or None)
+    code, reply = scene(h.state, q.get("place", ""), q.get("camera") or None, combined=q.get("all") == "1")
     return h._json(reply, code)
 
 
@@ -749,7 +888,9 @@ def _get_places_scene(h: H) -> None:
 def _get_places_map(h: H) -> None:
     p = h.path.split("?")[0]
     q = h._query()
-    if p == "/places/map":
+    if p == "/places/map" and q.get("scene") == "1":
+        found = scene_file(h.state, q.get("place", ""), q.get("revision", ""))
+    elif p == "/places/map":
         found = map_file(h.state, q.get("place", ""), q.get("revision", ""), q.get("camera") or None)
     else:
         found = splat_file(h.state, q.get("place", ""), q.get("revision", ""))
@@ -798,6 +939,22 @@ def _post_places_plan(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, o = correct(body, h._can_teach(), h.state)
+    return h._json(o, code)
+
+
+@routes.post("/places/scene/spot")
+def _post_places_scene_spot(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = accept_spot(body, h._can_teach(), h.state)
+    return h._json(o, code)
+
+
+@routes.post("/places/scene/spot/undo")
+def _post_places_scene_spot_undo(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = undo_spot(body, h._can_teach(), h.state)
     return h._json(o, code)
 
 

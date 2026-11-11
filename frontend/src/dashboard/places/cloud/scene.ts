@@ -39,9 +39,15 @@ import type { Scene } from '../api';
 import { collisionMesh, FLOOR_MARGIN, glb, glbUrl } from './collision';
 import { type Quat, toViewerUp, turned } from './frame';
 import { coverFov, frustum, heightColour, heightOf, planOutline, planWalls, robustRange, type V3 } from './geometry';
+import { pointIndices, tinted, tintOf } from './layers';
 import type { Cloud } from './load';
 
-export type Colour = 'rgb' | 'height';
+/** How the points are coloured: their own colours, their height above the floor, or their own with their camera's
+ *  tint mixed in (a scene of several cameras' clouds, layers.ts). */
+export type Colour = 'rgb' | 'height' | 'camera';
+
+/** An opening view that isn't a camera's: the whole scene from above, looking down at the plan. */
+export const ABOVE = '@above';
 
 /** Where the viewer keeps whether its controls panel is open (its own key). */
 const CONTROLS_OPEN = 'controlsPanelOpen';
@@ -64,7 +70,18 @@ export interface Built {
   /** Fly to where a camera stands, looking where it looks. */
   lookFrom: (name: string) => void;
   /** What's shown: the splat in place of the points, the points' size and colouring, and the overlays. */
-  show: (s: { splat: boolean; size: number; colour: Colour; floor: boolean; cameras: boolean; plan: boolean }) => void;
+  show: (s: {
+    splat: boolean;
+    size: number;
+    colour: Colour;
+    floor: boolean;
+    cameras: boolean;
+    plan: boolean;
+    /** The cameras whose points aren't drawn, by their place in the scene (a scene of several cameras' clouds). */
+    hidden?: ReadonlySet<number>;
+    /** Leave out the points that lie outside the plan. */
+    inside?: boolean;
+  }) => void;
   /** Settles once the splat has drawn its first frame, or rejects with why it couldn't be drawn; settled at once
    *  when the place was built without a splat. */
   splatLoaded: Promise<void>;
@@ -322,9 +339,11 @@ export async function build(
 
   // Each camera's view: lines from its centre to the four corners of its image, and the image's edge.
   const views: V3[] = [];
-  for (const cam of Object.values(data.cameras ?? {})) {
+  const viewOf: Record<string, V3[]> = {};
+  for (const [name, cam] of Object.entries(data.cameras ?? {})) {
     const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
-    views.push(o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a);
+    viewOf[name] = [o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a];
+    views.push(...viewOf[name]);
   }
   views.forEach(grow);
 
@@ -393,7 +412,20 @@ export async function build(
     return pose ? [{ position: pose.position, title: name, text: '', camera: { initial: pose } }] : [];
   });
   const kept = typeof opening === 'string' ? null : opening;
-  const first = typeof opening === 'string' ? poseOf(opening) : null;
+  // From above: over the middle of everything, high enough to take it all in, a hair off straight down so the
+  // viewer's orbit has a way up.
+  const lift = Math.max(4, radius * 3.2); // far enough that the whole plan is in view, whatever the pane's shape
+  const above = {
+    position: inViewer([
+      onFloor[0] + up[0] * lift - across[0] * 0.02 * lift,
+      onFloor[1] + up[1] * lift - across[1] * 0.02 * lift,
+      onFloor[2] + up[2] * lift - across[2] * 0.02 * lift,
+    ]),
+    target: inViewer(onFloor),
+    fov: 50,
+  };
+  const fromAbove = opening === ABOVE;
+  const first = fromAbove ? above : typeof opening === 'string' ? poseOf(opening) : null;
   const initial = kept ? { position: kept.position, target: kept.target, fov: kept.fov } : first;
   settings.cameras = initial ? [{ initial }] : [];
 
@@ -475,6 +507,9 @@ export async function build(
   const colours = {
     height: perCorner(new Uint8Array(count * 16), ramp, 3, 255),
     rgb: cloud.colours ? perCorner(new Uint8Array(count * 16), cloud.colours, 3, 255) : null,
+    camera: cloud.views
+      ? perCorner(new Uint8Array(count * 16), tinted(count, cloud.colours, cloud.views), 3, 255)
+      : null,
   };
   const pointMaterial = new ShaderMaterial({
     uniqueName: 'PlacePoints',
@@ -490,18 +525,32 @@ export async function build(
   pointMaterial.update();
   const points = new Entity('points', app);
   let colourBy: (want: Colour) => void = () => {};
+  // Which cameras' points are drawn, and whether those outside the plan are (a scene of several cameras' clouds):
+  // only those points' squares are drawn, by building the index buffer again. Nothing is loaded again.
+  let layersShown: (hidden: ReadonlySet<number>, inside: boolean) => void = () => {};
+  let anyPoint = count > 0;
   if (count) {
     const pointMesh = new Mesh(device);
     pointMesh.setPositions(perCorner(new Float32Array(count * 12), positions, 3));
     const corners = new Float32Array(count * 8);
     for (let i = 0; i < count; i++) corners.set(CORNERS, i * 8);
     pointMesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
-    const indices = new Uint32Array(count * 6);
-    for (let i = 0; i < count; i++) indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
-    pointMesh.setIndices(indices);
+    pointMesh.setIndices(pointIndices(count, null, null, new Set(), false));
+    let layers = '|false';
+    layersShown = (hidden, inside) => {
+      const key = `${[...hidden].sort().join(',')}|${inside}`;
+      if (key === layers) return;
+      layers = key;
+      const indices = pointIndices(count, cloud.views, cloud.outside, hidden, inside);
+      anyPoint = indices.length > 0;
+      if (anyPoint) {
+        pointMesh.setIndices(indices);
+        pointMesh.update(PRIMITIVE_TRIANGLES);
+      }
+    };
     let coloured: Colour | null = null;
     colourBy = want => {
-      const by = want === 'rgb' && colours.rgb ? 'rgb' : 'height';
+      const by = want === 'camera' && colours.camera ? 'camera' : want !== 'height' && colours.rgb ? 'rgb' : 'height';
       if (by === coloured) return;
       coloured = by;
       pointMesh.setVertexStream(SEMANTIC_COLOR, colours[by] ?? colours.height, 4, count * 4, TYPE_UINT8, true);
@@ -516,7 +565,17 @@ export async function build(
     pointMaterial.setParameter('view_size', [Math.max(1, host.clientWidth), Math.max(1, host.clientHeight)]);
   app.on('update', sized);
 
-  const cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
+  // In a scene of several cameras' clouds each camera's view is drawn in its own colour (layers.ts), whatever the
+  // points are coloured by, so the colour beside its name always points at something.
+  const order = data.combined?.cameras.map(c => c.camera);
+  let cameras: Entity;
+  if (order) {
+    cameras = new Entity('cameras', app);
+    for (const [name, segments] of Object.entries(viewOf)) {
+      const [r, g, b] = tintOf(Math.max(0, order.indexOf(name)));
+      cameras.addChild(lines(device, app, `camera-${name}`, segments, [r / 255, g / 255, b / 255]));
+    }
+  } else cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
   overlays.addChild(cameras);
   const plan = lines(device, app, 'plan', outline, [0xe8 / 255, 0x59 / 255, 0x0c / 255]);
   overlays.addChild(plan);
@@ -556,11 +615,13 @@ export async function build(
       viewer.frameScene();
       draw();
     });
-  if (first)
+  if (first && !fromAbove)
     ready(() => {
       viewer.state.cameraMode = viewer.state.walkAllowed ? 'walk' : 'fly';
       draw();
     });
+  else if (fromAbove)
+    ready(draw); // the viewer's own orbit, from the opening view over the plan
   else if (kept)
     // A view kept from the map before this one: where it was, moving as it was (orbit is the viewer's own start).
     ready(() => {
@@ -606,7 +667,8 @@ export async function build(
       if (gone) return;
       wantSplat = s.splat;
       const showSplat = s.splat && !!splat;
-      points.enabled = !showSplat;
+      layersShown(s.hidden ?? new Set(), !!s.inside);
+      points.enabled = !showSplat && anyPoint;
       // The viewer counts itself loaded once its content has drawn a frame, so the content is only hidden after
       // that; the stand-in for a missing splat is see-through and stays.
       if (splat)

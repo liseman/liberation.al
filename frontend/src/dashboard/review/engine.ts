@@ -2277,6 +2277,10 @@ export class ReviewEngine {
   private followHash(): void {
     if (this.personPlayback.run) this.pause();
     const hp = readHash();
+    // The offline household has a short recording, followed by later transcript-only entries.
+    // Its default visit opens that recording; an explicit Review link always keeps its own intent.
+    const demoAt = (window as Window & { __PACK_DEMO_REVIEW__?: number }).__PACK_DEMO_REVIEW__;
+    if (!location.hash && typeof demoAt === 'number' && Number.isFinite(demoAt)) hp.t = demoAt;
     this.pickCamerasFromHash(hp.cameras ?? []);
     if (hp.cam && this.cams.includes(hp.cam)) {
       this.set({ camera: hp.cam, cameraIntent: (this.S.cameraIntent ?? 0) + 1 });
@@ -2348,6 +2352,10 @@ export class ReviewEngine {
       return;
     }
     const hp = readHash();
+    // The offline household has a short recording, followed by later transcript-only entries.
+    // Its default visit opens that recording; an explicit Review link always keeps its own intent.
+    const demoAt = (window as Window & { __PACK_DEMO_REVIEW__?: number }).__PACK_DEMO_REVIEW__;
+    if (!location.hash && typeof demoAt === 'number' && Number.isFinite(demoAt)) hp.t = demoAt;
     this.pickCamerasFromHash(hp.cameras ?? []);
     if (hp.cam && this.cams.includes(hp.cam) && (!this.begun || location.hash !== this.wrote)) {
       this.set({ camera: hp.cam, cameraIntent: (this.S.cameraIntent ?? 0) + 1 });
