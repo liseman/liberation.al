@@ -176,6 +176,7 @@ COMPUTED_KEYS = {
     "memory/presence_counts.py": '"presence.gap_s" and "presence.absence_s", a loop over literals',
     "ollama_health.py": 'f"models.ollama.{role}"',
     "services.py": "{section.key} templates in services.toml, which readers.py reads itself",
+    "spatial/camera_clouds.py": '"spatial.pointmap_runtime" and "spatial.pointmap_weights", both named in this module',
     "unifi.py": 'setting(section, key) over unifi.CONSOLES, which writes "unifi." and "unifi_protect." whole',
     "dashboard/network_cameras.py": 'unifi.setting(section, "mode"), its sections those of unifi.CONSOLES',
     "vision/crossings.py": '"crossings." + key over the settings() literals',
