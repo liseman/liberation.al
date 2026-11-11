@@ -76,7 +76,10 @@ When a camera has no cloud, the view says why:
 | The model wasn't sure of enough of the picture, or the picture had no depth to speak of | Glare, glass, or a very plain view: change what the camera sees |
 | This camera's lens calibration can't be used | Calibrate the lens again ([Cameras](CAMERAS.md#calibrate-a-wide-lens)) |
 
-A cloud is made again when the camera's view changes.
+A cloud is made again when the camera's view changes. While the camera is being carried or turned, no cloud of its own
+is made, since one needs a view that holds still: the scene follows the camera from its live frames instead, and its
+row says **Tracking** ([See every camera's cloud in one scene](#see-every-cameras-cloud-in-one-scene)). Its next cloud
+is made once the view holds still, and is placed from where it came to rest.
 
 ## See every camera's cloud in one scene
 
@@ -119,9 +122,14 @@ The word on each row says how the camera is placed:
 |---|---|---|
 | Placed | Placed from its spot on your plan | Nothing |
 | Adjusted | Placed from its spot, then adjusted against another camera that sees the same space, by what their pictures share. The details say how far from the spot | Nothing |
-| Moved | The camera was moved, and its cloud followed to where its pictures now put it | Press **Move its spot** to move the spot on your plan there. It asks first, and says how far the spot moves and turns. **Undo** on the message that follows puts the spot back, and the plan's earlier version stays in Versions |
-| Not placed | The camera was moved, and its picture matches neither its old one nor another camera's | Set its spot again in the plan editor |
+| Following | Its view changed, and the scene placed it again by itself: by what its pictures measure, or by the walls it now sees where they fit your plan. The details say how far it is from your spot and what placed it. Your spot and plan are unchanged | Nothing. **Use the plan's spot**, in its details, puts the camera back on your spot, and **Follow it again** takes that back |
+| Tracking | It is moving. The scene shows it where its live frames are tracked to, with its path and its last keyframes' points, and the details say how long ago a wall held it to your plan | Nothing |
+| Moved | It moved and has come to rest. It keeps that place until it gets its next cloud | Wait: about 20 seconds with nobody in view, and the new cloud is placed from where it came to rest |
+| Not placed | Its view changed and it can't be placed with confidence: no wall in view, your plan has no wall to place it by, the walls it sees fit nowhere on the plan, or they fit in more than one place. It isn't drawn and keeps where it last stood | **Use the plan's spot** in its details, or set its spot again in the plan editor |
 | No spot | It has no spot on your plan, or its spot has no facing | Press **Set its spot**, which opens the plan editor |
+
+A camera whose spot faces the wrong way is placed again the same way, as **Following**, from the walls it sees: its
+pictures need not have changed for that to happen.
 
 **Only inside the plan** leaves out the points that fall outside your plan's rooms, and says how many.
 
@@ -146,19 +154,21 @@ uv run pack-positions --dry-run
 
 It reads the last day (`--hours` changes that), changes nothing, and prints a line for each fixed camera: how many
 footprints it saw, how many land on the floor and in a room of the plan, whether it is read through its spot
-or its pose in a revision, its fitted tilt, and what it lacks. A camera read through "nothing: no spot and no pose"
-places nobody. What a camera lacks, and what to do:
+or its pose in a revision, its fitted tilt and whether the picture's straight edges confirmed it, and what it lacks.
+A camera read through "nothing: no spot and no pose" places nobody. What a camera lacks, and what to do:
 
 | It lacks | Do this |
 |---|---|
 | Height, facing, or field of view | Fill in that field of its spot ([steps](PLAN-EDITOR.md#give-a-camera-a-spot)) |
 | A held lens and its spot has no field of view | Give its spot a field of view |
-| Tilt: too few people seen walking | Wait: the tilt is fitted by a `pack-positions` run once enough people have walked through the view |
+| Tilt: too few people seen walking, and too few straight edges in the picture | Wait: a `pack-positions` run fits the tilt once enough people have walked through the view, and the picture's edges can confirm it |
 | Check: people come out the wrong height | Check the spot's height and field of view, and the camera's lens |
 
-A line also says how many people and animals the camera left unplaced behind a wall from its spot. A few are
-expected (a pet on a sofa). The run flags a camera with more than a tenth of its people there: its height, tilt,
-lens, or spot is off, or the plan is drawn at another scale.
+A line also says how many people and animals the camera left unplaced behind a wall from its spot. An animal there
+is put at the furniture and marked approximate, so these are the animals the fallback could not place (no spot, no
+plan to read, or a line the spot cannot see from its start), and any people, whose foot behind a wall is pose error.
+The run flags a camera with more than a tenth of its people there: its height, tilt, lens, or spot is off, or the
+plan is drawn at another scale.
 
 The `positions` service places people at 20 past each hour. To place them at once:
 

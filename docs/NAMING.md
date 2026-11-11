@@ -103,6 +103,8 @@ Open the pet's card (Known, then Pets) and read "Recognition".
 - "Usable teaching examples" is how many of your answers recognition can use. "Earlier taught sightings have no
   usable reference" counts answers given for an earlier model whose pictures are gone; answer more sightings of that
   pet to replace them.
+- "<N> taught sightings keep no saved picture" counts answers whose picture was not kept, which a change of
+  embedding model would need to rebuild. Naming that sighting again keeps the next picture.
 
 Every answer in "Sightings to name" teaches the pack, and the wrong and unsure counts fall as the pet's examples
 cover more of how it looks.

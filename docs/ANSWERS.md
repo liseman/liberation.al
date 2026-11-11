@@ -44,6 +44,11 @@ is read back from the memory log, so nothing superseded or purged is evidence.
 Answers lead with one short sentence, then the explanation and coverage. Recorded-frame analysis needs
 `review.recorded_frame_analysis = true`.
 
+An answer's links stay inside the dashboard: a link in an answer or in its evidence is made a link only when the
+dashboard answers that path (`frontend/src/dashboard/ask/links.ts` holds the list), so a model's `/recordings`, a bare
+`/audio`, or `/camera/query` stays plain text. The gateway serves `/camera/query` on its own port, so a same-origin
+link to it would 404.
+
 Ask uses `ask.model` when set, else the agent gateway's default model when that is a local one, else
 `models.ollama.llm`. With `ask.ollama_url` pointing at the `ask-ollama` service, Ask's model stays loaded at its own
 context without reloading the shared server's model.

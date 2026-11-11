@@ -119,6 +119,12 @@ export const findObjects = (snapshot: string, crop: Box | null, job: string, sig
 export const cancelSegment = (job: string) =>
   request<{ ok: boolean; cancelled: boolean }>(`${base}/api/cancel`, { job });
 export const enroll = (body: EnrollRequest) => request<{ object: MemoryObject }>(`${base}/api/enroll`, body);
+/** Give a remembered object another name; its sightings and template stay. */
+export const renameObject = (id: string, name: string) =>
+  request<{ object: MemoryObject }>(`${base}/api/rename`, { id, name });
+/** Stop remembering an object. Its recorded sightings stay, and `restoreObject` remembers it again. */
+export const forgetObject = (id: string) => request<{ ok: boolean; id: string }>(`${base}/api/forget`, { id });
+export const restoreObject = (id: string) => request<{ object: MemoryObject }>(`${base}/api/restore`, { id });
 
 /** The picture only: a Live draft's clicked box stays in the browser for the one EdgeTAM request after import. */
 export const importView = (draft: ObjectDraft) => {

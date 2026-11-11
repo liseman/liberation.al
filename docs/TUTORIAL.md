@@ -11,15 +11,20 @@ so nothing we do can touch a real recording.
 
 ## Before we start
 
-- Finish "Install" in the [install guide](INSTALL.md#install), down to `mise run continuum-release`. The demo needs no
-  camera, no microphone, no `pack.toml`, and no running Ollama.
-- Open a terminal in the clone.
+- Finish "Install" in the [install guide](INSTALL.md#install) down to `mise run continuum-release`, or install a
+  [release](RELEASES.md#install-with-apt). The demo needs no camera, no microphone, no `pack.toml`, and no running
+  Ollama.
+- Open a terminal: in the clone, or anywhere for an installed release.
 
 ## Step 1: start the demo
 
+Start the demo with `pack-demo`, or with `mise run demo` in a checkout:
+
 ```sh
-mise run demo
+pack-demo
 ```
+
+Either command prints the same output.
 
 The demo draws its household first, which takes a minute or two. The terminal fills with log lines, and then the
 command prints two lines like these (the date is yesterday's, and the directory has a name of its own each time):
@@ -29,7 +34,8 @@ pack-demo: seeded the demo household, with a journal and a transcript for 2026-1
 pack-demo: the demo dashboard is on http://localhost:8780/ (its files are in /tmp/pack-demo-abc123)
 ```
 
-Leave the command running, and open <http://localhost:8780/> in a browser. The terminal keeps logging while the demo
+The address line appears once the dashboard answers, so it is ready to open. Leave the command running, and open
+<http://localhost:8780/> in a browser. The terminal keeps logging while the demo
 runs: we can ignore it. If the command says port 8780 is taken, it names the port it took, and the address line
 has it: open that address.
 
@@ -45,7 +51,8 @@ The dashboard opens on Live. This is the home as it is now:
 Notice the status at the top right: "Not listening · 4 cameras". The demo plays a day that was prepared for it, so
 nothing is being listened to.
 
-If the command stops with `no broker at ...`, the install isn't finished: run `mise run continuum-release`.
+If the command stops with `no broker at ...`, the install isn't finished: run `pack-setup` again, or in a checkout
+`mise run continuum-release`.
 
 ## Step 2: find yesterday in the Journal
 
@@ -173,11 +180,8 @@ back from the camera, then switch back to **Plan**.
 ## Step 8: stop the demo, and start it again
 
 1. In the terminal, press Ctrl-C. The dashboard and the demo's broker stop.
-2. Run it again, and wait for the address line as before:
-
-   ```sh
-   mise run demo
-   ```
+2. Run it again the way you started it (`pack-demo`, or `mise run demo` in a checkout), and wait for the address
+   line as before.
 
 3. Reload the browser page (at the new address, if the demo printed a different port), and open **Known**.
 
@@ -195,7 +199,8 @@ and microphones.
 
 ## Next steps
 
-- Make it yours: [Configure](INSTALL.md#configure) and [First run](INSTALL.md#first-run) in the install guide.
+- Make it yours: [Configure](INSTALL.md#configure) and [First run](INSTALL.md#first-run) in the install guide for a
+  checkout, or the release's own [install and first run](RELEASES.md#install-with-apt) for an installed package.
 - Why the Journal reads as it does: [Answers](ANSWERS.md).
 - How people, voices, faces, and pets are named and corrected: [People](PEOPLE.md).
 - How a place gets its plan, and how people are placed on it: [Spatial memory](SPATIAL.md).
