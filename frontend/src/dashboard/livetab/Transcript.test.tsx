@@ -11,6 +11,8 @@ import type { TranscriptEntry } from '../live/types';
 import type { Turn } from '../transcript/model';
 import { sameTurn } from '../transcript/model';
 import { InlineName } from '../transcript/parts';
+import { HEAD_PX, LINE_PX } from '../transcript/Transcript';
+import { refreshNames } from './api';
 import { Transcript } from './Transcript';
 
 const T0 = 1_793_000_000;
@@ -781,5 +783,165 @@ describe('incorrect transcript turns', () => {
     expect(screen.getByText('first misheard line')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
     expect(within(turn).getByRole('button', { name: 'Not transcribed correctly' })).toBeEnabled();
+  });
+});
+
+// Naming a line makes the page read the tail again (livetab/api.ts's refreshNames, 4 s after a tag), and that read
+// answers with reset: true and up to 300 lines: more history than the tab opened with. jsdom has no layout, so here a
+// turn is its header and then a LINE_PX row per line (the list's own estimate), each where the list's translateY puts
+// it, in a box VIEW px tall; a scroll the list sets fires its scroll event, as a browser's does.
+// (The same fake layout as review/Transcript.test.tsx.)
+describe('the list holds its place when the tail is read again', () => {
+  const TURN = HEAD_PX + LINE_PX; // a turn per line
+  const VIEW = 300;
+  const LIST = 'Recent conversation';
+  const scrolled = new WeakMap<Element, number>();
+  const isList = (el: Element) => el.getAttribute('aria-label') === LIST;
+  const listOf = (el: Element) => el.closest(`[aria-label="${LIST}"]`);
+  const height = (list: Element) =>
+    Number.parseFloat(list.querySelector<HTMLElement>('[data-turns]')?.style.height ?? '0') || 0;
+  const slotTop = (slot: Element | null) =>
+    Number.parseFloat(
+      /translateY\((-?[\d.]+)px\)/.exec((slot as HTMLElement | null)?.style.transform ?? '')?.[1] ?? '0',
+    );
+
+  const lineAt = (i: number): TranscriptEntry => ({
+    ts_start: T0 + i * 5,
+    ts_end: T0 + i * 5 + 2,
+    line: `mic@${T0 + i * 5}.000`,
+    text: `line ${i}`,
+    speaker_id: (i & 1) + 1, // a turn per line: alternating voices
+  });
+  const from = (first: number, to: number) => Array.from({ length: to - first }, (_, n) => lineAt(first + n));
+
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return isList(this) ? VIEW : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return isList(this) ? height(this) : 0;
+    });
+    vi.spyOn(Element.prototype, 'scrollTop', 'get').mockImplementation(function (this: Element) {
+      return scrolled.get(this) ?? 0;
+    });
+    vi.spyOn(Element.prototype, 'scrollTop', 'set').mockImplementation(function (this: Element, v: number) {
+      const to = Math.max(0, Math.min(v, height(this) - VIEW));
+      if (to === (scrolled.get(this) ?? 0)) return;
+      scrolled.set(this, to);
+      queueMicrotask(() => this.dispatchEvent(new Event('scroll')));
+    });
+    // The list measures each turn as it's observed: as tall as its lines.
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        readonly cb: ResizeObserverCallback;
+        constructor(cb: ResizeObserverCallback) {
+          this.cb = cb;
+        }
+        observe(el: Element) {
+          if (!el.hasAttribute('data-index')) return;
+          const blockSize = HEAD_PX + el.querySelectorAll('[data-key]').length * LINE_PX;
+          const entry = {
+            target: el,
+            borderBoxSize: [{ blockSize, inlineSize: 300 }],
+          } as unknown as ResizeObserverEntry;
+          queueMicrotask(() => this.cb([entry], this as unknown as ResizeObserver));
+        }
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (this: HTMLElement) {
+      return this.hasAttribute('data-index') ? HEAD_PX + this.querySelectorAll('[data-key]').length * LINE_PX : 0;
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const list = listOf(this);
+      if (!list || isList(this)) return DOMRect.fromRect({ x: 0, y: 0, width: 300, height: VIEW });
+      const slot = this.closest('[data-index]');
+      const at = slot ? [...slot.querySelectorAll('[data-key]')].indexOf(this) : 0;
+      const y = slotTop(slot) + HEAD_PX + at * LINE_PX - (scrolled.get(list) ?? 0);
+      return DOMRect.fromRect({ x: 0, y, width: 300, height: LINE_PX });
+    });
+    return () => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    };
+  });
+
+  /** Let queued scroll events, and the renders they cause, run. */
+  const settle = () => act(async () => {});
+
+  /** Name the unmatched line at index i, as a reader does: its name badge, then a name. */
+  async function nameLine(i: number) {
+    const turn = screen.getByText(`line ${i}`).closest('article') as HTMLElement;
+    await userEvent.click(within(turn).getByRole('button', { name: 'Unmatched: say who this is' }));
+    await userEvent.type(await screen.findByRole('combobox', { name: 'Speaker name' }), 'Dana{Enter}');
+    const key = `mic@${T0 + i * 5}.000`;
+    await vi.waitFor(() => expect(posts).toEqual([['speakers/tag', { lines: [key], name: 'Dana' }]]));
+  }
+
+  it('holds the line a reader named where it was while older lines land above it', async () => {
+    const shown = from(100, 120).map((e, n) => (n === 5 ? { ...e, speaker_id: null, speaker: 'unknown' } : e));
+    const { client } = renderTranscript(shown);
+    const list = await screen.findByRole('region', { name: LIST });
+    await settle();
+    // The reader scrolled down to a line they are naming: line 105 is the top row, its header LINE_PX below the box top.
+    list.scrollTop = 5 * TURN;
+    fireEvent.scroll(list);
+    await settle();
+    expect(screen.getByRole('button', { name: 'Follow latest' })).toBeInTheDocument(); // away from the end
+    // The re-read after the naming answers with the whole tail: 80 lines older than the ones the tab opened with.
+    server.use(http.get('/transcript', () => HttpResponse.json({ entries: from(20, 120), reset: true })));
+    await nameLine(105);
+    act(() => {
+      void refreshNames(client, 0);
+    });
+    await vi.waitFor(() => expect(height(list)).toBe(100 * TURN));
+    await settle();
+    // The line acted on keeps its place on screen: the same distance from the box's top, not moved, and not gone.
+    expect(list.scrollTop).toBe(85 * TURN);
+    expect(screen.getByText('line 105').closest('[data-key]')?.getBoundingClientRect().top).toBe(HEAD_PX);
+    expect(screen.getByRole('button', { name: 'Follow latest' })).toBeInTheDocument(); // still away from the end
+    expect(screen.queryByRole('button', { name: /new line/ })).toBeNull(); // nothing arrived below it
+  });
+
+  it('holds the line a reader is on when the read brings fewer lines, and no older ones', async () => {
+    const shown = from(100, 120);
+    const { client } = renderTranscript(shown);
+    const list = await screen.findByRole('region', { name: LIST });
+    await settle();
+    list.scrollTop = 5 * TURN; // line 105, the same place as the naming above
+    fireEvent.scroll(list);
+    await settle();
+    // What the read after a correction answers: a tail with the lines purged since left out.
+    act(() => {
+      client.setQueryData(
+        liveKey('transcript'),
+        reduce('transcript', client.getQueryData(liveKey('transcript')), { entries: from(60, 120), reset: true }),
+      );
+    });
+    await vi.waitFor(() => expect(height(list)).toBe(60 * TURN));
+    await settle();
+    expect(screen.getByText('line 105').closest('[data-key]')?.getBoundingClientRect().top).toBe(HEAD_PX);
+    expect(list.scrollTop).toBe(45 * TURN);
+  });
+
+  it('stays at the newest line when the tail is read again while following it', async () => {
+    const shown = from(100, 120);
+    const { client } = renderTranscript(shown);
+    const list = await screen.findByRole('region', { name: LIST });
+    await settle();
+    list.scrollTop = 20 * TURN - VIEW; // the end
+    fireEvent.scroll(list);
+    await settle();
+    expect(screen.getByRole('button', { name: 'Following latest' })).toBeInTheDocument();
+    server.use(http.get('/transcript', () => HttpResponse.json({ entries: from(20, 120), reset: true })));
+    act(() => {
+      void refreshNames(client, 0);
+    });
+    await vi.waitFor(() => expect(height(list)).toBe(100 * TURN));
+    await settle();
+    expect(list.scrollTop).toBe(100 * TURN - VIEW);
+    expect(screen.getByRole('button', { name: 'Following latest' })).toBeInTheDocument();
   });
 });

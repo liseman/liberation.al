@@ -35,7 +35,6 @@ function serve(view: PeopleView = VIEW, faces = 3, voices = 2) {
     http.get('/faces/unknown/groups', () => HttpResponse.json({ groups: [], count: faces, skipped: [] })),
     http.get('/voices/unknown/groups', () => HttpResponse.json({ groups: [], count: voices, skipped: [] })),
     http.get('/inbox/unnamed', () => HttpResponse.json({ faces: [], videos: [], voices: [] })),
-    http.get('/speakers/refine', () => HttpResponse.json({ items: [], remaining: 0 })),
     http.get('/calls', () => HttpResponse.json([])),
     http.get('/clones', () =>
       HttpResponse.json({

@@ -275,13 +275,17 @@ def use(
         return None
 
 
-def states(link: Any) -> dict[str, Any]:
+def states(link: Any | None) -> dict[str, Any]:
     """Each manifest camera's status: {"ts", "cameras": {name: {"state": "on",
-    "size": [w, h], "fps"}}}, a camera absent while capture sends it nothing. `link` is a continuum_link.BrokerLink.
+    "size": [w, h], "fps"}}}, a camera absent while capture sends it nothing. `link` is a continuum_link.BrokerLink,
+    or None when this install has no broker to link to: no camera is on, and the answer is not kept, so a broker that
+    comes up later is read as soon as it is there.
     Asked of the broker at most every STATUS_EVERY_S. A status older than that answers at once and is read again in
     the background, one read at a time: reading every camera's last frames took about a second, which every
     page's event stream (camera_status) and Settings > Devices waited for every 2 s. Only the first read waits."""
     global _status_read
+    if link is None:
+        return {"ts": time.time(), "cameras": {}}
     with _status_lock:
         value = _cache["value"]
         if value is not None:
@@ -318,7 +322,8 @@ def _read(link: Any) -> dict[str, Any]:
     for cam in [*manifest_cameras(), *manifest_devices("rtsp")]:
         stream = f"{cam['name']}.video"
         try:
-            items = link.call(lambda c, s=stream: c.query(s, lo, now))["items"]
+            # The broker's stream read over a window (a continuum_py.Client): no query text is built.
+            items = link.call(lambda broker, s=stream: broker.query(s, lo, now))["items"]
         except Exception as e:  # no broker, or the stream isn't registered yet: nothing from it
             LOG.debug(f"camera status {stream}: {e!r}")
             continue

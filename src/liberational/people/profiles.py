@@ -1,12 +1,12 @@
-"""Build per-person memory from in-person transcripts and phone-call transcripts.
+"""Build per-person memory from phone-call transcripts.
 
 Writes <paths.state>/people/
   index.json         roster: name, line counts, first/last seen, sources
   <name>.md          profile: facts stated in the person's own lines, with dates
 
-A profile is keyed by the person's current name, in lower case, with the name in its heading. Lines are read through
-the person registry (`transcript_view`), and phone-call lines are resolved through it as of the call, so a rebuild
-writes each person under the name they have now. Between rebuilds, the dashboard moves a profile with its person
+A profile is keyed by the person's current name, in lower case, with the name in its heading. Phone-call lines are
+resolved through the person registry (`transcript_view`) as of the call, so a rebuild writes each person under the
+name they have now. Between rebuilds, the dashboard moves a profile with its person
 (`rename`): a rename moves the file, and a merge adds the merged person's facts to the survivor's. Forgetting a person
 moves every profile under any of their names aside (`files_of`), and a rebuild leaves out the calls of someone
 forgotten. Keying by name rather than by person id keeps every profile already written readable as it is, by the
@@ -122,28 +122,6 @@ def norm_name(label: str) -> str | None:
     if label in phone_labels():
         return phone_labels()[label]
     return label.strip().lower()
-
-
-def load_inperson() -> list[dict[str, Any]]:
-    rows = []
-    p = STATE / "transcript.jsonl"
-    if not p.exists():
-        return rows
-    # Who said each line, per the event log, by the name the person has now: a line keeps the name it was heard under.
-    for e in transcript_view.View(STATE).named(transcript_view.entries(p)):
-        name = norm_name(e.get("speaker") or "")
-        if not name:
-            continue
-        ts = e.get("ts_start")
-        rows.append(
-            {
-                "name": name,
-                "text": (e.get("text") or "").strip(),
-                "ts": ts,
-                "src": f"in-person:{e.get('device', 'mic')}",
-            }
-        )
-    return rows
 
 
 def call_start(d: pathlib.Path) -> float | None:
@@ -333,7 +311,7 @@ def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     os.chmod(OUT, 0o700)
 
-    rows = load_inperson() + load_calls()
+    rows = load_calls()
     SYNTHETIC = synthetic()
     by = collections.defaultdict(list)
     for r in rows:

@@ -62,12 +62,17 @@
   width: 8rem;
   padding-inline: var(--mantine-spacing-xs);
 }
+/* Both lines of a tab share Mantine's small-text line height: Tabs.Tab sets line-height 1, a line box shorter than
+   the font's own ascent and descent, and the title's overflow: hidden (its ellipsis) then cut what hung below it (the
+   descender of the g in Ingest, #508). A line height the font fits leaves the ellipsis its clipping and the glyphs
+   their room. */
 .label {
   display: flex;
   flex-direction: column;
   align-items: center;
   min-width: 0;
   max-width: 100%;
+  line-height: var(--mantine-line-height-xs);
 }
 .title,
 .count {
@@ -79,9 +84,9 @@
 /* The reserved line: its height is set, not taken from its text, so it is as tall empty as with a count. */
 .count {
   display: block;
-  height: calc(var(--mantine-font-size-xs) * 1.4);
+  height: calc(var(--mantine-font-size-xs) * var(--mantine-line-height-xs));
   font-size: var(--mantine-font-size-xs);
-  line-height: 1.4;
+  line-height: var(--mantine-line-height-xs);
   font-weight: 500;
   color: var(--mantine-primary-color-light-color);
 }

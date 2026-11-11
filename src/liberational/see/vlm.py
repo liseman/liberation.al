@@ -162,8 +162,8 @@ class MlxVLM:
 
 
 class MlxServerVLM:
-    """Caption via liberational/vision/vlm_server.py (mlx-vlm in its own process, launchd pack.vlm). Same prompt/model as
-    MlxVLM, ~5 ms HTTP+JPEG overhead, and the camera process stays free of Metal work."""
+    """Caption via liberational/vision/vlm_server.py (mlx-vlm in its own process, started by the vlm service). Same
+    prompt/model as MlxVLM, ~5 ms HTTP+JPEG overhead, and the camera process stays free of Metal work."""
 
     name = "mlx-server"
 

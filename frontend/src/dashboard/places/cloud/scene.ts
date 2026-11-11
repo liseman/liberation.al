@@ -520,7 +520,7 @@ export async function build(
     attributes: { vertex_position: SEMANTIC_POSITION, vertex_color: SEMANTIC_COLOR, vertex_corner: SEMANTIC_TEXCOORD0 },
   });
   pointMaterial.cull = CULLFACE_NONE;
-  pointMaterial.setParameter('point_size', 2.5);
+  pointMaterial.setParameter('point_size', 5);
   pointMaterial.setParameter('view_size', [1, 1]);
   pointMaterial.update();
   const points = new Entity('points', app);

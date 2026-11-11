@@ -596,9 +596,6 @@ def _ts(line: dict[str, Any]) -> float:
 
 
 # ---------------------------------------------------------------- the brain ----
-
-
-# ---------------------------------------------------------------- the brain ----
 class Identity:
     """The worker's brain: fed records as they're committed (`on_match`, `on_lines`), it keeps the unknown-face
     sightings of the last SIGHTING_KEEP_S, proposes names, and applies the sure ones."""
@@ -846,10 +843,7 @@ class Identity:
         try:
             return fn()
         except Exception as e:
-            import traceback
-
-            LOG.error("step error: %s", e)
-            traceback.print_exc()
+            LOG.exception("step error: %s", e)
             return None
 
     async def _follow_speech(
@@ -1027,9 +1021,6 @@ def collar_intro(
         )
     append_record(paths, rec)
     return {"reply": reply, "record": rec}
-
-
-# ---------------------------------------------------------------------- CLI ----
 
 
 # ---------------------------------------------------------------------- CLI ----

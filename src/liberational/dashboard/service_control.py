@@ -6,15 +6,13 @@ POST /services          {"name", "action"} or {"all"}: this machine only, same-o
 """
 
 import contextlib
-import subprocess
 import threading
 from typing import TYPE_CHECKING, Any
 
 from liberational import config as cfg
 from liberational import service_cascade, services, supervisor
-from liberational.config import workdir
 from liberational.dashboard import context, routes
-from liberational.dashboard.context import LOG, PY, Reply
+from liberational.dashboard.context import LOG, Reply
 
 if TYPE_CHECKING:
     from liberational.dashboard.server import H
@@ -42,40 +40,45 @@ def service_history_view(hours: str = "24") -> Reply:
         return 503, {"error": "Could not read service history."}
 
 
-# What each action on one service does: its pack-services command, and the words its log line says it in.
-SERVICE_ACTIONS: dict[str, tuple[str, str]] = {
-    "on": ("install", "installed and started; runs at every login"),
-    "off": ("uninstall", "uninstalled; stays off until turned on"),
-    "stop": ("stop", "stopped now; starts again when the computer restarts"),
-    "start": ("start", "started"),
+# What each action on one service does to the application's set, and the words its log line says it in.
+SERVICE_ACTIONS: dict[str, str] = {
+    "on": "started; runs as long as the application does",
+    "off": "stopped and kept stopped while the application runs",
+    "stop": "stopped now; starts again when the application restarts",
+    "start": "started",
 }
 
 
-def _logged(action: str, what: str, why: str, ok: bool | None, out: str) -> None:
+def _no_application() -> Reply:
+    """Turning a service on, off, or stopping it needs the application: nothing renders an operating-system unit."""
+    return 503, {"ok": False, "error": f"{services.APPLICATION}, then try again"}
+
+
+def _logged(action: str, what: str, why: str, ok: bool, out: str) -> None:
     """One INFO line per service action from the dashboard, done or not, so the log says what changed."""
     lines = out.strip().splitlines()
     bad = next((line for line in lines if "FAILED" in line), lines[-1] if lines else "?")  # the error, not a note after
-    result = "done" if ok else "timed out" if ok is None else f"failed: {bad}"
-    LOG.info(f"services: {action} {what} ({why}): {result}")
+    LOG.info(f"services: {action} {what} ({why}): {'done' if ok else f'failed: {bad}'}")
 
 
-# Held around each POST /services action: Enable and Disable read and rewrite pack.toml in a pack-services process, and
-# two at once would lose one's change; the others mustn't race an install or uninstall of the same units either.
+# Held around each POST /services action: Enable and Disable read and rewrite pack.toml, and two at once would lose
+# one's change; the others mustn't race a start or stop of the same service either.
 SERVICES_LOCK = threading.Lock()
 
 
-# Enable and Disable: pack.toml's [services] lists first, so the choice outlasts a restart, then the service itself.
-SERVICE_CHOICES: dict[str, tuple[str, str]] = {
-    "enable": ("install", "enabled for this machine, installed, and started"),
-    "disable": ("uninstall", "disabled for this machine and stopped; stays off after a restart"),
+# Enable and Disable: pack.toml's [services] lists first, so the choice outlasts the application, then the service.
+SERVICE_CHOICES: dict[str, str] = {
+    "enable": "enabled for this machine, and started",
+    "disable": "disabled for this machine and stopped; stays off after a restart",
 }
 
 
 def service_action(name: str, action: str) -> Reply:
-    """(code, body): one service's action: on (pack-services install), off (uninstall: stays off), stop (stopped now,
-    still installed, so it starts again when the computer restarts, or on Repair), start (an installed one that was
-    stopped), enable (one not enabled here: pack.toml's [services] names it, and it's installed), or disable (the
-    reverse: taken out of pack.toml's choice and uninstalled, so it stays off after a restart)."""
+    """(code, body): one service's action: on (running, and kept running), off (stopped, and kept stopped), stop
+    (stopped now, so it starts again when the application does, or on Repair), start (one the application has
+    stopped), enable (one not enabled here: pack.toml's [services] names it, and it starts), or disable (the
+    reverse: taken out of pack.toml's choice, so it stays off after a restart). All of them need the application
+    open, since it, not an operating-system unit, runs the services."""
     if action not in SERVICE_ACTIONS and action not in SERVICE_CHOICES:
         return 400, {
             "ok": False,
@@ -100,45 +103,9 @@ def service_action(name: str, action: str) -> Reply:
         }
     if action in ("stop", "start") and not svc["installed"]:
         return 409, {"ok": False, "error": f"{name} isn't installed: turn it on instead"}
-    if supervisor.read_status() is not None:
-        return _supervised(svc, name, action)
-    if action in SERVICE_CHOICES:
-        command, why = SERVICE_CHOICES[action]
-        # Back to its default where that is the choice, so pack.toml names only what differs from services.toml.
-        default = bool(svc.get("default"))
-        listed = ("reset" if default else "enable") if action == "enable" else ("disable" if default else "reset")
-        steps = [[listed, name], [command, name]]
-    else:
-        command, why = SERVICE_ACTIONS[action]
-        steps = [[command, name]]
-    ok, outs = True, []
-    for step in steps:
-        # The outer process must outlive the cascade's own readiness and recovery deadlines.
-        timeout = (
-            service_cascade.subprocess_timeout()
-            if step[0] == "install" and name in {"continuum-broker", "continuum-capture"}
-            else 120
-        )
-        ok, out = _pack_services(step, timeout)
-        outs.append(out)
-        if step[0] in ("enable", "disable", "reset"):
-            cfg.load.cache_clear()  # pack-services wrote pack.toml; read it again here
-        if not ok:
-            break
-    out = "\n".join(outs)
-    _logged(action, name, why, ok, out)
-    if ok is None:
-        return 504, {
-            **services_view(True, fresh=True),
-            "ok": False,
-            "error": f"pack-services timed out: {action} {name}",
-        }
-    return (200 if ok else 500), {
-        **services_view(True, fresh=True),
-        "ok": ok,
-        "out": out[-2000:],
-        "error": None if ok else out[-500:],
-    }
+    if supervisor.read_status() is None:
+        return _no_application()
+    return _supervised(svc, name, action)
 
 
 def _supervised(svc: dict[str, Any], name: str, action: str) -> Reply:
@@ -169,82 +136,32 @@ def _supervised(svc: dict[str, Any], name: str, action: str) -> Reply:
     }
 
 
-def _pack_services(args: list[str], timeout: float) -> tuple[bool | None, str]:
-    """Run `pack-services <args>` from this checkout: (worked, output), with worked None on a timeout."""
-    try:
-        r = subprocess.run(
-            [PY, "-m", "liberational.services", *args], capture_output=True, text=True, timeout=timeout, cwd=workdir()
-        )
-    except subprocess.TimeoutExpired:
-        return None, ""
-    out = (r.stdout + r.stderr).strip()
-    return r.returncode == 0 and "FAILED" not in out, out
-
-
 def all_services(action: str) -> Reply:
-    """(code, body): every service but the dashboard at once. "repair" reinstalls each service enabled for
-    this machine (units rendered fresh, enabled, and restarted), which also brings back one left installed but
-    stopped. "off" removes every installed one. The dashboard is left alone (this page runs on it), and so is a
-    service running by hand outside the service manager, which an install would start a second time."""
+    """(code, body): every service but the dashboard at once. "repair" is the application's staged restart of every
+    selected service, which also brings back one it had stopped. "off" stops every other service, and keeps it
+    stopped while the application runs. The dashboard is left alone: this page runs on it."""
     if action not in ("repair", "off"):
         return 400, {"ok": False, "error": 'send {"all": "repair"} or {"all": "off"}'}
     status = supervisor.read_status()
-    if status is not None:
-        # Under a supervisor (#155): repair is its staged restart of everything, and off stops all but this page.
-        try:
-            if action == "repair":
-                reply = supervisor.request({"op": "restart"}, timeout=service_cascade.subprocess_timeout())
-            else:
-                names = [name for name in status["services"] if name != "dashboard"]
-                reply = supervisor.request({"op": "stop", "names": names}, timeout=120)
-        except ConnectionError as error:
-            reply = {"ok": False, "error": str(error)}
-        ok = bool(reply.get("ok"))
-        LOG.info(f"services: {action} all (supervisor): {'done' if ok else 'failed: ' + str(reply.get('error'))}")
-        return (200 if ok else 500), {
-            **services_view(True, fresh=True),
-            "ok": ok,
-            "error": None if ok else str(reply.get("error")),
-        }
-    view = services_view(True, fresh=True)
-    if not view["ok"]:
-        return 500, view
-    rows = [r for r in view["services"] if r["name"] != "dashboard"]
-    by_hand = [r["name"] for r in rows if not r["installed"] and r["pids"]]
-    core = False
-    if action == "repair":
-        names = [r["name"] for r in rows if r["selected"] and r["name"] not in by_hand]
-        core = bool({"continuum-broker", "continuum-capture"}.intersection(names))
-        # The cascade must see the original PIDs before stopping anything. A separate uninstall would discard
-        # that evidence and bypass its reader-first shutdown, including capture-worker ownership checks.
-        steps = [["install", "--cascade", *names]] if core else [["uninstall", *names], ["install", *names]]
-    else:
-        names = [r["name"] for r in rows if r["installed"]]
-        steps = [["uninstall", *names]]
-    note = f"Left alone, running by hand: {', '.join(by_hand)}." if by_hand else None
-    if not names:  # `pack-services uninstall` with no names means every installed service, the dashboard included
-        return 200, {**services_view(True, fresh=True), "ok": True, "note": note or "Nothing to do."}
-    outs = []
-    why = "uninstalled and installed again" if action == "repair" else "every installed service but the dashboard"
-    if action == "repair" and core:
-        why = "units rendered and services restarted in dependency order"
-    for step in steps:
-        timeout = service_cascade.subprocess_timeout() if step[0] == "install" and core else 300
-        ok, out = _pack_services(step, timeout)
-        outs.append(out)
-        if not ok:
-            _logged(action, ", ".join(names), why, ok, out)
-            error = (
-                f"pack-services {step[0]} timed out" if ok is None else out[-500:] or f"pack-services {step[0]} failed"
-            )
-            return (504 if ok is None else 500), {
-                **services_view(True, fresh=True),
-                "ok": False,
-                "error": error,
-                "note": note,
-            }
-    _logged(action, ", ".join(names), why, True, "")
-    return 200, {**services_view(True, fresh=True), "ok": True, "out": "\n".join(outs)[-2000:], "note": note}
+    if status is None:
+        return _no_application()
+    # The application runs the services (#155): repair is its staged restart of everything, and off stops all but
+    # this page.
+    try:
+        if action == "repair":
+            reply = supervisor.request({"op": "restart"}, timeout=service_cascade.subprocess_timeout())
+        else:
+            names = [name for name in status["services"] if name != "dashboard"]
+            reply = supervisor.request({"op": "stop", "names": names}, timeout=120)
+    except ConnectionError as error:
+        reply = {"ok": False, "error": str(error)}
+    ok = bool(reply.get("ok"))
+    LOG.info(f"services: {action} all (supervisor): {'done' if ok else 'failed: ' + str(reply.get('error'))}")
+    return (200 if ok else 500), {
+        **services_view(True, fresh=True),
+        "ok": ok,
+        "error": None if ok else str(reply.get("error")),
+    }
 
 
 @routes.get("/services/history")
@@ -260,12 +177,9 @@ def _get_services(h: H) -> None:
 
 @routes.post("/services")
 def _post_services(h: H, body: Any) -> None:
-    origin = h.headers.get("Origin")
     if not h._can_control():
         return h._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
-    if h.headers.get_content_type() != "application/json" or (
-        origin and origin not in (f"http://{h.headers.get('Host') or ''}", f"https://{h.headers.get('Host') or ''}")
-    ):
+    if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
         if "all" in body:

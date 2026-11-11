@@ -629,19 +629,9 @@ def assign_many(body: Mapping[str, Any]) -> Reply:
 
 
 def _line_by_key(key: str) -> dict[str, Any] | None:
-    """The stored transcript line whose key (registry.key_of) is `key`, newest first, or None."""
-    try:
-        _slug, ts = registry.split_key(key)
-    except ValueError:
-        return None
-    for e in transcript_lines.iter_back():
-        if (
-            isinstance(e.get("ts_start"), int | float)
-            and abs(e["ts_start"] - ts) <= 0.002
-            and registry.key_of(e) == key
-        ):
-            return e
-    return None
+    """The stored transcript line whose key (registry.key_of) is `key`, or None. Reads the moments the key names
+    (transcript_lines.line_at), not the whole history."""
+    return transcript_lines.line_at(key=key)
 
 
 def _shot_is(name: str, sid: str) -> bool:

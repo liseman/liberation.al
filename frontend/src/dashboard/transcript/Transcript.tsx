@@ -1,7 +1,8 @@
 // One transcript list for Live and Review: lines grouped into turns, only the turns in view (plus
 // OVERSCAN either side) mounted, and the list held still as lines arrive. At the live end it keeps
 // following the newest line; scrolled away, it holds on the first visible line, and a pill says how many lines arrived
-// below. A turn mid-naming stays mounted while scrolled away, so its edit isn't lost.
+// below. A turn mid-naming stays mounted while scrolled away, so its edit isn't lost. A list read again after a name
+// is saved (a whole tail, with older lines the page didn't hold) is the same list: the line held stays where it is.
 // Live and Review are configurations of it: Live a tail of recent lines that play when clicked, Review a day whose
 // current line follows the playhead (marked by setting aria-current, so following never re-renders the list) and
 // seeks when clicked.
@@ -113,14 +114,16 @@ export function Transcript({
     const all = turnsOf(entries, speakers);
     const turns = select ? select(all) : all.map(t => ({ t, other: false }));
     const turnOf = new Map<number, number>();
+    const ofKey = new Map<string, number>();
     const keys: string[] = [];
     turns.forEach(({ t }, k) => {
       for (const { e, i } of t.lines) {
         turnOf.set(i, k);
+        ofKey.set(lineKey(e), k);
         keys.push(lineKey(e));
       }
     });
-    return { turns, turnOf, keys };
+    return { turns, turnOf, ofKey, keys };
   }, [entries, speakers, select]);
   // A search: the lines are indexed once (while searching), and each key typed only looks the words up, so the turns
   // aren't regrouped and only the turns whose matches change render again.
@@ -170,6 +173,11 @@ export function Transcript({
 
   const list = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(0); // the list's offset in the scroll box, below what's on top of it
+  // The line the list is held on, when it isn't at the live end (below).
+  const anchor = useRef<{ key: string; offset: number } | null>(null);
+  // Its turn, mounted even when a read again brings lines in above it, out of the rendered range: the hold below can
+  // then measure where the line landed. The anchor itself is a ref (the scrolled-to row is read as the range moves).
+  const anchorTurn = anchor.current == null ? null : (shown?.ofKey.get(anchor.current.key) ?? null);
   const virtual = useVirtualizer({
     count: turns.length,
     getScrollElement: () => box.current,
@@ -194,8 +202,8 @@ export function Transcript({
     },
     rangeExtractor: range => {
       const base = defaultRangeExtractor(range);
-      if (!kept.size) return base;
-      const held = turns.flatMap(({ t }, k) => (kept.has(turnKey(t)) ? [k] : []));
+      if (!kept.size && anchorTurn == null) return base;
+      const held = turns.flatMap(({ t }, k) => (kept.has(turnKey(t)) || k === anchorTurn ? [k] : []));
       return [...new Set([...base, ...held])].sort((a, b) => a - b);
     },
   });
@@ -218,7 +226,6 @@ export function Transcript({
   const atEnd = useRef(true);
   const following = useRef(follow);
   following.current = follow;
-  const anchor = useRef<{ key: string; offset: number } | null>(null);
   const seenKeys = useRef<Set<string> | null>(null);
   const keysRef = useRef<readonly string[]>([]);
   keysRef.current = shown?.keys ?? [];
@@ -248,8 +255,10 @@ export function Transcript({
     if (viewSeen.current !== view) {
       viewSeen.current = view;
       seenKeys.current = null;
-      anchor.current = null;
-      if (!attach) atEnd.current = true; // a new list opens at its end; Review's opens on the playhead (below)
+      // The same list read again (a tail, longer or shorter: a name was just saved) still holds the line the reader
+      // is on. Only a list without that line is a new one, and opens at its end (Review's opens on the playhead).
+      if (anchor.current && !shown?.ofKey.has(anchor.current.key)) anchor.current = null;
+      if (!attach && !anchor.current) atEnd.current = true;
     }
     if (!shown) return;
     if (tracking()) scrollList(el.scrollHeight);
@@ -260,7 +269,9 @@ export function Transcript({
     }
     if (!seenKeys.current || tracking()) seenKeys.current = new Set(shown.keys);
     const seen = seenKeys.current;
-    setFresh(tracking() ? 0 : shown.keys.filter(k => !seen.has(k)).length);
+    // New lines are the ones below the line the reader is on: a list read again brings in older lines, above it.
+    const anchorAt = anchor.current == null ? -1 : shown.keys.indexOf(anchor.current.key);
+    setFresh(tracking() ? 0 : shown.keys.filter((k, i) => i > anchorAt && !seen.has(k)).length);
   }, [shown, view]);
   // New turns are measured after they mount: at the live end, stay at the end as they grow.
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs when the measured height changes

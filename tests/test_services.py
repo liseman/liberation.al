@@ -2,14 +2,11 @@ import datetime
 import json
 import os
 import pathlib
-import plistlib
-import shlex
 import subprocess
 import sys
 import time
 from unittest.mock import create_autospec
 
-import psutil
 import pytest
 
 from liberational import config as cfg
@@ -57,52 +54,6 @@ def test_unknown_names_are_rejected():
 
 
 DAEMON, SCHEDULED = {"command": "pack-x", "env": {"A": "has space"}}, {"command": "pack-y", "schedule": "07:05"}
-
-
-def plist(svc):
-    return plistlib.loads(s.render_launchd("x", svc)["pack.x.plist"].encode())
-
-
-def test_launchd_daemon_schedule_and_background():
-    daemon, sync = plist(DAEMON), plist(SCHEDULED)
-    assert (daemon["Label"], daemon["WorkingDirectory"]) == ("pack.x", str(cfg.workdir()))
-    assert daemon["ProgramArguments"] == [str(cfg.program("pack-x"))]
-    assert (daemon["RunAtLoad"], daemon["KeepAlive"], daemon["ThrottleInterval"]) == (True, True, 10)
-    assert sync["ProgramArguments"] == [str(cfg.program("pack-y"))]
-    assert (sync["StartCalendarInterval"], "KeepAlive" in sync) == ({"Hour": 7, "Minute": 5}, False)
-    assert plist({**SCHEDULED, "schedule": "*:07"})["StartCalendarInterval"] == {"Minute": 7}
-    bg = plist({**DAEMON, "background": True, "throttle": 60})
-    assert (bg["ProcessType"], bg["ThrottleInterval"]) == ("Background", 60)
-
-
-def test_systemd_daemon_and_timer():
-    daemon, sync = s.render_systemd("x", DAEMON), s.render_systemd("x", SCHEDULED)
-    assert list(daemon) == ["pack-x.service"]
-    assert {"Restart=always", "Environment='A=has space'", "WantedBy=default.target"} <= set(
-        daemon["pack-x.service"].splitlines()
-    )
-    assert "OnCalendar=*-*-* 07:05:00" in sync["pack-x.timer"]
-    assert "Type=oneshot" in sync["pack-x.service"]
-    assert "Restart=" not in sync["pack-x.service"]
-
-
-def test_every_declared_service_renders_on_both_platforms():
-    assert all(s.render_launchd(name, svc) and s.render_systemd(name, svc) for name, svc in s.declared().items())
-
-
-def test_systemd_start_recreates_missing_log_directory(tmp_path):
-    logs = tmp_path / "missing logs ' % $"
-    with cfg.override({"paths": {"logs": str(logs)}}):
-        unit = s.render_systemd("probe", {"command": "/bin/echo", "args": ["hello world ' % $HOME"]})[
-            "pack-probe.service"
-        ]
-    # Run only the harmless rendered command, never the service manager.
-    command = next(line.removeprefix("ExecStart=") for line in unit.splitlines() if line.startswith("ExecStart="))
-    command = command.removeprefix(":").replace("%%", "%")
-    assert "StandardOutput=append:" not in unit
-    subprocess.run(shlex.split(command), check=True)
-    subprocess.run(shlex.split(command), check=True)
-    assert (logs / "probe.log").read_text() == "hello world ' % $HOME\nhello world ' % $HOME\n"
 
 
 def test_args_expand_config_and_env(monkeypatch):
@@ -212,175 +163,51 @@ def test_path_keeps_system_directories_whatever_the_installing_shell_had(monkeyp
 # ---- stopping and starting in a few systemctl calls, not several per service ----
 
 
-@pytest.fixture
-def systemd(tmp_path, monkeypatch):
-    """systemd in a temp unit dir. Returns (sent, fail): the commands sent, and the (verb, unit) pairs that fail. A
-    failed unit then reads as inactive."""
-    sent, fail = [], set()
-
-    def run(*cmd, check=False):
-        sent.append(cmd)
-        verb, units = (cmd[2], set(cmd[3:])) if cmd[:2] == ("systemctl", "--user") and len(cmd) > 2 else ("", set())
-        failed = {u for v, u in fail if v == verb and u in units}
-        if verb == "is-active":
-            failed = {u for _, u in fail if u in units}
-        return s.subprocess.CompletedProcess(cmd, 1 if failed else 0, "", "boom" if failed else "")
-
-    monkeypatch.setattr(s, "DARWIN", False)
-    monkeypatch.setattr(s, "_run", run)
-    # Package checks have their own tests; service-manager batching must not depend on the host or manifest cache.
-    monkeypatch.setattr(s, "preflight", lambda names: None)
-    monkeypatch.setattr(s, "unit_dir", lambda: tmp_path / "units")
-    monkeypatch.setattr(s, "log_path", lambda name: tmp_path / "logs" / f"{name}.log")
-    monkeypatch.setattr(s, "selected", lambda: {"a": DAEMON, "b": DAEMON, "sync": SCHEDULED})
-    (tmp_path / "units").mkdir()
-    return sent, fail
-
-
-def test_turning_services_off_is_one_stop_one_disable_and_one_reload(systemd, tmp_path, capsys):
-    sent, _ = systemd
-    for unit in ("pack-a.service", "pack-b.service", "pack-sync.service", "pack-sync.timer"):
-        (tmp_path / "units" / unit).write_text("")
-    s.uninstall([], anywhere=True)  # every installed one
-    units = ("pack-a.service", "pack-b.service", "pack-sync.timer", "pack-sync.service")
-    assert sent == [
-        ("systemctl", "--user", "stop", *units),
-        ("systemctl", "--user", "disable", "--no-reload", *units),
-        ("systemctl", "--user", "daemon-reload"),
-    ]
-    assert list((tmp_path / "units").iterdir()) == []
-    assert capsys.readouterr().out.splitlines() == ["removed a", "removed b", "removed sync"]
-
-
-def test_turning_one_service_off_leaves_the_others(systemd, tmp_path):
-    sent, _ = systemd
-    for unit in ("pack-a.service", "pack-b.service"):
-        (tmp_path / "units" / unit).write_text("")
-    s.uninstall(["b"], anywhere=True)
-    assert sent[0] == ("systemctl", "--user", "stop", "pack-b.service")
-    assert [p.name for p in (tmp_path / "units").iterdir()] == ["pack-a.service"]
-
-
-def test_turning_services_on_reloads_once_and_starts_them_together(systemd, capsys):
-    sent, _ = systemd
-    s.install(["a", "b", "sync"], anywhere=True)
-    assert sent[:4] == [
-        ("systemctl", "--user", "daemon-reload"),
-        ("systemctl", "--user", "enable", "--no-reload", "pack-a.service", "pack-b.service", "pack-sync.timer"),
-        ("systemctl", "--user", "start", "pack-sync.timer"),
-        ("systemctl", "--user", "restart", "pack-a.service", "pack-b.service"),
-    ]
-    assert capsys.readouterr().out.splitlines()[:3] == [
-        "pack-a.service: running",
-        "pack-b.service: running",
-        "pack-sync.timer: running",
-    ]
-
-
-@pytest.mark.parametrize("verb", ["enable", "restart"])
-def test_a_service_that_fails_is_named_and_the_others_still_run(systemd, capsys, verb):
-    _, fail = systemd
-    fail.add((verb, "pack-b.service"))
-    s.install(["a", "b"], anywhere=True)
-    assert capsys.readouterr().out.splitlines()[:2] == ["pack-a.service: running", "pack-b.service: FAILED boom"]
-
-
-def test_a_failed_restart_never_restarts_the_others_twice(systemd):
-    """Retrying a failed restart batch one by one must not restart the healthy ones again (a second
-    model load for vision or listen)."""
-    sent, fail = systemd
-    fail.add(("restart", "pack-b.service"))
-    s.install(["a", "b"], anywhere=True)
-    assert sum(1 for c in sent if c[2:3] == ("restart",) and "pack-a.service" in c) == 1
-
-
-def test_a_unit_gives_systemd_20_seconds_to_stop_it_unless_set():
-    assert "TimeoutStopSec=20" in s.render_systemd("x", DAEMON)["pack-x.service"].splitlines()
-    assert "TimeoutStopSec=5" in s.render_systemd("x", {**DAEMON, "stop_timeout": 5})["pack-x.service"].splitlines()
-
-
-def test_launchd_waits_as_long_as_systemd_before_killing_a_stopped_agent():
-    assert plist(DAEMON)["ExitTimeOut"] == 20
-    assert plist({**DAEMON, "stop_timeout": 25})["ExitTimeOut"] == 25
-
-
 def test_services_run_without_progress_bars():
     env = s.environment({})
     assert (env["HF_HUB_DISABLE_PROGRESS_BARS"], env["TQDM_DISABLE"]) == ("1", "1")
 
 
-def test_a_services_unit_carries_its_own_rust_log_level():
+def test_a_service_gets_its_own_rust_log_level():
     svc = {"command": "continuum-gateway"}
     with cfg.override({"logging": {"level": "info", "per_service": ["continuum-gateway=debug"]}}):
-        gateway = s.render_systemd("continuum-gateway", svc)
-        broker = s.render_systemd("continuum-broker", svc)
-    assert "RUST_LOG=debug" in "".join(gateway.values())
-    assert "RUST_LOG=info" in "".join(broker.values())
+        assert s.environment(svc, "continuum-gateway")["RUST_LOG"] == "debug"
+        assert s.environment(svc, "continuum-broker")["RUST_LOG"] == "info"
 
 
-# ---- crash loops: restart counts and each service's last error ----
+# ---- the verbs with no application open, and crash loops: restart counts and each service's last error ----
 
 
-def show(*blocks: str):
-    """A fake systemctl that answers `show` with these blocks, one per unit, as systemd prints them."""
-
-    def run(*cmd, check=False):
-        out = "\n\n".join(blocks) + "\n" if "show" in cmd else ""
-        return s.subprocess.CompletedProcess(cmd, 0, out, "")
-
-    return run
-
-
-def test_restarts_and_uptime_come_from_one_systemctl_call_in_any_property_order(systemd, tmp_path, monkeypatch):
-    sent, _ = systemd
-    for unit in ("pack-a.service", "pack-b.service"):
-        (tmp_path / "units" / unit).write_text("")
-    fake = show(
-        "NRestarts=7\nActiveEnterTimestampMonotonic=100000000\nId=pack-a.service",  # older systemd: Id last
-        "Id=pack-b.service\nNRestarts=0\nActiveEnterTimestampMonotonic=0",  # never active: no uptime
-    )
-    monkeypatch.setattr(s, "_run", lambda *cmd, check=False: sent.append(cmd) or fake(*cmd))
-    monkeypatch.setattr(s.time, "monotonic", lambda: 160.0)
-    assert s.runs() == {
-        "a": {"restarts": 7, "up_s": 60.0, "run_id": "systemd:7:100000000:"},
-        "b": {"restarts": 0, "up_s": None, "run_id": "systemd:0:0:"},
-    }
-    assert len([c for c in sent if "show" in c]) == 1
+@pytest.mark.parametrize("verb", ["install", "uninstall", "stop", "start", "restart"])
+def test_a_verb_that_needs_the_application_says_plainly_to_open_it(capsys, monkeypatch, verb):
+    monkeypatch.setattr(s, "_supervised", lambda: None)
+    with pytest.raises(SystemExit) as raised:
+        getattr(s, verb)(["listen"])
+    message = str(raised.value)
+    assert "pack-app" in message and "pack-supervisor run" in message
+    assert "pack-services install" not in message
+    assert "Traceback" not in message and "render" not in message
+    assert not capsys.readouterr().err
 
 
-def test_restarts_say_nothing_when_systemctl_fails(systemd, tmp_path, monkeypatch):
-    (tmp_path / "units" / "pack-a.service").write_text("")
-    fail = lambda *cmd, check=False: s.subprocess.CompletedProcess(cmd, 1, "", "Failed to connect to bus")
-    monkeypatch.setattr(s, "_run", fail)
-    assert s.runs() == {}
+def test_status_with_no_application_open_says_so_and_lists_nothing(capsys, monkeypatch):
+    monkeypatch.setattr(s, "_supervised", lambda: None)
+    s.status()
+    assert capsys.readouterr().out.splitlines() == [s.APPLICATION]
 
 
-def test_scheduled_services_and_ones_never_restarted_have_no_count(systemd, tmp_path, monkeypatch):
-    for unit in ("pack-a.service", "pack-sync.service", "pack-once.service"):
-        (tmp_path / "units" / unit).write_text("")
-    monkeypatch.setattr(s, "declared", lambda: {"a": DAEMON, "sync": SCHEDULED, "once": {**DAEMON, "restart": False}})
-    blocks = [f"Id=pack-{n}.service\nNRestarts=4\nActiveEnterTimestampMonotonic=0" for n in ("a", "sync", "once")]
-    monkeypatch.setattr(s, "_run", show(*blocks))
-    assert set(s.runs()) == {"a"}  # a job's runs, or a run nobody restarts, are not a crash loop
+def test_installed_states_and_runs_are_what_the_application_reports(monkeypatch):
+    monkeypatch.setattr(s, "_supervised", lambda: {"listen": {"state": "running"}})
+    assert s.installed() == ["listen"]
+    assert s.states() == {"listen": "running"}
+    monkeypatch.setattr(s, "_supervised", lambda: None)
+    assert s.installed() == [] and s.states() == {} and s.runs() == {}
 
 
-def test_restarts_on_a_mac_are_launchd_s_runs_after_the_first(tmp_path, monkeypatch):
-    monkeypatch.setattr(s, "DARWIN", True)
-    monkeypatch.setattr(s, "unit_dir", lambda: tmp_path)
-    (tmp_path / "pack.listen.plist").write_text("")
-    printed = "\tstate = running\n\tpid = 4242\n\truns = 4\n\tlast exit code = 1\n"
-    monkeypatch.setattr(s, "_run", lambda *cmd, check=False: s.subprocess.CompletedProcess(cmd, 0, printed, ""))
-
-    class Proc:
-        def __init__(self, pid):
-            assert pid == 4242
-
-        def create_time(self):
-            return 1000.0
-
-    monkeypatch.setattr(psutil, "Process", Proc)
-    monkeypatch.setattr(s.time, "time", lambda: 1090.0)
-    assert s.runs() == {"listen": {"restarts": 3, "up_s": 90.0, "run_id": "launchd:4:4242:1000.0"}}
+@pytest.fixture
+def service_logs(tmp_path, monkeypatch):
+    """A service's log in a temp directory: last_error reads that file and nothing else."""
+    monkeypatch.setattr(s, "log_path", lambda name: tmp_path / "logs" / f"{name}.log")
 
 
 def write_log(tmp_path, name: str, text: str, written: datetime.datetime | None = None) -> None:
@@ -404,7 +231,7 @@ def found(name: str, since: float | None = None) -> dict:
     return error
 
 
-def test_last_error_is_the_newest_error_line_of_the_log(systemd, tmp_path):
+def test_last_error_is_the_newest_error_line_of_the_log(service_logs, tmp_path):
     write_log(
         tmp_path,
         "listen",
@@ -420,7 +247,7 @@ def test_last_error_is_the_newest_error_line_of_the_log(systemd, tmp_path):
     assert s.last_error("listen") == {"at": "09:02:00", "ts": ts(30, "09:02:00"), "text": "the model would not load"}
 
 
-def test_an_unchanged_log_is_not_opened_again_and_a_written_one_is(systemd, tmp_path, monkeypatch):
+def test_an_unchanged_log_is_not_opened_again_and_a_written_one_is(service_logs, tmp_path, monkeypatch):
     written = datetime.datetime(2026, 10, 30, 9, 3)
     write_log(tmp_path, "listen", "09:01:00 [listen] ERROR the microphone vanished\n", written=written)
     opened = []
@@ -442,7 +269,7 @@ def test_an_unchanged_log_is_not_opened_again_and_a_written_one_is(systemd, tmp_
     assert opened.count("listen.log") == 2
 
 
-def test_last_error_is_a_crash_s_exception_when_python_died_with_no_error_line(systemd, tmp_path):
+def test_last_error_is_a_crash_s_exception_when_python_died_with_no_error_line(service_logs, tmp_path):
     write_log(
         tmp_path,
         "voice",
@@ -460,7 +287,7 @@ def test_last_error_is_a_crash_s_exception_when_python_died_with_no_error_line(s
     }
 
 
-def test_last_error_reads_only_the_end_of_a_long_log(systemd, tmp_path):
+def test_last_error_reads_only_the_end_of_a_long_log(service_logs, tmp_path):
     write_log(
         tmp_path, "see-faces", "09:00:00 [see-faces] ERROR long ago\n" + "09:00:01 [see-faces] INFO fine é\n" * 20_000
     )
@@ -468,7 +295,7 @@ def test_last_error_reads_only_the_end_of_a_long_log(systemd, tmp_path):
     assert s.last_error("nothing-logged") is None
 
 
-def test_an_error_from_before_the_service_s_current_start_is_left_out(systemd, tmp_path):
+def test_an_error_from_before_the_service_s_current_start_is_left_out(service_logs, tmp_path):
     # A running service kept showing a KeyError from a run that a fixed setting had since replaced.
     write_log(
         tmp_path,
@@ -480,7 +307,7 @@ def test_an_error_from_before_the_service_s_current_start_is_left_out(systemd, t
     assert found("listen", since=ts(30, "09:01:00.5"))["text"] == "unknown setting 'audio.mic_channel'"
 
 
-def test_a_crash_with_no_time_before_it_counts_as_before_the_current_start(systemd, tmp_path):
+def test_a_crash_with_no_time_before_it_counts_as_before_the_current_start(service_logs, tmp_path):
     write_log(
         tmp_path,
         "see-faces",
@@ -496,7 +323,7 @@ def test_a_crash_with_no_time_before_it_counts_as_before_the_current_start(syste
     assert s.last_error("see-faces", since=ts(30, "09:45:00")) is None
 
 
-def test_log_lines_from_before_midnight_are_dated_the_day_before(systemd, tmp_path):
+def test_log_lines_from_before_midnight_are_dated_the_day_before(service_logs, tmp_path):
     # Dated by its clock alone, 23:58 would be today's, after the 00:02 start, and shown.
     write_log(
         tmp_path,
@@ -508,7 +335,7 @@ def test_log_lines_from_before_midnight_are_dated_the_day_before(systemd, tmp_pa
     assert s.last_error("listen", since=ts(30, "00:01:59")) is None
 
 
-def test_lines_a_little_out_of_order_stay_on_the_same_day(systemd, tmp_path):
+def test_lines_a_little_out_of_order_stay_on_the_same_day(service_logs, tmp_path):
     write_log(
         tmp_path,
         "listen",
@@ -536,59 +363,6 @@ def test_errors_count_from_a_running_service_s_start(monkeypatch, state, run, si
 # ---- stop now versus turn off: a stop leaves the unit installed, so it comes back on a restart ----
 
 
-def test_stop_stops_the_units_but_leaves_them_installed_and_enabled(systemd, tmp_path, capsys):
-    sent, _ = systemd
-    for unit in ("pack-a.service", "pack-sync.service", "pack-sync.timer"):
-        (tmp_path / "units" / unit).write_text("")
-    s.stop(["a", "sync"], anywhere=True)
-    assert ("systemctl", "--user", "stop", "pack-a.service", "pack-sync.timer", "pack-sync.service") in sent
-    assert not [c for c in sent if "disable" in c or "daemon-reload" in c]
-    assert sorted(p.name for p in (tmp_path / "units").iterdir()) == [
-        "pack-a.service",
-        "pack-sync.service",
-        "pack-sync.timer",
-    ]
-    assert capsys.readouterr().out.splitlines() == ["pack-a.service: stopped", "pack-sync.timer: stopped"]
-
-
-def test_start_starts_installed_units_and_names_one_that_fails(systemd, tmp_path, capsys):
-    sent, fail = systemd
-    for unit in ("pack-a.service", "pack-b.service"):
-        (tmp_path / "units" / unit).write_text("")
-    fail.add(("start", "pack-b.service"))
-    s.start(["a", "b"], anywhere=True)
-    assert ("systemctl", "--user", "start", "pack-a.service", "pack-b.service") in sent
-    out = capsys.readouterr().out.splitlines()
-    assert out[0] == "pack-a.service: running"
-    assert out[1].startswith("pack-b.service: FAILED")
-
-
-def test_stop_and_start_refuse_a_service_that_isnt_installed(systemd, tmp_path):
-    with pytest.raises(SystemExit, match="not installed: b"):
-        s.stop(["b"], anywhere=True)
-    with pytest.raises(SystemExit, match="not installed: b"):
-        s.start(["b"], anywhere=True)
-
-
-def test_stop_with_the_application_closed_and_no_units_says_to_open_it(systemd, monkeypatch):
-    monkeypatch.setattr(s, "_supervised", lambda: None)
-    with pytest.raises(SystemExit, match="pack-app") as raised:
-        s.stop(["b"], anywhere=True)
-    message = str(raised.value)
-    assert "pack-services install" not in message
-    assert "pack-supervisor run" in message
-    with pytest.raises(SystemExit, match="pack-app") as started:
-        s.start(["b"], anywhere=True)
-    assert "pack-services install" not in str(started.value)
-
-
-def test_stop_of_a_missing_unit_on_an_older_install_still_names_install(systemd, tmp_path, monkeypatch):
-    monkeypatch.setattr(s, "_supervised", lambda: None)
-    (tmp_path / "units" / "pack-a.service").write_text("")
-    with pytest.raises(SystemExit, match="pack-services install"):
-        s.stop(["b"], anywhere=True)
-
-
 def test_list_says_the_star_is_the_selection(capsys, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["pack-services", "list"])
     monkeypatch.setattr(s, "declared", lambda: {"journal": {"description": "Writes the journal."}})
@@ -607,44 +381,6 @@ def test_the_service_manifest_and_the_vlm_probe_do_not_start_a_vision_unit():
     probe = (root / "tools/vlm_probe/vlm_probe_quiet.sh").read_text()
     assert "pack.vision" not in probe and "launchctl" not in probe
     assert "pack-services stop vlm" in probe and "pack-services start vlm" in probe
-
-
-def test_stop_on_a_mac_unloads_the_job_and_keeps_its_plist(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(s, "DARWIN", True)
-    monkeypatch.setattr(s, "unit_dir", lambda: tmp_path)
-    (tmp_path / "pack.listen.plist").write_text("")
-    sent = []
-    monkeypatch.setattr(
-        s, "_run", lambda *cmd, check=False: sent.append(cmd) or s.subprocess.CompletedProcess(cmd, 0, "", "")
-    )
-    s.stop(["listen"], anywhere=True)
-    assert sent == [("launchctl", "bootout", f"gui/{os.getuid()}/pack.listen")]
-    assert (tmp_path / "pack.listen.plist").exists()  # loaded again at the next login
-    monkeypatch.setattr(s.time, "sleep", lambda x: None)
-    loaded = {"yes": False}
-
-    def run(*cmd, check=False):
-        sent.append(cmd)
-        code = 0 if cmd[1] != "print" or loaded["yes"] else 113  # print: whether launchd has the job loaded
-        return s.subprocess.CompletedProcess(cmd, code, "", "")
-
-    monkeypatch.setattr(s, "_run", run)
-    s.start(["listen"], anywhere=True)  # unloaded by the stop: loaded again
-    assert sent[-1] == ("launchctl", "bootstrap", f"gui/{os.getuid()}", str(tmp_path / "pack.listen.plist"))
-    loaded["yes"] = True
-    s.start(["listen"], anywhere=True)  # still loaded (between KeepAlive restarts): a bootstrap would fail
-    assert sent[-1] == ("launchctl", "kickstart", f"gui/{os.getuid()}/pack.listen")
-
-
-def test_an_uninstall_that_fails_says_so(systemd, tmp_path, capsys):
-    _, fail = systemd
-    for unit in ("pack-a.service", "pack-b.service"):
-        (tmp_path / "units" / unit).write_text("")
-    fail.add(("stop", "pack-b.service"))
-    s.uninstall(["a", "b"], anywhere=True)
-    out = capsys.readouterr().out.splitlines()
-    assert "removed a" in out
-    assert any(line.startswith("pack-b: FAILED") for line in out)
 
 
 def test_ollama_runs_under_the_log_relay_outermost_tagged_with_its_name():
@@ -667,7 +403,7 @@ def test_the_continuum_broker_gets_its_state_dir_and_capture_manifest():
     ]
 
 
-def test_the_continuum_broker_restarts_only_for_the_state_dir_and_its_unit():
+def test_the_continuum_broker_restarts_only_for_the_state_dir_and_what_every_service_gets():
     from liberational import readers
 
     assert readers.readers()["continuum-broker"] == {"paths.state"} | readers.unit_keys()
@@ -709,7 +445,7 @@ def test_healthy_service_errors_expire_but_active_failures_keep_their_reason(mon
     assert s._run_began(state, run) == since
 
 
-def test_healthy_service_notice_expires_from_error_time_without_a_restart(systemd, tmp_path, monkeypatch):
+def test_healthy_service_notice_expires_from_error_time_without_a_restart(service_logs, tmp_path, monkeypatch):
     write_log(
         tmp_path,
         "listen",
@@ -731,7 +467,7 @@ def occurrence_clock(request, monkeypatch) -> datetime.datetime:
 
 
 def test_same_error_in_same_second_has_a_new_occurrence_but_unrelated_writes_do_not(
-    systemd, tmp_path, occurrence_clock
+    service_logs, tmp_path, occurrence_clock
 ):
     text = "09:02:00 [listen] ERROR temporary failure\n"
     write_log(tmp_path, "listen", text, written=occurrence_clock.replace(second=0))
@@ -751,7 +487,7 @@ def test_same_error_in_same_second_has_a_new_occurrence_but_unrelated_writes_do_
     assert third["id"] != first["id"]
 
 
-def test_log_occurrence_survives_tail_window_changes_but_not_rotation(systemd, tmp_path, occurrence_clock):
+def test_log_occurrence_survives_tail_window_changes_but_not_rotation(service_logs, tmp_path, occurrence_clock):
     text = "09:02:00 [listen] ERROR temporary failure\n"
     write_log(tmp_path, "listen", "x" * 100_000 + "\n" + text, written=occurrence_clock.replace(second=0))
     first = s.last_error("listen", include_id=True)
@@ -767,25 +503,21 @@ def test_log_occurrence_survives_tail_window_changes_but_not_rotation(systemd, t
     assert rotated is not None and rotated["id"] != first["id"]
 
 
-def test_mandatory_broker_clients_wait_before_exec_on_both_platforms():
+def test_mandatory_broker_clients_wait_before_exec_at_startup():
     service = {"command": "pack-fixture", "args": ["--flag", "two words"], "wait_for_broker": True}
     plain = s.argv(service)
-    launched = plist(service)["ProgramArguments"]
+    launched = s.argv(service, startup=True, name="fixture")
     assert launched[:3] == [sys.executable, "-m", "liberational.continuum_ready"]
     assert launched[launched.index("--") + 1 :] == plain
-    unit = s.render_systemd("fixture", service)["pack-fixture.service"]
-    start = next(line.removeprefix("ExecStart=:") for line in unit.splitlines() if line.startswith("ExecStart=:"))
-    args = shlex.split(start)
-    assert args[6:] == launched
 
 
-def test_gpu_services_wait_for_the_driver_before_exec():
+def test_gpu_services_wait_for_the_driver_before_exec_at_startup():
     service = {"command": "ollama", "args": ["serve"], "wait_for_gpu": True}
     plain = s.argv(service)
-    launched = plist(service)["ProgramArguments"]
+    launched = s.argv(service, startup=True, name="ollama")
     assert launched[:4] == [sys.executable, "-m", "liberational.gpu_ready", "--"]
     assert launched[4:] == plain
-    assert "liberational.gpu_ready" not in plist({"command": "ollama", "args": ["serve"]})["ProgramArguments"]
+    assert "liberational.gpu_ready" not in s.argv({"command": "ollama", "args": ["serve"]}, startup=True)
 
 
 def test_see_actions_waits_for_the_driver_at_boot():
@@ -827,26 +559,22 @@ def test_the_shared_ollama_takes_its_server_tuning_from_config():
 
 def test_offline_dashboard_and_gateway_do_not_wait_for_the_broker():
     for name in ("dashboard", "continuum-gateway", "continuum-broker"):
-        svc = s.declared()[name]
-        assert "liberational.continuum_ready" not in plist(svc)["ProgramArguments"]
+        assert "liberational.continuum_ready" not in s.argv(s.declared()[name], startup=True, name=name)
     for name in ("listen", "continuum-capture", "continuum-tier-worker", "continuum-vector-worker", "see-actions"):
-        assert "liberational.continuum_ready" in plist(s.declared()[name])["ProgramArguments"]
+        assert "liberational.continuum_ready" in s.argv(s.declared()[name], startup=True, name=name)
 
 
-def test_tier_settings_reach_both_service_managers(monkeypatch):
+def test_tier_settings_reach_the_launcher_the_application_starts(monkeypatch):
     execute = create_autospec(os.execve)
     monkeypatch.setattr(s.os, "execve", execute)
     monkeypatch.setattr(s.os, "chdir", create_autospec(os.chdir))
     with cfg.override({"paths": {"state": "/srv/pack/state-a"}}):
         service = s.declared()["continuum-tier-worker"]
-        launch = plist(service)["ProgramArguments"]
-        unit = s.render_systemd("continuum-tier-worker", service)["pack-continuum-tier-worker.service"]
+        launch = s.argv(service, startup=True, name="continuum-tier-worker")
         s.exec_service("continuum-tier-worker")
-    command = next(line.removeprefix("ExecStart=:") for line in unit.splitlines() if line.startswith("ExecStart=:"))
     expected = ["--state-dir", "/srv/pack/state-a", "--manifest", str(cfg.devices_file())]
     launcher = [sys.executable, "-m", "liberational.services", "exec", "continuum-tier-worker"]
     assert launch[-len(launcher) :] == launcher
-    assert shlex.split(command)[-len(launcher) :] == launcher
     assert execute.call_args.args[1][-len(expected) :] == expected
 
 
@@ -860,9 +588,9 @@ def test_installed_tier_launcher_reads_settings_changes_on_each_start_without_re
     monkeypatch.setattr(s.os, "execve", execute)
     monkeypatch.setattr(s.os, "chdir", directory)
     try:
-        # This is the command saved in the installed unit. Restarts run these same arguments, even after
-        # Settings writes pack.toml. Prime the old config cache to exercise the launcher's fresh read too.
-        installed = plist(s.declared()["continuum-tier-worker"])["ProgramArguments"]
+        # This is the command line the application starts the tier worker with. Restarts run these same arguments,
+        # even after Settings writes pack.toml. Prime the old config cache to exercise the launcher's fresh read too.
+        installed = s.argv(s.declared()["continuum-tier-worker"], startup=True, name="continuum-tier-worker")
         assert cfg.get("paths.state") == "/srv/pack/state-a"
         launcher = installed[installed.index("--") + 1 :]
         assert launcher[1:4] == ["-m", "liberational.services", "exec"]
@@ -884,7 +612,7 @@ def test_installed_tier_launcher_reads_settings_changes_on_each_start_without_re
 
 def test_the_tier_launcher_fills_the_av1_archive_settings_in_at_each_start(monkeypatch):
     """The archive's settings go by environment (an older worker ignores them), filled in at start, so a
-    Settings change reaches the worker on its next restart without reinstalling the unit."""
+    Settings change reaches the worker on its next restart."""
     execute = create_autospec(os.execve)
     monkeypatch.setattr(s.os, "execve", execute)
     monkeypatch.setattr(s.os, "chdir", create_autospec(os.chdir))
@@ -935,7 +663,7 @@ def pacific_time():
         time.tzset()
 
 
-def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(systemd, tmp_path, pacific_time):
+def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(service_logs, tmp_path, pacific_time):
     # An earlier time-only log continued in dated stamps; mtime is far later, so only the dated line
     # can place the old ones: the one before 23:59 is the day before the dated 00:01 line.
     write_log(
@@ -951,7 +679,7 @@ def test_last_error_reads_dated_stamps_as_written_and_old_ones_back_from_them(sy
     assert error["ts"] == datetime.datetime.fromisoformat("2026-10-20T23:58:00-07:00").timestamp()
 
 
-def test_last_error_of_a_dated_line_keeps_its_time_and_says_the_clock_time(systemd, tmp_path):
+def test_last_error_of_a_dated_line_keeps_its_time_and_says_the_clock_time(service_logs, tmp_path):
     write_log(
         tmp_path,
         "listen",
@@ -1304,7 +1032,7 @@ def test_stateful_transition_owned_by_a_different_invocation_leaves_unobserved_r
     ]
 
 
-def test_last_error_still_reads_right_after_its_log_is_trimmed(systemd, tmp_path):
+def test_last_error_still_reads_right_after_its_log_is_trimmed(service_logs, tmp_path):
     write_log(
         tmp_path,
         "listen",
@@ -1317,22 +1045,6 @@ def test_last_error_still_reads_right_after_its_log_is_trimmed(systemd, tmp_path
         f.write("09:02:00 [listen] INFO retrying\n")
     os.utime(log, (ts(30, "09:02:00"), ts(30, "09:02:00")))
     assert found("listen") == {"at": "09:01:00", "ts": ts(30, "09:01:00"), "text": "the microphone vanished"}
-
-
-def test_install_removes_the_logs_of_services_no_longer_declared(systemd, tmp_path):
-    folder = tmp_path / "logs"
-    folder.mkdir()
-    for name in ("listen.log", "listen.log.1", "cascade.log", "frontend.log", "see-faces.log", "see-faces.log.1"):
-        (folder / name).write_text("x\n")
-    (folder / "profiles").mkdir()
-    s.install(["a"], anywhere=True)
-    assert sorted(p.name for p in folder.iterdir()) == [
-        "cascade.log",
-        "frontend.log",
-        "listen.log",
-        "listen.log.1",
-        "profiles",
-    ]
 
 
 # ---- a supervised service's environment: the session's variables, and nothing else of the launcher's (#183) ----

@@ -442,7 +442,7 @@ def handle(h: Any, method: str) -> bool:
             elif sub == "/api/draft":
                 h._json({"draft": draft()})
             elif sub == "/api/query":
-                q = urllib.parse.parse_qs(u.query).get("q", [""])[0]
+                q = h._query().get("q", "")
                 if not q or len(q) > 1000:
                     raise ValueError("Provide a question of 1 to 1000 characters.")
                 h._json(store().query(q))

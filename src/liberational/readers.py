@@ -104,13 +104,16 @@ def helpers() -> dict[str, frozenset[str]]:
             return {name: frozenset(found) for name, found in direct.items() if found}
 
 
-UNIT_FUNCS = ("log_path", "render_launchd", "render_systemd", "render", "argv", "environment")
+# services.py's functions that take a service from its declaration to a running process (argv() and environment()
+# are what the application starts a child with), so a setting they read is a setting every service depends on.
+UNIT_FUNCS = ("log_path", "argv", "environment")
 
 
 @functools.cache
 def unit_keys() -> frozenset[str]:
-    """Settings written into every service's unit file (services.py renders it: the log file under paths.logs), so
-    a change to one reinstalls every service, even one that never reads pack.toml."""
+    """Settings every service depends on however its declaration reads them (services.py gives the application every
+    child's command line, environment, and log path), so a change to one restarts every service, even one that
+    never reads pack.toml."""
     tree = ast.parse((SRC / "liberational" / "services.py").read_text())
     found: set[str] = set()
     for f in tree.body:

@@ -130,6 +130,19 @@ def level(x: np.ndarray) -> np.ndarray:
     return loudness.normalize(pcm, SR).astype(np.float32) / 32767
 
 
+def audio_line(sl: Any, e: dict[str, Any]) -> np.ndarray | None:
+    """The line's padded audio, at 16 kHz and level-normalized. A stored stream at another rate goes through
+    listen.pcm.Resampler first: plain interpolation would fold its 8 to 24 kHz band into speech."""
+    a = e["audio"]
+    rate, x = sl.audio(a["stream"], a["start_ns"] - int(PAD_S * 1e9), a["end_ns"] + int(PAD_S * 1e9), 0)
+    x = np.asarray(x, np.float32)
+    if rate != SR and len(x):
+        from liberational.listen.pcm import Resampler
+
+        x = Resampler(rate, SR)(x)
+    return level(x)
+
+
 class Qwen:
     """One locally installed native Transformers model, owned by the scheduled process until exit."""
 
@@ -256,12 +269,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     lines = sorted(sl.range(start, end), key=lambda e: e.get("ts_start") or 0)
 
     def audio(e: dict[str, Any]) -> np.ndarray | None:
-        a = e["audio"]
-        rate, x = sl.audio(a["stream"], a["start_ns"] - int(PAD_S * 1e9), a["end_ns"] + int(PAD_S * 1e9), 0)
-        x = np.asarray(x, np.float32)
-        if rate != SR and len(x):
-            x = np.interp(np.arange(0, len(x), rate / SR), np.arange(len(x)), x).astype(np.float32)
-        return level(x)
+        return audio_line(sl, e)
 
     names = [p.display_name for p in registry.at(state).people() if p.display_name]
     second = Qwen()

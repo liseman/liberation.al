@@ -41,20 +41,15 @@ def pack_toml(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def ran(tmp_path, monkeypatch):
-    """The pack-services arguments of each service reinstall; ambient and vision are installed."""
+def ran(monkeypatch):
+    """Each pack-services reinstall a save asked for, which should stay empty: ambient and vision are what runs here."""
     calls = []
 
     def run(cmd, **kw):
         calls.append(cmd[cmd.index("liberational.services") + 1 :])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    units = tmp_path / "units"
-    units.mkdir()
-    for name in ("ambient", "vision"):
-        (units / f"pack-{name}.service").touch()
-    monkeypatch.setattr(services, "DARWIN", False)
-    monkeypatch.setattr(services, "unit_dir", lambda: units)
+    monkeypatch.setattr(services, "installed", lambda: ["ambient", "vision"])
     monkeypatch.setattr(devices.subprocess, "run", run)
     return calls
 
@@ -1185,3 +1180,17 @@ def test_no_built_capture_offers_no_pauses_and_runs_nothing(monkeypatch, capture
     capture_binary.unlink()
     monkeypatch.setattr(privacy.subprocess, "run", lambda *a, **k: pytest.fail("ran a binary that isn't there"))
     assert privacy.ready() is False
+
+
+@pytest.mark.parametrize(
+    ("camera", "seen"),
+    [
+        pytest.param("Front+door", "Front door", id="a-space-as-urlsearchparams-writes-it"),
+        pytest.param("Front%2Bdoor", "Front+door", id="a-literal-plus-percent-encoded"),
+    ],
+)
+def test_a_query_value_is_decoded_the_way_the_app_writes_it(base, camera, seen):
+    """The dashboard split the query string by hand, so a space the app wrote as `+` (URLSearchParams) arrived as a
+    plus: a camera named "Front door" could not be named in a query. Every route reads one decoder now."""
+    code, reply = call(base, "GET", path=f"/devices/camera-controls?camera={camera}")
+    assert (code, reply["camera"]) == (404, seen)  # not in this manifest: the reply says which camera it was told

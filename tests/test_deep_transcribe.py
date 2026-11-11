@@ -282,3 +282,25 @@ def test_qwen_refuses_output_that_hits_the_generation_limit_without_eos(qwen_ada
 def test_qwen_accepts_output_that_ends_at_the_generation_limit_with_eos(qwen_adapter, token, eos):
     adapter = qwen_adapter(tokens=[7] * 511 + [token], eos=eos)
     assert adapter(np.ones(16000, np.float32)) == "Real text"
+
+
+def test_the_second_pass_audio_goes_through_the_anti_alias_resampler(monkeypatch):
+    """A 48 kHz stream's 8 to 24 kHz band folds into speech with plain interpolation. audio_line filters it first, so
+    a 12 kHz hiss comes back near silent while a 1 kHz tone survives."""
+    monkeypatch.setattr(deep, "level", lambda x: x)  # the anti-alias filter is the property, not the gain
+    seconds = np.arange(48_000) / 48_000
+    line = {"audio": {"stream": "s", "start_ns": 0, "end_ns": 48_000_000_000}}
+
+    class Log:
+        freq = 1_000.0
+
+        def audio(self, *args, **kwargs):
+            return 48_000, np.sin(2 * np.pi * self.freq * seconds).astype(np.float32)
+
+    log = Log()
+    kept = deep.audio_line(log, line)
+    assert kept is not None and len(kept) == 16_000
+    log.freq = 12_000.0
+    folded = deep.audio_line(log, line)
+    assert folded is not None and len(folded) == 16_000
+    assert float(np.sqrt(np.mean(folded[1_000:] ** 2))) < 0.01 * float(np.sqrt(np.mean(kept[1_000:] ** 2)))
