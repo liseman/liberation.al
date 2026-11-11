@@ -230,6 +230,11 @@ from concurrent.futures import Executor
 from types import FrameType
 from typing import Any
 
+# `python -m` must share the canonical module with lazy imports (Objects' app page).
+# Otherwise that import executes the route decorators a second time.
+if __name__ == "__main__":
+    sys.modules["liberational.dashboard.server"] = sys.modules[__name__]
+
 from liberational.dashboard import people_cards, roster_read
 
 try:

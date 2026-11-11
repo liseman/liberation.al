@@ -1,6 +1,9 @@
 """Demo mode (demo/, #17): the seeded household as the dashboard reads it, and a launcher that keeps off real data."""
 
 import datetime as dt
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +18,71 @@ from liberational.spatial import plan_scene
 TODAY = dt.date(2026, 11, 9)
 DAY = dt.date(2026, 11, 8)  # the demo's day is the day before
 NOW = journal.day_bounds(TODAY)[0] + 9 * 3600
+
+
+def test_demo_configuration_cannot_resolve_install_files(tmp_path: Path) -> None:
+    cli.prepare(tmp_path)
+    inherited = dict(os.environ, PACK_ROOT="/real", PACK_OWNER_NAME="Private", PACK_AGENT_OPENCLAW_CONFIG="/real/key")
+    env = cli.environment(tmp_path, cli.PORT, inherited)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+from pathlib import Path
+from liberational import config as cfg
+root = Path(cfg.local_config()).parent
+paths = [cfg.devices_file(), cfg.config_dir(), cfg.data_dir(), cfg.workdir(),
+         cfg.owner_file('.env.phone'), cfg.path('agent.openclaw_config'), cfg.path('owner.voice_ref'),
+         *[cfg.path('paths.' + key) for key in cfg.load()['paths']],
+         *[cfg.model_path(key) for key in cfg.load()['models']['files']]]
+assert all(path.resolve().is_relative_to(root) for path in paths), paths
+assert cfg.owner_name() == 'Alice'
+assert cfg.get('agent.openclaw_config') == ''
+from liberational.vision import views
+assert views.camera_ids() == ['front-room', 'kitchen', 'porch', 'study']
+""",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_dashboard_module_entrypoint_can_import_its_objects_page(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import runpy
+from liberational import model_runtime
+model_runtime.reporting = lambda *a, **kw: lambda fn: lambda: None
+runpy.run_module('liberational.dashboard.server', run_name='__main__', alter_sys=True)
+from liberational.dashboard.server import app_page
+from liberational.dashboard import routes
+assert routes.find('GET', '/audio/levels') is not None
+from liberational.dashboard import assets, objects
+assets.built_page = lambda name: ('<html><body>Demo</body></html>', True)
+assets.stale = lambda: False
+class Request:
+    path = '/objects'
+    def _send(self, code, content_type, body):
+        assert code == 200
+        assert b'Demo' in body
+    def _json(self, *args):
+        raise AssertionError(args)
+assert objects.handle(Request(), 'GET')
+""",
+        ],
+        env=cli.environment(tmp_path, cli.PORT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.fixture
