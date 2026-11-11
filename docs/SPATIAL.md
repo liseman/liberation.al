@@ -79,10 +79,10 @@ where its camera stands ([The scene of all cameras](#the-scene-of-all-cameras)).
   the model strings points between a near thing and the far one behind it; a surface seen so nearly edge-on that its
   depth is a guess; and a small patch left standing alone. These are the sheets and streaks a cloud would show from
   anywhere but its own camera.
-- **Its size.** The cloud stays in the model's own metres, and the 3D view says its size is approximate. A camera's
-  mounting height does not size it. The height reads the floor a metre or two from the camera, the walls are several
-  metres away, and the model's near and far depths don't share one scale, so sizing by the height puts the walls
-  farther off than the model's own metres do.
+- **Its size.** The cloud is made in the model's own metres, which are approximate. A mounting height alone does not
+  size it: the height reads the floor a metre or two from the camera, the walls are several metres away, and the
+  model's near and far depths don't share one scale. A cloud gets its size from the plan's walls, when it is fitted to
+  its room ([The scene of all cameras](#the-scene-of-all-cameras)).
 - **Its floor.** The floor is the lowest big surface under the camera. A mounting height in the device manifest
   (`mount.height_m`) checks the find: a plane that would put the camera far from that height (a sofa seat, with the
   floor out of sight) isn't its floor, and is passed over.
@@ -102,54 +102,103 @@ A pass runs on a GPU and is skipped, with the reason, when none has 4 GB free. N
 
 The 3D view's **All cameras** puts every camera's cloud of a place into one scene (`spatial/cloud_scene.py`). The
 clouds are placed, never blended: the scene is a list of clouds with a transform each, and every point stays its own
-camera's. Its frame is the owner's plan, in metres. Three things decide where a cloud goes, in this order.
+camera's. Its frame is the owner's plan, in metres, and the plan is the reference throughout: a cloud is one
+picture's estimate of depth, and the plan's rooms have walls of known length.
 
-1. **The owner's spot.** A camera's spot on the plan says where it is and which way it faces. The cloud is level
-   already, so placing it is a turn about the vertical and a shift: the camera lands on its spot, facing its facing,
-   with the cloud's floor on the plan's. A camera with no spot, or a spot with no facing, is not in the scene.
-2. **A pair of cameras that see the same space.** When a camera's cloud is made, its picture is compared with the
-   pictures of up to five other cameras of the place, the nearest by their spots first, by MASt3R's two-picture
-   matching. A confident match says where one camera stands as seen from the other, and pulls the two towards what
-   the pictures say. Each stays near its own spot: the spots are the reference, a match weighs ten times a spot, and
-   the two cameras share the correction, so the scene stays on the plan.
-3. **A camera that was moved.** The picture a camera was first placed with at its spot is its anchor. Each new
-   picture is compared with it. One that registers within 0.3 m and 4 degrees hasn't moved, and becomes the anchor.
-   One that registers farther has moved: its cloud follows by what the pictures measured, and the new spot is offered
-   to the owner. One that doesn't register is looking at other space: it is tried against the other cameras'
-   pictures and placed from the first that registers. If none does, the camera leaves the scene and says it was
-   moved and isn't placed, until its spot is set again or a picture registers. A moved camera's cloud is never left
-   at its old spot.
+A cloud is brought onto the plan in four moves, each using better evidence than the one before
+(`spatial/cloud_align.py`). None of them writes a spot or the plan.
 
-**Squared to the plan.** Between the first and second steps, a cloud's own walls say how its camera really faces,
-better than a facing set by hand. A camera placed from its spot is turned, and slid where its walls have clear
-counterparts, so that its walls run along the plan's. The move is rigid and bounded, is kept beside the cloud, and
-holds only while the cloud, the spot, and the plan are the same; nothing of the owner's is written. A camera squared
-this way holds its place: a pair's measurement no longer moves it, and between two squared cameras the measurement is
-only a check.
+1. **Placed by the owner's spot.** A camera's spot on the plan says where it is and which way it faces. The cloud is
+   level already, so placing it is a turn about the vertical and a shift: the camera lands on its spot, facing its
+   facing, with the cloud's floor on the plan's. A camera with no spot, or a spot with no facing, is not in the scene.
+2. **Squared to the plan.** A cloud's own walls say how its camera really faces, better than a facing set by hand.
+   The cloud is turned about its camera so that its walls run along the plan's walls near it, by at most 15 degrees
+   from the facing the owner set: a camera farther round than that was moved. Where a cloud wall has one clear
+   counterpart on the plan, the cloud is also slid onto it, by at most 0.5 m. Nearer walls count more, since a
+   cloud's far depth is its least sure.
+3. **Fitted to the room.** Each wall of the squared cloud is matched to the plan wall its camera sees there: the
+   first plan wall on the sight lines from the camera's spot to the cloud wall, so never one behind another, when it
+   runs the same way (within 10 degrees) and the cloud wall is within 0.8 to 1.25 of its distance. Of several flat
+   surfaces in the cloud that face one plan wall, the farthest is the wall, and the nearer ones are the fronts of
+   what stands against it. The cloud is then resized about its camera and slid so that its matched walls land on the
+   plan's. One wall gives the size alone; walls on both sides give the slide too, by at most 0.5 m after the resize.
+   Where the cloud has a floor and its camera a measured height (`mount.height_m`), the cloud is sized upwards by
+   the height and across by the walls, which keeps a floor flat and a wall upright.
+4. **Adjusted against another camera.** A pair of cameras that see the same space can be measured against each
+   other from their pictures ([below](#cameras-that-see-the-same-space)). The measurement moves only a camera that
+   could not be squared. A squared camera holds its place, and between two squared cameras the measurement is a
+   check that says how far off they are.
 
-**When a match is confident.** It is measured, not judged. Each direction must be sure of at least 3 percent of the
-pixels in the other's frame, the matcher must find at least 15 percent of them one way or the other, and the two
-directions must agree within 8 degrees, within 0.25 m or a tenth of the distance, and within a tenth in scale.
-Cameras that look at different space share no pixel the model is sure of, so they fall well short.
+A cloud that can't be fitted stays as it was after squaring, in the model's own metres, and its row in the view says
+why: it has no wall in view; the wall it sees isn't where a wall of the plan is (an island, a half wall, or furniture
+the plan doesn't draw); or the fit would resize or slide it past the bounds, which usually means its spot is off.
 
-**The bound.** A match may move a camera at most 0.75 m and 20 degrees from its spot. One that would move it farther
-says that one of the two spots is off: the view says so, and nothing is moved.
+What comes of squaring and fitting is kept beside the cloud (`align.json`) and holds only for the cloud, the spot,
+and the plan it was made from. When any of those changes it is made again.
 
-**Daylight.** A pair that matches in daylight often doesn't at night. While neither camera has moved and neither
-spot has changed, the last confident measurement stays in use, and a later look that isn't confident doesn't
-replace it.
+### Flat walls and floor
 
-**What is written.** Nothing here changes a spot or the plan. The pairs' measurements are kept in
-`state/camera_clouds/pairs.json`, and each camera's folder holds its anchor (`anchor.json`, `anchor.png`) and, once
-its picture stopped matching the anchor, `moved.json`. A measurement made from another picture or another spot is not
-used. The spot offered for a moved camera is saved, as a new version of the plan, only when the owner accepts it; the
-anchor it replaced is set aside so that Undo puts the plan's earlier version and the anchor back. The scene's points
-are drawn on request into `state/camera_clouds/scenes/` and kept until the scene changes.
+In a fitted cloud, the points of the floor are drawn on the floor, and the points of each matched wall on that wall
+of the plan, where they were along it and up it. A wall drawn this way is the plan's wall with what the camera saw
+painted on it. Where the camera saw nothing there is a hole: nothing is added. Everything else, the fronts of
+furniture included, stays the points it is, and no point is drawn twice. This is a way of drawing, an option of the
+view that is on by default: the cloud itself is not changed, and with the option cleared every point is where its
+cloud has it.
 
-**What a scene is good for.** Each camera's view standing in the right place, not a whole room. Clouds that overlap
-meet with a seam of tens of centimetres, and cameras that share no space are only as right as their spots. A point
-more than 0.3 m outside every room of the plan is marked, and the view leaves it out unless asked: a cloud's depth is
-the model's estimate, and can run through a wall.
+### Cameras that see the same space
+
+When a camera's cloud is made, its picture is compared with the pictures of up to five other cameras of the place,
+the nearest by their spots first, by MASt3R's two-picture matching. A confident match says where one camera stands as
+seen from the other.
+
+- **Confident** is measured, not judged. Each direction must be sure of at least 3 percent of the pixels in the
+  other's frame, the matcher must find at least 15 percent of them one way or the other, and the two directions must
+  agree within 8 degrees, within 0.25 m or a tenth of the distance, and within a tenth in scale. Cameras that look at
+  different space share no pixel the model is sure of, so they fall well short.
+- **The spots stay the reference.** A match weighs ten times a spot, and two cameras that are both free to move share
+  the correction, so the scene stays on the plan.
+- **The bound.** A match may move a camera at most 0.75 m and 20 degrees from its spot. One that would move it farther
+  says that one of the two spots is off: the view says so, and nothing is moved.
+- **Daylight.** A pair that matches in daylight often doesn't at night. While neither camera has moved and neither
+  spot has changed, the last confident measurement stays in use, and a later look that isn't confident doesn't
+  replace it.
+
+Registering overlapping clouds to each other from their points and colours was tried and left out. Two cameras see a
+room from two sides, and each cloud is a relief with its own bend, so few surfaces are shared: the registration slid
+one relief along the other, tipped it off level, and ended farther from what the two pictures measured.
+
+### A camera that was moved
+
+The picture a camera was first placed with at its spot is its anchor. Each new picture is compared with it. One that
+registers within 0.3 m and 4 degrees hasn't moved, and becomes the anchor. One that registers farther has moved: its
+cloud follows by what the pictures measured, and the new spot is offered to the owner. One that doesn't register is
+looking at other space: it is tried against the other cameras' pictures and placed from the first that registers. If
+none does, the camera leaves the scene and says it was moved and isn't placed, until its spot is set again or a
+picture registers. A moved camera's cloud is never left at its old spot.
+
+The spot offered for a moved camera is saved, as a new version of the plan, only when the owner accepts it. The
+anchor it replaced is set aside, so that Undo puts the plan's earlier version and the anchor back.
+
+### What is kept, and when it is made
+
+Everything is kept beside the clouds, in `state/camera_clouds/`: each camera's squaring and fit (`align.json`), its
+anchor (`anchor.json`, `anchor.png`), what became of it once its picture stopped matching the anchor (`moved.json`),
+the pairs' measurements (`pairs.json`), and the scene's drawn points (`scenes/`), made on request and kept until the
+scene changes. A measurement made from another picture or another spot is not used.
+
+The 3D view brings a place's stored clouds up to date each time it asks for the scene: an older cloud with no floor
+is stood up by its walls, and each camera's squaring and fit are made where they are missing or stale. That needs no
+picture and no model, and costs little when nothing is stale, so clouds that are already made stand level and fitted
+with Learn surroundings off.
+
+### What a scene is good for
+
+Each camera's view standing in the right place, with the room's own walls and floor where the plan has them. It is
+not a whole room: a camera shows only what it saw, clouds that overlap meet with a seam, and cameras that share no
+space are only as right as their spots. A cloud's walls aren't quite square to each other or to its floor, and
+squaring lays the walls with the most points along the plan and leaves the rest out by that much; the view says when
+a cloud's walls bend. A point more than 0.3 m outside every room of the plan is marked, and the view leaves it out
+unless asked.
 
 ## Positions
 

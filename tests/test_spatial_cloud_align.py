@@ -195,6 +195,116 @@ def test_walls_bent_against_each_other_are_squared_by_the_bigger_and_the_rest_is
     assert found.bend_deg == pytest.approx(6.0, abs=0.5)
 
 
+# ---- fit to the room
+
+
+def fitted(truth: scenes.At, said: scenes.At, cloud: np.ndarray, rooms=(ROOM,), size: float = 1.0, **more):
+    """Fit the cloud of a camera that really stands at `truth`, whose spot says `said` and whose cloud came out
+    `size` times too big: the fit, the cloud's own points, and the move that places them."""
+    own = seen_from(cloud, truth) * size
+    found = align.fit(align.lines(align.planes(own)), said.x, said.y, said.bearing, align.edges_of(rooms), **more)
+    stands = scenes.At(said.x + found.dx, said.y + found.dy, said.bearing + math.radians(found.turn_deg))
+    move = scenes._transform(stands) @ np.diag([found.scale, found.scale, found.up, 1.0])
+    return found, own, move
+
+
+def bent_room() -> np.ndarray:
+    """The room's floor, its far wall, and its right wall, the right wall running 4 degrees off square."""
+    lean = 5.0 * math.tan(math.radians(4.0))
+    return np.concatenate([floor(), wall(ROOM[3], ROOM[2], n=6000, seed=1), wall((4.0 - lean, 0.0), ROOM[2], seed=2)])
+
+
+def test_a_cloud_a_tenth_too_big_with_bent_walls_ends_with_its_walls_on_the_plans():
+    spot = at(1.0, 1.0, 20.0)
+    found, own, move = fitted(spot, spot, bent_room(), size=1.1)
+    assert (found.state, len(found.walls), found.seen) == ("fitted", 2, 2)
+    assert found.scale == pytest.approx(1 / 1.1, abs=0.03)
+    assert math.hypot(found.dx, found.dy) < 0.2  # the bent wall asks for a little: it is shared, not stretched
+    assert max(abs(w.before_m) for w in found.walls) > 0.25  # they stood well off the plan's walls
+    assert max(abs(w.after_m) for w in found.walls) < 0.08
+    assert max(w.off_deg for w in found.walls) == pytest.approx(4.0, abs=0.5)  # the bend is kept as a number
+    drawn, kind = align.flatten(own, move, found)
+    on_wall = drawn[kind == align.WALL]
+    far, right = on_wall[on_wall[:, 0] < 3.999], on_wall[on_wall[:, 0] >= 3.999]
+    assert len(far) > 1000 and len(right) > 1000
+    assert far[:, 1] == pytest.approx(5.0, abs=1e-9)  # exactly on the plan's far wall
+    assert right[:, 0] == pytest.approx(4.0, abs=1e-9)  # and on its right wall, straight
+    assert drawn[kind == align.FLOOR][:, 2] == pytest.approx(0.0, abs=1e-12)
+    assert (kind == align.FLOOR).sum() > 5000
+
+
+def test_what_stands_in_front_of_a_wall_stays_points_and_is_not_laid_on_it():
+    cupboard = wall((1.0, 4.5), (2.5, 4.5), n=2500, tall=1.8, seed=5)  # its front, half a metre off the far wall
+    spot = at(2.0, 1.0, 0.0)
+    found, own, move = fitted(spot, spot, np.concatenate([bent_room(), cupboard]))
+    assert found.state == "fitted" and found.seen == 3 and len(found.walls) == 2
+    drawn, kind = align.flatten(own, move, found)
+    front = (np.abs(drawn[:, 1] - 4.5) < 0.05) & (drawn[:, 0] > 0.9) & (drawn[:, 0] < 2.6) & (drawn[:, 2] > 0.1)
+    assert front.sum() > 2000
+    assert (kind[front] == align.POINT).all()
+
+
+def test_with_flat_off_or_no_fit_every_point_is_where_its_cloud_has_it():
+    spot = at(1.0, 1.0, 20.0)
+    found, own, move = fitted(spot, spot, bent_room())
+    plain, kind = align.flatten(own, move, align.Fit("no_match"))
+    assert (kind == align.POINT).all()
+    assert plain == pytest.approx(own @ move[:3, :3].T + move[:3, 3])
+    drawn, kind = align.flatten(own, move, found)
+    assert drawn[kind == align.POINT] == pytest.approx(plain[kind == align.POINT])  # only walls and floor move
+    assert len(drawn) == len(own)  # nothing added, nothing dropped
+
+
+def test_one_wall_gives_the_size_alone():
+    truth = at(2.0, 1.0, 0.0)
+    found, _, _ = fitted(truth, at(2.3, 1.0, 0.0), wall(ROOM[3], ROOM[2]), size=1.1)
+    assert (found.state, len(found.walls)) == ("fitted", 1)
+    assert found.scale == pytest.approx(1 / 1.1, abs=0.01)
+    assert (found.dx, found.dy) == pytest.approx((0.0, 0.0), abs=0.02)  # nothing says how far across it stands
+
+
+def test_walls_on_both_sides_give_the_slide_too():
+    truth = at(2.0, 1.0, 0.0)
+    sides = np.concatenate([wall(ROOM[0], ROOM[3], seed=1), wall(ROOM[1], ROOM[2], seed=2)])
+    found, _, _ = fitted(truth, at(2.25, 1.0, 0.0), sides)
+    assert (found.state, len(found.walls)) == ("fitted", 2)
+    assert found.scale == pytest.approx(1.0, abs=0.02)
+    assert (found.dx, found.dy) == pytest.approx((-0.25, 0.0), abs=0.03)
+
+
+def test_a_fit_that_asks_for_a_slide_past_the_bound_is_not_made_and_says_what_it_would_take():
+    hall = ((0.0, 0.0), (12.0, 0.0), (12.0, 5.0), (0.0, 5.0))
+    sides = np.concatenate([wall(hall[0], hall[3], seed=1), wall(hall[1], hall[2], seed=2)])
+    found, _, _ = fitted(at(6.0, 1.0, 0.0), at(6.7, 1.0, 0.0), sides, rooms=(hall,))
+    assert found.state == "beyond"
+    assert found.dx == pytest.approx(-0.7, abs=0.05)
+
+
+def test_a_wall_too_far_from_the_plan_wall_the_camera_faces_is_not_that_wall():
+    # an island a metre and a half short of the far wall: no resize within the bound puts it there
+    spot = at(2.0, 1.0, 0.0)
+    found, _, _ = fitted(spot, spot, wall((0.5, 3.5), (3.5, 3.5)))
+    assert (found.state, found.seen, found.walls) == ("no_match", 1, ())
+    assert fitted(spot, spot, floor())[0].state == "no_walls"
+
+
+def test_a_cloud_wall_is_matched_to_the_first_plan_wall_the_camera_sees_there_not_one_behind_it():
+    rooms = (ROOM, ((0.0, 5.3), (4.0, 5.3), (4.0, 9.0), (0.0, 9.0)))  # a second room behind the far wall
+    spot = at(2.0, 1.0, 0.0)
+    found, _, _ = fitted(spot, spot, wall(ROOM[3], ROOM[2]), rooms=rooms, size=1.06)  # it reads 4.24 m: nearer 5.3
+    (matched,) = found.walls
+    assert {matched.a[1], matched.b[1]} == {5.0}
+    assert found.scale == pytest.approx(1 / 1.06, abs=0.01)
+
+
+def test_a_measured_height_sizes_the_cloud_upwards_when_it_is_plausible():
+    spot = at(2.0, 1.0, 0.0)
+    cloud = wall(ROOM[3], ROOM[2])
+    assert fitted(spot, spot, cloud, height=(1.8, 1.5))[0].up == pytest.approx(1.2)
+    found = fitted(spot, spot, cloud, height=(3.0, 1.5))[0]  # twice the cloud's: not this camera's floor
+    assert found.up == found.scale
+
+
 # ---- what is kept
 
 
@@ -204,11 +314,26 @@ def test_a_squaring_is_kept_and_read_back_and_holds_only_for_its_cloud_spot_and_
     align.keep(tmp_path, made)
     kept = align.kept(tmp_path)
     assert kept == made
+    assert kept.fit is not None and kept.fit.state == "fitted" and len(kept.fit.walls) == 2
     key = align.plan_key((ROOM,))
     assert kept.holds("cloud-1", "spot-1", key)
     assert not kept.holds("cloud-2", "spot-1", key)
     assert not kept.holds("cloud-1", "spot-2", key)
     assert not kept.holds("cloud-1", "spot-1", align.plan_key((ROOM[:3],)))
+
+
+def test_a_record_kept_before_clouds_were_fitted_no_longer_holds_so_it_is_made_again(tmp_path):
+    import json
+
+    own = seen_from(np.concatenate([floor(), far_corner()]), at(1.0, 1.0, 20.0))
+    made = align.make("cloud-1", own, (1.0, 1.0, math.radians(23.0)), "spot-1", (ROOM,))
+    align.keep(tmp_path, made)
+    record = json.loads((tmp_path / align.ALIGN).read_text())
+    del record["fit"]
+    (tmp_path / align.ALIGN).write_text(json.dumps(record))
+    kept = align.kept(tmp_path)
+    assert kept is not None and kept.fit is None
+    assert not kept.holds("cloud-1", "spot-1", align.plan_key((ROOM,)))
 
 
 def test_a_record_that_doesnt_read_is_no_squaring(tmp_path):

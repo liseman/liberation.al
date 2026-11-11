@@ -229,6 +229,28 @@ export interface ScenePlaced {
    *  is what placed the camera (a camera that moved is placed by its pictures instead). */
   square?: SceneSquare | null;
   squared?: boolean;
+  /** Its cloud's fit to the rooms of the plan, when one was made from this cloud, spot, and plan; `fitted` when it is
+   *  what sized and placed the cloud, whose floor and matched walls can then be drawn flat. */
+  fit?: SceneFit | null;
+  fitted?: boolean;
+}
+
+/** How a cloud was fitted to the plan's rooms: resized about its camera and slid so its walls land on the plan's. */
+export interface SceneFit {
+  /** "fitted"; "no_walls": no wall in the cloud; "no_match": no wall of it is where a plan wall is; "beyond": the fit
+   *  asks for more than it may do (`scale`, `dx`, `dy` say what it would have taken). */
+  state: 'fitted' | 'no_walls' | 'no_match' | 'beyond';
+  /** Its size across the floor against the model's own metres, and upwards. */
+  scale: number;
+  up: number;
+  /** The slide of the camera from its spot (m). */
+  dx: number;
+  dy: number;
+  /** The walls matched to plan walls: how far each ran off its plan wall (degrees), and stood from it before and
+   *  after the fit (m). */
+  walls: { off_deg: number; before_m: number; after_m: number }[];
+  /** The walls in the cloud. */
+  seen: number;
 }
 
 export type CloudLevel = 'floor' | 'walls' | 'none';
@@ -324,6 +346,9 @@ export interface Scene {
     level?: CloudLevel;
     tilt_deg?: number;
     roll_deg?: number;
+    /** Its fit to the room, for a camera with a spot, and whether this scene is drawn with flat walls and floor. */
+    fit?: SceneFit | null;
+    flat?: boolean;
   };
 }
 
@@ -346,13 +371,19 @@ export const SCENE_LEARNING_MS = 10_000;
 export const SCENE_IDLE_MS = 60_000;
 
 /** A place's scene; with `camera`, that camera's own cloud; with `all`, every camera's cloud placed in the place.
- *  Changing the camera keeps the scene before it on screen until the new one answers. */
-export const sceneQuery = (place: string, camera?: string | null, all = false) =>
+ *  `flat` (the default) draws the floor and matched walls of clouds fitted to their rooms flat; without it every
+ *  point is where its cloud has it. Changing the camera keeps the scene before it on screen until the new one
+ *  answers. */
+export const sceneQuery = (place: string, camera?: string | null, all = false, flat = true) =>
   queryOptions({
-    queryKey: ['places', 'scene', place, all ? '@all' : (camera ?? null)],
+    queryKey: ['places', 'scene', place, all ? '@all' : (camera ?? null), flat],
     queryFn: ({ signal }) =>
       request<Scene>(
-        `/places/scene?${new URLSearchParams({ place, ...(all ? { all: '1' } : camera ? { camera } : {}) })}`,
+        `/places/scene?${new URLSearchParams({
+          place,
+          ...(all ? { all: '1' } : camera ? { camera } : {}),
+          ...(flat ? {} : { flat: '0' }),
+        })}`,
         undefined,
         signal,
       ),
