@@ -26,10 +26,11 @@ use std::io;
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use continuum_catalog::{Catalog, MemoryCatalog};
 use continuum_core::schema::continuum::{ControlPayload, ErrorCode};
+use continuum_core::utc_now_ns;
 use flatbuffers::FlatBufferBuilder;
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{UnixListener, UnixStream};
@@ -649,12 +650,6 @@ async fn refuse(mut stream: UnixStream, timeout: Duration) {
     let _ = tokio::time::timeout(timeout, write_frame(&mut stream, &bytes)).await;
 }
 
-/// Nanoseconds since the Unix epoch, UTC.
-fn now_ns() -> u64 {
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
-}
-
 /// What the session does after handling one message.
 enum Next {
     Continue,
@@ -965,7 +960,7 @@ impl Session {
                 Ok(Next::Continue)
             }
             ControlPayload::Heartbeat => {
-                let bytes = protocol::heartbeat(&mut self.builder, request_id, now_ns());
+                let bytes = protocol::heartbeat(&mut self.builder, request_id, utc_now_ns());
                 self.send(bytes).await?;
                 // Heartbeat telemetry doesn't reach the scheduler yet: it names loaded models, the scheduler wants capability ids,
                 // and passing an empty list would clear what the scheduler knows is loaded and charge a cold start on every quote.

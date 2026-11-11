@@ -32,9 +32,9 @@ impl FakeCatalog {
         Self::default()
     }
 
-    /// Register a stream with no live edge. Registering an id again replaces it.
+    /// Register a stream. Registering an id again replaces it.
     pub fn add_stream(&mut self, id: StreamId, kind: StreamKind, live: bool, rate_hz: f64) -> &mut Self {
-        self.streams.insert(id, StreamView { id, kind, live, rate_hz, live_edge_ns: None });
+        self.streams.insert(id, StreamView { id, kind, live, rate_hz });
         self
     }
 
@@ -42,14 +42,6 @@ impl FakeCatalog {
     pub fn set_live(&mut self, id: StreamId, live: bool) -> &mut Self {
         if let Some(s) = self.streams.get_mut(&id) {
             s.live = live;
-        }
-        self
-    }
-
-    /// Set a stream's live edge: the newest time its producer has written, sealed or not.
-    pub fn set_live_edge(&mut self, id: StreamId, live_edge_ns: Option<u64>) -> &mut Self {
-        if let Some(s) = self.streams.get_mut(&id) {
-            s.live_edge_ns = live_edge_ns;
         }
         self
     }
@@ -199,13 +191,13 @@ mod tests {
     }
 
     #[test]
-    fn streams_can_go_live_and_back_and_have_a_live_edge() {
+    fn streams_can_go_live_and_back() {
         let mut cat = FakeCatalog::new();
         cat.add_stream(StreamId(3), StreamKind::Sensor, true, 30.0);
-        let view = |cat: &FakeCatalog| cat.stream(StreamId(3)).expect("not failing").map(|s| (s.live, s.live_edge_ns));
-        assert_eq!(view(&cat), Some((true, None)));
-        cat.set_live(StreamId(3), false).set_live_edge(StreamId(3), Some(1_000));
-        assert_eq!(view(&cat), Some((false, Some(1_000))));
+        let view = |cat: &FakeCatalog| cat.stream(StreamId(3)).expect("not failing").map(|s| s.live);
+        assert_eq!(view(&cat), Some(true));
+        cat.set_live(StreamId(3), false);
+        assert_eq!(view(&cat), Some(false));
         cat.set_failing(Some(ViewError("disk".to_owned())));
         assert_eq!(cat.stream(StreamId(3)), Err(ViewError("disk".to_owned())));
         assert!(cat.has_range(StreamId(3), iv(0, 1)).is_err());

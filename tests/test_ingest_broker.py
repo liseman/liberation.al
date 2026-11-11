@@ -71,9 +71,11 @@ def test_no_broker_is_a_refusal_that_says_where_it_looked(tmp_path):
 
 
 def test_item_purge_cascades_all_analysis_and_keeps_unrelated_rows(tmp_path, broker):
-    from continuum_py import decode_header
+    import json
+    import uuid
 
-    from liberational import vision_log
+    import continuum_py
+
     from test_ingest import make_clip
 
     pipe = Pipeline(Store(tmp_path / "ingest.sqlite3"), tmp_path / "ingest", BrokerRegistrar(broker))
@@ -82,27 +84,44 @@ def test_item_purge_cascades_all_analysis_and_keeps_unrelated_rows(tmp_path, bro
     roots = {o["kind"]: o["chunk_id"] for o in item.outputs}
     assert item.original_ts is not None
     ns = int(item.original_ts * 1e9)
-    streams = [vision_log.CAPTIONS, vision_log.OBJECTS]
+    streams = ["camera.caption", "camera.objects"]
 
     async def seed():
         async with await Client.connect(str(broker), client_name="test-delete") as client:
-            registered = {name: await vision_log.register(client, name) for name in streams}
+            registered = {
+                name: (
+                    await client.register_stream(
+                        name, kind="derived", format="Text", shape_name=name, layer="Layer1Raw", slab_class=0
+                    )
+                )["stream_id"]
+                for name in streams
+            }
             record_seq = 0
 
             def text(stream, record, parents, at_ns):
                 nonlocal record_seq
                 record_seq += 1
-                header, body = vision_log.encode(
-                    stream, registered[stream], record, parents=parents, span_ns=(at_ns, at_ns + 1), seq=record_seq
-                )
-                client.ingest(header, inline=body)
-                return decode_header(header)["id"]
+                payload_id = str(uuid.uuid7())
+                header: continuum_py.PayloadHeader = {
+                    "id": payload_id,
+                    "stream_id": registered[stream],
+                    "start_ns": at_ns,
+                    "end_ns": at_ns + 1,
+                    "layer": "Layer1Raw",
+                    "format": "Text",
+                    "shape_name": stream,
+                    "parents": list(parents),
+                    "subjects": [],
+                    "seq": record_seq,
+                }
+                client.ingest(continuum_py.encode_header(header), inline=json.dumps(record).encode())
+                return payload_id
 
             for cam, parents in [(item.stream, roots), ("unrelated-camera", {})]:
                 at_ns = ns if parents else ns + 100_000_000
                 owned = [parents["video"]] if parents else []
-                text(vision_log.CAPTIONS, {"cam": cam, "caption": "An indoor scene"}, owned, at_ns)
-                text(vision_log.OBJECTS, {"cam": cam, "objects": []}, owned, at_ns)
+                text("camera.caption", {"cam": cam, "caption": "An indoor scene"}, owned, at_ns)
+                text("camera.objects", {"cam": cam, "objects": []}, owned, at_ns)
             # Ingest is one-way: wait until the real catalog has committed the complete graph.
             async with asyncio.timeout(5):
                 while True:

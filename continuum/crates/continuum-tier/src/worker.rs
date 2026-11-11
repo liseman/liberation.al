@@ -797,7 +797,7 @@ impl<O: Outputs> WorkerLoop<O> {
 
     #[cfg(feature = "ffmpeg")]
     fn drain_all(&mut self) -> Result<(), TierError> {
-        let now = crate::service::now_utc_ns();
+        let now = continuum_core::utc_now_ns();
         for stream in self.raw.keys().copied().collect::<Vec<_>>() {
             self.drain(stream, now)?;
         }
@@ -863,11 +863,6 @@ impl<O: Outputs> WorkerLoop<O> {
         }
         self.retry();
         Ok(())
-    }
-
-    /// Commits a chunk recovered at startup, as if it had just closed.
-    pub fn commit_recovered(&mut self, closed: Closed) {
-        self.finish(closed);
     }
 
     /// Chunks closed but not yet committed.
@@ -1004,7 +999,7 @@ impl<O: Outputs> WorkerLoop<O> {
         if closed.more && self.flusher.open_path(closed.stream) == Some(closed.path.as_path()) {
             self.refused = Some(closed.path.clone());
             #[cfg(feature = "ffmpeg")]
-            if let Err(e) = self.drain(closed.stream, crate::service::now_utc_ns()) {
+            if let Err(e) = self.drain(closed.stream, continuum_core::utc_now_ns()) {
                 tracing::warn!("draining stream {}'s encoder failed: {e}", closed.stream.0);
             }
             match self.flusher.close(closed.stream) {
@@ -1083,7 +1078,7 @@ impl<O: Outputs> WorkerLoop<O> {
         let shape = self.sources.get(&stream).ok_or(TierError::UnknownStream(stream))?.clone();
         // The shape the flusher wrote under: a raw camera's is its H.264.
         let shape = StreamShape { chunk_format: format, ..shape };
-        let created_ns = crate::service::now_utc_ns();
+        let created_ns = continuum_core::utc_now_ns();
         // A name the flusher never gives: its counter starts at 1.
         let to = path.with_file_name(format!("{}-{created_ns}-0.cnk", stream.0));
         let records = crate::chunk::split_off(path, keep, &to, created_ns)?;

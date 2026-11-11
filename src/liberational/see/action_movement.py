@@ -28,7 +28,6 @@ from liberational.vision import crossings
 
 SAMPLE_NS = 200_000_000  # a sample about every 0.2 s: the movement rules sample at 1 s, walk-bys need a few a second
 MOTION_KEEP_S = 300.0  # how long camera shifts are kept to judge a walk-by's camera motion
-MAX_PATH = 3000  # points a track keeps for its crossing check: 10 min at one per SAMPLE_NS
 
 Write = Callable[[str, list[dict[str, Any]]], None]
 
@@ -152,9 +151,8 @@ class Movement:
         spans = []
         for walk in walks:
             ts = float(walk["ts"])
-            first = min([ts, *(s[0] for s in self._moved)]) if self._moved else ts
             near = [moved for at, moved in self._moved if abs(at - ts) <= 2.0]
-            unknown = not near or first > ts
+            unknown = not near
             spans.append(
                 {
                     "id": str(uuid.uuid7()),

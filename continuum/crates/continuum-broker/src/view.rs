@@ -7,24 +7,23 @@
 //!
 //! [`ViewError`]: continuum_sched::ViewError
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use continuum_core::{Interval, StageId, StreamId};
 use continuum_sched::{CatalogView, Covered, StreamView, ViewError};
 
 use crate::index::AvailabilityIndex;
 
-/// The view for one scheduler call: the index, and the live streams with their live edge (the newest time the
-/// producer has written, if it has reported one).
+/// The view for one scheduler call: the index, and the streams whose producer is connected now.
 pub struct IndexView<'a> {
     index: &'a AvailabilityIndex,
-    live: &'a HashMap<StreamId, Option<u64>>,
+    live: &'a HashSet<StreamId>,
 }
 
 impl<'a> IndexView<'a> {
     /// A view over `index`, where the streams in `live` have a connected producer.
     #[must_use]
-    pub fn new(index: &'a AvailabilityIndex, live: &'a HashMap<StreamId, Option<u64>>) -> Self {
+    pub fn new(index: &'a AvailabilityIndex, live: &'a HashSet<StreamId>) -> Self {
         Self { index, live }
     }
 }
@@ -34,9 +33,8 @@ impl CatalogView for IndexView<'_> {
         Ok(self.index.meta(stream).map(|meta| StreamView {
             id: stream,
             kind: meta.kind,
-            live: self.live.contains_key(&stream),
+            live: self.live.contains(&stream),
             rate_hz: meta.rate_hz,
-            live_edge_ns: self.live.get(&stream).copied().flatten(),
         }))
     }
 
@@ -76,22 +74,16 @@ mod tests {
         index.add_copy(cam, iv(0, 100), StorageTier::Tier1Warm).unwrap();
         index.add_copy(cam, iv(50, 100), StorageTier::Tier0Hot).unwrap();
         index.add_coverage(cam, StageId(7), iv(0, 40));
-        let live = HashMap::from([(cam, Some(120))]);
+        let live = HashSet::from([cam]);
         let view = IndexView::new(&index, &live);
 
         assert_eq!(
             view.stream(cam),
-            Ok(Some(StreamView {
-                id: cam,
-                kind: StreamKind::Sensor,
-                live: true,
-                rate_hz: 30.0,
-                live_edge_ns: Some(120)
-            }))
+            Ok(Some(StreamView { id: cam, kind: StreamKind::Sensor, live: true, rate_hz: 30.0 }))
         );
         assert_eq!(
             view.stream(pose),
-            Ok(Some(StreamView { id: pose, kind: StreamKind::Derived, live: false, rate_hz: 0.0, live_edge_ns: None }))
+            Ok(Some(StreamView { id: pose, kind: StreamKind::Derived, live: false, rate_hz: 0.0 }))
         );
         assert_eq!(view.stream(StreamId(9)), Ok(None));
         assert_eq!(
@@ -104,11 +96,11 @@ mod tests {
         assert_eq!(view.has_range(StreamId(9), iv(0, 10)), Ok(vec![]));
         assert_eq!(view.coverage_gaps(cam, StageId(7), iv(0, 100), 10), Ok(vec![iv(40, 100)]));
 
-        // Live without a reported edge, and live but never registered (the index decides what exists).
+        // Live but never registered (the index decides what exists).
         let ghost = StreamId(9);
-        let live = HashMap::from([(pose, None), (ghost, Some(5))]);
+        let live = HashSet::from([pose, ghost]);
         let view = IndexView::new(&index, &live);
-        assert_eq!(view.stream(pose).unwrap().map(|s| (s.live, s.live_edge_ns)), Some((true, None)));
+        assert_eq!(view.stream(pose).unwrap().map(|s| s.live), Some(true));
         assert_eq!(view.stream(ghost), Ok(None));
     }
 }

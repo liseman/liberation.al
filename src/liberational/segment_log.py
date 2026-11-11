@@ -55,6 +55,9 @@ CAMERA_OBJECTS = "camera.objects"
 PRESENCE_SPANS = "presence.span"
 ACTION_COVERAGE = "action.coverage"
 ACTION_WINDOWS = "action.window"  # see-actions' scored windows: each track's top model classes
+# see-actions' pose tracks. No schema is registered here: see/actions.py owns POSE_SCHEMA and the writer that uses it,
+# and this is the name its readers ask for.
+POSE_TRACKS = "pose.track"
 FACE_MATCHES = "face.match"  # see/head_faces.py: faces from see-actions' tracked heads
 FACE_VISITS = "face.visit"
 FACE_EMBEDDINGS = "face.embedding"  # one per face.match, for the vector worker's nearest-face search

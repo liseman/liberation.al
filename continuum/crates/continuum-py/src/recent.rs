@@ -118,13 +118,11 @@ pub(crate) fn open_h264_window<'py>(
     })?;
     let now_ns = match now_ns {
         Some(now) => now,
-        None => u64::try_from(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| PyValueError::new_err(e.to_string()))?
-                .as_nanos(),
-        )
-        .unwrap_or(u64::MAX),
+        // A clock before the epoch reads as 0, which a window can't work from: say so rather than answer nothing.
+        None => match continuum_core::utc_now_ns() {
+            0 => return Err(PyValueError::new_err("the system clock reads a time before 1970")),
+            now => now,
+        },
     };
     let (client, live) = (client.shared(), live.shared());
     crate::awaitable(py, async move {

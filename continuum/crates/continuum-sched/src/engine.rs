@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use continuum_core::{ComputeDomain, Interval, PriorityBand, StorageTier, StreamId, VoiceTurnState};
 
 use crate::action::{Action, Dispatch, InputRange, LeaseEnd};
-use crate::catalog::{CatalogView, Covered, StreamKind, StreamView};
+use crate::catalog::{CatalogView, StreamKind, StreamView};
 use crate::cost::{CapabilityKey, ComputeCost, CostModelRecord};
 use crate::ids::{CapabilityId, ConsumerId, JobId, LeaseId, PromiseId, WorkerId};
 use crate::intervals::{clip, merge, subtract};
@@ -82,27 +82,8 @@ impl Default for Settings {
     }
 }
 
-/// Splits off the unsealed tail of a ring stream: the one missing part that touches the live edge has its
-/// `[start, edge)` in the ring (the broker serves it), and only what lies past the edge stays missing. A hole that
-/// ends before the edge is a real gap and stays missing.
-fn split_live_tail(missing: Vec<Interval>, edge: u64) -> (Vec<Interval>, Vec<Interval>) {
-    let mut tail = Vec::new();
-    let mut rest = Vec::new();
-    for m in missing {
-        if m.start_ns() < edge && m.end_ns() >= edge {
-            tail.push(Interval::new(m.start_ns(), edge).expect("start < edge"));
-            if let Some(after) = Interval::new(edge, m.end_ns()) {
-                rest.push(after);
-            }
-        } else {
-            rest.push(m);
-        }
-    }
-    (tail, rest)
-}
-
-/// For a live sensor stream: which missing parts can still be captured (they start at or after the edge, the newest
-/// time written), and which are gone for good (they end before it). A part straddling the edge is split.
+/// For a live sensor stream: which missing parts can still be captured (they start at or after `edge`, the clock when
+/// the query was asked), and which are gone for good (they end before it). A part straddling the edge is split.
 fn split_capturable(missing: &[Interval], edge: u64) -> (Vec<Interval>, Vec<Interval>) {
     let mut capturable = Vec::new();
     let mut gone = Vec::new();
@@ -705,7 +686,7 @@ impl Engine {
             }
         }
         let taken: Vec<Interval> = covered.iter().map(|c| c.interval).collect();
-        let mut missing = subtract(range, &taken);
+        let missing = subtract(range, &taken);
         match view.kind {
             StreamKind::Sensor => {
                 if missing.is_empty() {
@@ -714,12 +695,8 @@ impl Engine {
                 if !view.live {
                     return Err(Refusal::StreamNotLive(stream));
                 }
-                // Up to the edge the bytes are in the ring; past it they are still to come.
-                let edge = view.live_edge_ns.unwrap_or(now_ns);
-                if view.live_edge_ns.is_some() {
-                    missing = split_live_tail(missing, edge).1;
-                }
-                let (capturable, gone) = split_capturable(&missing, edge);
+                // Up to now the bytes can still be captured; before it they are gone for good.
+                let (capturable, gone) = split_capturable(&missing, now_ns);
                 if !gone.is_empty() {
                     return Err(Refusal::NotCaptured(stream));
                 }
@@ -1222,31 +1199,12 @@ impl Scheduler for Engine {
             Ok(None) => return refused(Refusal::UnknownStream(req.stream)),
             Err(e) => return refused(Refusal::Catalog(e.0)),
         };
-        let mut covered = match catalog.has_range(req.stream, req.range) {
+        let covered = match catalog.has_range(req.stream, req.range) {
             Ok(c) => c,
             Err(e) => return refused(Refusal::Catalog(e.0)),
         };
         let taken: Vec<Interval> = covered.iter().map(|c| c.interval).collect();
-        let mut missing = subtract(req.range, &taken);
-        if let Some(edge) = view.live_edge_ns {
-            let (tail, rest) = split_live_tail(missing, edge);
-            missing = rest;
-            for t in tail {
-                covered.push(Covered { interval: t, tier: StorageTier::Tier0Hot });
-            }
-            covered.sort_by_key(|c| c.interval.start_ns());
-            // The tail abuts the newest hot part; report them as one.
-            let mut joined: Vec<Covered> = Vec::with_capacity(covered.len());
-            for c in covered {
-                match joined.last_mut() {
-                    Some(last) if last.tier == c.tier && last.interval.end_ns() == c.interval.start_ns() => {
-                        last.interval = Interval::new(last.interval.start_ns(), c.interval.end_ns()).expect("grows");
-                    }
-                    _ => joined.push(c),
-                }
-            }
-            covered = joined;
-        }
+        let missing = subtract(req.range, &taken);
         if missing.is_empty() || req.mode == QueryMode::HitOnly {
             return Outcome { decision: QueryDecision::Hit { covered, missing }, actions: Vec::new() };
         }
@@ -1255,7 +1213,7 @@ impl Scheduler for Engine {
             if !view.live {
                 return refused(Refusal::StreamNotLive(req.stream));
             }
-            split_capturable(&missing, view.live_edge_ns.unwrap_or(now_ns))
+            split_capturable(&missing, now_ns)
         } else {
             (missing.clone(), Vec::new())
         };

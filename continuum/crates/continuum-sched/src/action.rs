@@ -10,7 +10,8 @@ use crate::ids::{CapabilityId, ConsumerId, JobId, LeaseId, PromiseId, WorkerId};
 use crate::lease::{OutputLease, OutputRef};
 
 /// An input a dispatched job reads: a stream over a range, present in Tier 0 (or being hydrated by an earlier
-/// step). The broker resolves the payload ids and locators from the catalog and pins them for the job's lease.
+/// step). The broker resolves the payload ids and locators from the catalog and hands them out; a locator in Tier 0
+/// is covered only by the receiving session's reader pin, which lasts a few seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InputRange {
     /// The input stream.
@@ -111,15 +112,14 @@ pub enum Action {
         /// Why, for the message.
         reason: String,
     },
-    /// Release everything the broker pinned for this lease: the inputs it resolved for the job, or the parents a
-    /// `LeaseReq` asked to pin. The broker keeps the pin set per lease; the scheduler never sees payload ids for
-    /// dispatched inputs.
+    /// The lease's pins can go. Nothing in the broker is held per lease today (a dispatched job's inputs are covered
+    /// by the receiving session's reader pin, which expires on its own), so the broker only notes it.
     Unpin {
         /// The lease whose pins are released.
         lease: LeaseId,
     },
-    /// The lease is gone from the scheduler, whatever the exit: forget it in any map keyed by lease (ownership,
-    /// pins already released by `Unpin`). Sent exactly once per lease, after its `Unpin`, and alongside any
+    /// The lease is gone from the scheduler, whatever the exit: forget it in any map keyed by lease (ownership).
+    /// Sent exactly once per lease, after its `Unpin`, and alongside any
     /// `Preempt` or `RevokeLease` the same exit sends, so a map can never keep an entry the scheduler has dropped.
     LeaseEnded {
         /// The lease.

@@ -28,10 +28,10 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use continuum_core::schema::continuum::{self as fb, ControlPayload, ErrorCode};
-use continuum_core::{SCHEMA_MAJOR, StorageLocator, Uuid};
+use continuum_core::{SCHEMA_MAJOR, StorageLocator, Uuid, utc_now_ns};
 use continuum_shm::Arena;
 use continuum_wire::{FrameError, MAX_FDS, read_envelope, read_frame_with_fds, write_frame};
 use tokio::net::UnixStream;
@@ -585,7 +585,7 @@ impl Client {
     ///
     /// As any request.
     pub async fn heartbeat(&self, telemetry: Option<&Telemetry>) -> Result<u64, Error> {
-        let reply = self.shared.request(|id| messages::heartbeat(id, now_ns(), telemetry)).await?;
+        let reply = self.shared.request(|id| messages::heartbeat(id, utc_now_ns(), telemetry)).await?;
         reply.envelope().payload_as_heartbeat().map(|h| h.now_ns()).ok_or_else(|| unexpected("Heartbeat", &reply))
     }
 
@@ -1202,7 +1202,7 @@ async fn heartbeat_loop(shared: Weak<Shared>, every: Duration) {
             // is dropped, nothing times out, and the cadence stays steady while the consumer is paused.
             let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
             if shared.closed.load(Ordering::SeqCst)
-                || shared.writes.send((messages::heartbeat(id, now_ns(), None), None)).is_err()
+                || shared.writes.send((messages::heartbeat(id, utc_now_ns(), None), None)).is_err()
             {
                 return;
             }
@@ -1210,14 +1210,8 @@ async fn heartbeat_loop(shared: Weak<Shared>, every: Duration) {
         }
         // Under Close, a heartbeat is an ordinary numbered request; an overflow closes the connection before its reply
         // could wait behind the full queue, so this fails Closed and the loop ends.
-        if matches!(shared.request(|id| messages::heartbeat(id, now_ns(), None)).await, Err(Error::Closed)) {
+        if matches!(shared.request(|id| messages::heartbeat(id, utc_now_ns(), None)).await, Err(Error::Closed)) {
             return;
         }
     }
-}
-
-/// Nanoseconds since the Unix epoch, UTC.
-fn now_ns() -> u64 {
-    let d = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
-    u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
 }

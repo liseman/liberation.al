@@ -31,7 +31,9 @@ use continuum_catalog::{
     Resolved, StreamInfo, StreamKind as CatalogKind,
 };
 use continuum_core::schema::continuum::{ErrorCode, PromiseLife};
-use continuum_core::{HeaderBuf, Interval, PriorityBand, StorageLocator, StorageTier, StreamId, Uuid, VoiceTurnState};
+use continuum_core::{
+    HeaderBuf, Interval, PriorityBand, StorageLocator, StorageTier, StreamId, Uuid, VoiceTurnState, utc_now_ns,
+};
 use continuum_sched::{
     Action, Capability, CapabilityId, CapabilityRole, ConsumerId, CoverageDone, Covered, Dispatch, Engine, IngestRef,
     JobId, LeaseDecision, LeaseId, LeaseReq, Manifest, OutputRef, Profile, PromiseId, PromiseState, QueryDecision,
@@ -1244,7 +1246,6 @@ pub fn spawn(
         consumers: HashMap::new(),
         consumer_sessions: HashMap::new(),
         next_consumer: 0,
-        pins: HashMap::new(),
         staging: HashSet::new(),
         delivered: HashMap::new(),
         fulfillments: HashMap::new(),
@@ -1340,9 +1341,7 @@ struct Sched {
     consumers: HashMap<SessionId, ConsumerId>,
     consumer_sessions: HashMap<ConsumerId, SessionId>,
     next_consumer: u64,
-    /// What was pinned for each job's lease (released on `Unpin`).
-    pins: HashMap<LeaseId, Vec<StorageLocator>>,
-    /// Dispatches whose catalog snapshots have not yet become physical pins.
+    /// Dispatches whose catalog snapshots have not yet been read and wired.
     staging: HashSet<LeaseId>,
     /// Items delivered so far per promise, for `PromiseFailed`.
     delivered: HashMap<continuum_sched::PromiseId, u32>,
@@ -1544,10 +1543,10 @@ impl Sched {
                         pins.retain(continuum_shm::Lease::is_valid);
                         !pins.is_empty()
                     });
-                    self.tick(now_ns());
+                    self.tick(utc_now_ns());
                     self.subscribe_tick();
                     self.sweep_rings();
-                    self.forget_tick(now_ns());
+                    self.forget_tick(utc_now_ns());
                     self.upkeep_tick();
                     self.slots_tick();
                 }
@@ -1644,7 +1643,7 @@ impl Sched {
             Command::RegisterWorker { session, request_id, ask } => self.register_worker(session, request_id, ask),
             Command::SetSystemState { voice } => {
                 self.voice = voice;
-                let now = now_ns();
+                let now = utc_now_ns();
                 let actions = self.engine.set_system_state(SystemState::VoiceTurn(voice), now);
                 // Preempt first: the 5 ms bound is on the preemptions, the broadcast can follow.
                 self.run_actions(actions);
@@ -1658,7 +1657,7 @@ impl Sched {
                 let Some(&worker) = self.workers.get(&session) else {
                     return self.reply_error(session, request_id, ErrorCode::NotAllowed, "register a worker first");
                 };
-                match self.engine.quote_request(worker, req, now_ns()) {
+                match self.engine.quote_request(worker, req, utc_now_ns()) {
                     Ok(outcome) => {
                         if let LeaseDecision::Granted(l) = &outcome.decision {
                             self.leases.insert(l.lease, (worker, l.stream));
@@ -1674,7 +1673,7 @@ impl Sched {
                 if !self.owns(session, lease) {
                     return self.reply_error(session, request_id, ErrorCode::NotAllowed, "not this session's lease");
                 }
-                match self.engine.renew_lease(LeaseId(lease), u64::from(extend_ms) * 1_000_000, now_ns()) {
+                match self.engine.renew_lease(LeaseId(lease), u64::from(extend_ms) * 1_000_000, utc_now_ns()) {
                     Ok(expires) => {
                         let bytes = protocol::lease_renewed(&mut self.builder, request_id, lease, expires);
                         self.push(session, bytes);
@@ -1722,7 +1721,7 @@ impl Sched {
                 self.leases.remove(&LeaseId(lease));
                 let live = self.live();
                 let view = IndexView::new(&self.index, &live);
-                match self.engine.abort_lease(&view, LeaseId(lease), &reason, now_ns()) {
+                match self.engine.abort_lease(&view, LeaseId(lease), &reason, utc_now_ns()) {
                     Ok(actions) => {
                         let bytes = protocol::lease_released(&mut self.builder, request_id, lease, &[]);
                         self.push(session, bytes);
@@ -1736,14 +1735,14 @@ impl Sched {
                     return debug!(lease, "ignoring a release of a lease this session doesn't hold");
                 }
                 self.leases.remove(&LeaseId(lease));
-                match self.engine.release_lease(LeaseId(lease), now_ns()) {
+                match self.engine.release_lease(LeaseId(lease), utc_now_ns()) {
                     Ok(actions) => self.run_actions(actions),
                     Err(e) => debug!(error = %e, "a released lease the scheduler didn't know"),
                 }
             }
             Command::Telemetry { session, telemetry } => {
                 if let Some(&worker) = self.workers.get(&session) {
-                    self.engine.telemetry(worker, telemetry, now_ns());
+                    self.engine.telemetry(worker, telemetry, utc_now_ns());
                 }
             }
             Command::Purge { session, request_id, ask, reason, detail } => {
@@ -1796,7 +1795,7 @@ impl Sched {
                 self.list_purges(session, request_id, after, limit);
             }
             Command::GetPurge { session, request_id, purge } => self.get_purge(session, request_id, purge),
-            Command::PurgeAck { session, purge } => self.purge_acked(session, purge, now_ns()),
+            Command::PurgeAck { session, purge } => self.purge_acked(session, purge, utc_now_ns()),
             Command::RememberForgotten { session, request_id, hash } => {
                 self.remember_forgotten(session, request_id, hash);
             }
@@ -1806,7 +1805,7 @@ impl Sched {
             Command::IsForgotten { session, request_id, hash } => self.is_forgotten(session, request_id, hash),
             Command::WorkerState { session, request_id, ask } => self.worker_state(session, request_id, ask),
             Command::ForgetKeeper { session, request_id, name } => {
-                self.forget_keeper(session, request_id, name, now_ns());
+                self.forget_keeper(session, request_id, name, utc_now_ns());
             }
             Command::JobRejected { session, job, reason } => self.job_rejected(session, job, &reason),
             Command::Read { job, reply } => {
@@ -2011,7 +2010,7 @@ impl Sched {
                                 let live = self.live();
                                 let view = IndexView::new(&self.index, &live);
                                 let ingest = IngestRef { id: d.id, stream: d.stream, range: span };
-                                let actions = self.engine.on_ingest(&view, ingest, now_ns());
+                                let actions = self.engine.on_ingest(&view, ingest, utc_now_ns());
                                 self.run_actions(actions);
                             }
                             if !d.hidden && !d.repeat {
@@ -2053,7 +2052,7 @@ impl Sched {
                     let bytes = protocol::purge_result(&mut self.builder, request_id, &report);
                     self.push(session, bytes);
                 }
-                self.purge_finished(&report, kind.as_ref(), acked, now_ns());
+                self.purge_finished(&report, kind.as_ref(), acked, utc_now_ns());
             }
             Event::PurgeFailed { id, requester, code, message } => {
                 self.purge_failed(id);
@@ -2115,7 +2114,7 @@ impl Sched {
                     self.leases.remove(&LeaseId(lease));
                     let live = self.live();
                     let view = IndexView::new(&self.index, &live);
-                    if let Ok(actions) = self.engine.abort_lease(&view, LeaseId(lease), &message, now_ns()) {
+                    if let Ok(actions) = self.engine.abort_lease(&view, LeaseId(lease), &message, utc_now_ns()) {
                         self.run_actions(actions);
                     }
                     return;
@@ -2132,7 +2131,7 @@ impl Sched {
                 // the worker: its work is stored either way.
                 let bytes = protocol::lease_released(&mut self.builder, request_id, lease, &seqs);
                 self.push(session, bytes);
-                match self.engine.commit_lease(LeaseId(lease), &refs, done, cost, now_ns()) {
+                match self.engine.commit_lease(LeaseId(lease), &refs, done, cost, utc_now_ns()) {
                     Ok(actions) => self.run_actions(actions),
                     Err(e) => debug!(lease, error = %e, "a committed lease the scheduler had already ended"),
                 }
@@ -2239,7 +2238,7 @@ impl Sched {
             self.leases.retain(|_, &mut (w, _)| w != worker);
             let live = self.live();
             let view = IndexView::new(&self.index, &live);
-            let actions = self.engine.worker_gone(&view, worker, now_ns());
+            let actions = self.engine.worker_gone(&view, worker, utc_now_ns());
             self.run_actions(actions);
         }
         self.consumer_gone(session);
@@ -2261,9 +2260,9 @@ impl Sched {
         worker.is_some() && self.leases.get(&LeaseId(lease)).map(|&(w, _)| w) == worker.copied()
     }
 
-    /// The live streams for the scheduler's view (no live edges yet: rings come with continuum-shm).
-    fn live(&self) -> HashMap<StreamId, Option<u64>> {
-        self.producers.keys().map(|&s| (s, None)).collect()
+    /// The live streams for the scheduler's view: those whose producer session is open.
+    fn live(&self) -> HashSet<StreamId> {
+        self.producers.keys().copied().collect()
     }
 
     fn reply_error(&mut self, session: SessionId, request_id: u64, code: ErrorCode, message: &str) {
@@ -2339,7 +2338,7 @@ impl Sched {
         };
         self.worker_names.insert(worker, manifest.producer.clone());
         let names: Vec<String> = manifest.capabilities.iter().map(|c| query::capability_name(&self.index, c)).collect();
-        let accepted = self.engine.register_worker(worker, manifest, now_ns());
+        let accepted = self.engine.register_worker(worker, manifest, utc_now_ns());
         for (a, name) in accepted.iter().zip(names) {
             self.cap_names.insert(a.capability, name);
         }
@@ -2353,7 +2352,7 @@ impl Sched {
         // session, which has gone from `sessions` by then).
         if ask.keeps_copies && self.sessions.contains_key(&session) {
             let name = self.worker_names[&worker].clone();
-            self.keeper_registered(session, name, now_ns());
+            self.keeper_registered(session, name, utc_now_ns());
         }
     }
 
@@ -2378,7 +2377,9 @@ impl Sched {
                         self.push(session, bytes);
                     }
                 }
-                Action::Unpin { lease } => self.unpin(lease),
+                // A job's inputs aren't pinned per lease: the worker's session takes a short reader pin on each
+                // Tier 0 slot when the dispatch is wired, and that expires on its own.
+                Action::Unpin { .. } => {}
                 // Every exit of a lease, so the ownership map never keeps one the scheduler has dropped (a preempted
                 // lease that expired sends no RevokeLease, for instance).
                 Action::LeaseEnded { lease, .. } => {
@@ -2637,7 +2638,7 @@ fn run_urgent(
                 // The commit clock: everything committed so far was committed by now (docs/CONTINUUM-STORAGE.md).
                 // Timed here, on the writer, after every commit the head includes: the sample was taken before it
                 // was queued, possibly before work queued ahead of it committed.
-                if let Err(e) = catalog.mark_commit_clock(now_ns()) {
+                if let Err(e) = catalog.mark_commit_clock(utc_now_ns()) {
                     warn!(error = %e, "couldn't mark the commit clock");
                 }
             }
@@ -2980,7 +2981,7 @@ fn purge_job(
                         // Keeper acknowledgement/grace is not unfinished catalog work.
                         health.finish(id);
                     } else {
-                        health.mark_persisted(id, record.at_ns, now_ns(), Instant::now());
+                        health.mark_persisted(id, record.at_ns, utc_now_ns(), Instant::now());
                         health.note_scope(id, purge_scope(catalog, &record).streams);
                     }
                 }
@@ -3017,12 +3018,12 @@ fn purge_job(
                     PurgeSelector::Range { span, streams: Some(ids) }
                 }
             };
-            let at_ns = now_ns();
+            let at_ns = utc_now_ns();
             if let Err(e) = catalog.start_purge(selector, &reason, &detail, id, at_ns) {
                 return fail(error_code(&e), format!("starting the purge: {e}"));
             }
             catalog_work += began.elapsed();
-            health.mark_persisted(id, at_ns, now_ns(), Instant::now());
+            health.mark_persisted(id, at_ns, utc_now_ns(), Instant::now());
             log_purge_started(catalog, &health, id);
             return true;
         }
@@ -3083,12 +3084,6 @@ fn purge_job(
 
 /// How many times a purge step's storage error is retried before the purge is given up for this run.
 const PURGE_RETRIES: u32 = 3;
-
-/// UTC nanoseconds now.
-fn now_ns() -> u64 {
-    u64::try_from(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos())
-        .unwrap_or(u64::MAX)
-}
 
 /// The error code a client gets for a catalog error: the client's mistakes keep their meaning, and only a storage
 /// failure is the broker's.
@@ -3854,7 +3849,7 @@ mod tests {
                     layer: fb::DomainLayer::Layer1Raw,
                 })
                 .await?;
-            let start = now_ns() + 60_000_000_000;
+            let start = utc_now_ns() + 60_000_000_000;
             let middle = start + 100_000_000;
             let end = middle + 100_000_000;
             let mut ask = QuerySpec::hit_only("capture", (start, end));
