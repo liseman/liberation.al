@@ -30,7 +30,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "images"
 SCRIPT = pathlib.Path(__file__).with_suffix(".mjs")
 READY = "the demo dashboard is on "  # pack-demo's address line
-START_S = 120.0  # how long the demo may take to seed and start
+START_S = 600.0  # how long the demo may take to seed and start: it draws its own pictures and clips first
 COLOURS = 256
 
 

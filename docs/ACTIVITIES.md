@@ -38,6 +38,8 @@ name again, and they come back. A row that is not one of your activities (such a
 "Clips to check" lists the movements the cameras saw over the last 7 days that have no answer, newest first. Pick a
 row in the list to see only that kind's clips, or "All activities" for every kind.
 
+![Clips to check: two clips, each with its question, Yes, No, and Not sure, and a Call it box](images/demo-activities.png)
+
 1. Play the clip. The line under it gives the time, the camera, the length, and who it was when a face was matched.
 2. Answer "Is this <kind>?":
    - "Yes" when the clip shows that activity.
