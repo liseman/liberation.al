@@ -95,6 +95,10 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
                 pictures.append(jpg)
                 assert (root / "state" / "demo" / f"{camera}.mp4").stat().st_size > 1000
             assert len(set(pictures)) == 4
+            recording = json.loads((root / "state" / "demo" / "day.json").read_text())
+            clouds = list((root / "state" / "camera_clouds").glob("*/cloud.json"))
+            assert len(clouds) == 4
+            assert all(json.loads(p.read_text())["at"] == recording["start"] for p in clouds)
             people = json.loads(read("/people"))["people"]
             assert {p["name"]: p["here_now"]["cam"] for p in people} == {
                 "Alice": "kitchen",

@@ -72,7 +72,7 @@ def media(state: Path, day: dt.date) -> None:
         cloud = camera_clouds.Cloud(
             str(uuid.uuid4()),
             camera,
-            time.time(),
+            start,
             len(points),
             1.0,
             "height",
