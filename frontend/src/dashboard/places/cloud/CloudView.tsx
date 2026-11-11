@@ -37,11 +37,14 @@ import { viewName } from '../../review/views';
 import { linkClick } from '../../router';
 import { type CameraView, type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
+import { outsideCounts } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { type Built, build, type Colour, type View } from './scene';
-import { LIVE, learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
+import { SceneLayers } from './SceneLayers';
+import { ABOVE, type Built, build, type Colour, type View } from './scene';
+import { LIVE, learningNote, loadingText, planNote, sceneEmpty, splatNote, viewNote, viewWhy } from './status';
 
 type Draw = 'points' | 'splat';
+type Mode = 'one' | 'all';
 
 /** What's drawn: a scene with its map's bytes and its splat's (null with none, or one that can't be drawn). */
 interface Drawn {
@@ -57,6 +60,7 @@ function drawnPart(scene: Scene): string {
   const { floor, plan_transform, cameras, plan } = scene;
   return JSON.stringify({
     view: scene.view?.camera ?? null,
+    all: scene.combined?.id ?? null,
     place,
     revision,
     map,
@@ -198,10 +202,18 @@ function CloudMap({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
   // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
   const [picked, setPicked] = useState<string | null>(null);
-  const scene = useQuery({ ...sceneQuery(place, picked), enabled: webgl });
-  const read = scene.data;
-  const views = read?.views ?? [];
+  // One camera's own cloud, or every camera's placed in the place (#445).
+  const [mode, setMode] = useState<Mode>('one');
+  const all = mode === 'all';
+  const scene = useQuery({ ...sceneQuery(place, all ? null : picked, all), enabled: webgl });
+  // While the other mode's scene is on its way, the one before it stays on screen; its controls wait for the new one.
+  const read = scene.data && !!scene.data.combined === all ? scene.data : undefined;
+  const views = read?.views ?? scene.data?.views ?? [];
   const camera = read?.view?.camera ?? null;
+  const combined = read?.combined;
+  // The cameras whose points are hidden in the scene of all of them, and whether points outside the plan are left out.
+  const [hiddenCameras, setHiddenCameras] = useState<ReadonlySet<string>>(new Set());
+  const [inside, setInside] = useState(true);
   // The scene as far as drawing goes: the same object from one read to the next while nothing drawn changed.
   const part = read ? drawnPart(read) : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `part` is what of `read` is drawn
@@ -230,11 +242,15 @@ function CloudMap({ place }: { place: string }) {
   // A camera's cloud opens from that camera, where its own mark (the outline of its view) lies along the edges of
   // the picture: a stray line down one side. So the mark starts off for each camera's cloud, and comes on from
   // outside ("See it from outside"), where it shows where the camera stands.
+  // The scene of all cameras is looked at from outside, so there the marks start on.
+  const showing = all ? '@all' : camera;
   const [opened, setOpened] = useState<string | null>(null);
-  if (camera !== opened) {
-    setOpened(camera);
-    if (camera) setShow(current => ({ ...current, cameras: false }));
+  if (showing !== opened) {
+    setOpened(showing);
+    if (showing) setShow(current => ({ ...current, cameras: all }));
   }
+  // How many of each camera's points lie outside the plan, in the scene drawn.
+  const [beyond, setBeyond] = useState<number[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
   // Retry builds the view again. The build runs when its inputs change, and a failure leaves those as they were.
   const [rebuild, setRebuild] = useState(0);
@@ -271,11 +287,18 @@ function CloudMap({ place }: { place: string }) {
     // the views it trained on ("Back to the start" goes to the overview). A newer splat of the same place opens
     // from where the one before it was being looked at.
     // A camera's own cloud opens from that camera too: it is that camera's view, and empty from behind.
-    const opening = carried.current ?? (file || data.view ? openingCamera(Object.keys(data.cameras ?? {})) : null);
+    // The scene of all cameras opens from above, looking down at the plan they stand on.
+    const opening =
+      carried.current ??
+      (data.combined ? ABOVE : file || data.view ? openingCamera(Object.keys(data.cameras ?? {})) : null);
     carried.current = null;
-    (async () => build(el, data, parseCloud(map, 'ply'), file, opening))().then(
-      b => {
+    (async () => {
+      const cloud = parseCloud(map, 'ply');
+      return { b: await build(el, data, cloud, file, opening), cloud };
+    })().then(
+      ({ b, cloud }) => {
         if (gone) return b.dispose();
+        setBeyond(outsideCounts(cloud.views, cloud.outside));
         made = b;
         built.current = b;
         setReady(n => n + 1); // the settings wait for the scene
@@ -310,7 +333,9 @@ function CloudMap({ place }: { place: string }) {
     const view = built.current;
     if (!view) return;
     try {
-      view.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
+      const order = combined?.cameras.map(c => c.camera) ?? [];
+      const hidden = new Set(order.flatMap((name, i) => (hiddenCameras.has(name) ? [i] : [])));
+      view.show({ splat: draw === 'splat' && splatReady, size, colour, ...show, hidden, inside: !!combined && inside });
     } catch (error) {
       built.current = null;
       try {
@@ -320,7 +345,7 @@ function CloudMap({ place }: { place: string }) {
       }
       setFailed(messageOf(error));
     }
-  }, [draw, splatReady, size, colour, show, ready]);
+  }, [draw, splatReady, size, colour, show, ready, combined, hiddenCameras, inside]);
 
   // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
   // header, the tabs) is the page's to decide, and measured again when the window changes.
@@ -356,10 +381,53 @@ function CloudMap({ place }: { place: string }) {
         }}
       />
     );
+  const modes = views.length > 0 && (
+    <SegmentedControl
+      size="xs"
+      value={mode}
+      onChange={value => setMode(value as Mode)}
+      data={[
+        { value: 'one', label: 'One camera' },
+        { value: 'all', label: 'All cameras' },
+      ]}
+      aria-label="Show"
+    />
+  );
+  const layers = combined && (
+    <SceneLayers
+      place={place}
+      cameras={combined.cameras}
+      pairs={combined.pairs}
+      hidden={hiddenCameras}
+      onToggle={(name, on) =>
+        setHiddenCameras(was => {
+          const next = new Set(was);
+          if (on) next.delete(name);
+          else next.add(name);
+          return next;
+        })
+      }
+      outside={beyond}
+      inside={inside}
+    />
+  );
+  if (all && read && !read.revision)
+    return (
+      <>
+        {modes}
+        <Text size="sm" c="dimmed" mt="sm" role="status">
+          {sceneEmpty(combined?.cameras ?? [])}
+        </Text>
+        {layers}
+      </>
+    );
   if (data && !data.revision)
     return (
       <>
-        <CameraPicker views={views} camera={camera} onPick={setPicked} />
+        <Group gap="md" align="flex-end" wrap="wrap">
+          {modes}
+          <CameraPicker views={views} camera={camera} onPick={setPicked} />
+        </Group>
         <Text size="sm" c="dimmed" mt={views.length ? 'sm' : 0} role="status">
           <Words
             text={
@@ -398,96 +466,92 @@ function CloudMap({ place }: { place: string }) {
     setShow(current => ({ ...current, [key]: on }));
   };
   return (
-    <div
-      ref={frame}
-      className={classes.cloudFrame}
-      style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
-    >
-      {views.length > 0 && (
-        <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
-          <CameraPicker views={views} camera={camera} onPick={setPicked} />
-          {own && (
-            <Text size="xs" c="dimmed" role="status" flex={1} miw={220}>
-              {own}
-            </Text>
-          )}
-        </Group>
-      )}
-      {held && (
-        <Text size="xs" c="dimmed" mb="sm" role="status">
-          <Words text={held} />
-        </Text>
-      )}
+    <>
       <div
-        className={classes.cloud}
-        ref={host}
-        aria-label="The place's map in 3D: orbit, fly, or walk through it; press H for the controls"
-        role="img"
+        ref={frame}
+        className={classes.cloudFrame}
+        style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
       >
-        {loading && (
-          <Text size="sm" c="dimmed" className={classes.cloudNote}>
-            {data?.map_bytes ? `Loading the map (${(data.map_bytes / 1e6).toFixed(1)} MB)…` : 'Loading the map…'}
+        {views.length > 0 && (
+          <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
+            {modes}
+            {!all && <CameraPicker views={views} camera={camera} onPick={setPicked} />}
+            {own && (
+              <Text size="xs" c="dimmed" role="status" flex={1} miw={220}>
+                {own}
+              </Text>
+            )}
+          </Group>
+        )}
+        {held && (
+          <Text size="xs" c="dimmed" mb="sm" role="status">
+            <Words text={held} />
           </Text>
         )}
-      </div>
-      <Group justify="space-between" gap="sm" mt="sm" wrap="wrap">
-        {hasSplat && !splatError && (
-          <SegmentedControl
-            size="xs"
-            value={draw}
-            onChange={v => setChosen(v as Draw)}
-            data={[
-              { value: 'splat', label: 'Splat' },
-              { value: 'points', label: 'Points' },
-            ]}
-            aria-label="Draw the map as"
-          />
-        )}
-        {draw === 'points' && (
-          <>
+        <div
+          className={classes.cloud}
+          ref={host}
+          aria-label="The place's map in 3D: orbit, fly, or walk through it; press H for the controls"
+          role="img"
+        >
+          {loading && (
+            <Text size="sm" c="dimmed" className={classes.cloudNote}>
+              {data?.map_bytes ? `Loading the map (${(data.map_bytes / 1e6).toFixed(1)} MB)…` : 'Loading the map…'}
+            </Text>
+          )}
+        </div>
+        <Group justify="space-between" gap="sm" mt="sm" wrap="wrap">
+          {hasSplat && !splatError && (
             <SegmentedControl
               size="xs"
-              value={colour}
-              onChange={v => setColour(v as Colour)}
+              value={draw}
+              onChange={v => setChosen(v as Draw)}
               data={[
-                { value: 'rgb', label: 'Colour' },
-                { value: 'height', label: 'Height' },
+                { value: 'splat', label: 'Splat' },
+                { value: 'points', label: 'Points' },
               ]}
-              aria-label="Colour the points by"
+              aria-label="Draw the map as"
             />
-            <Group gap="xs" align="center" wrap="nowrap">
-              <Text size="xs" c="dimmed">
-                Point size
-              </Text>
-              <Slider value={size} onChange={setSize} min={1} max={8} step={0.5} w={120} thumbLabel="Point size" />
-            </Group>
-          </>
-        )}
-        <Group gap="md">
-          <Checkbox size="xs" label="Floor" checked={show.floor} onChange={onOverlay('floor')} />
-          <Checkbox
-            size="xs"
-            label={read?.view ? 'Camera mark' : `Cameras${cams.length ? ` (${cams.length})` : ''}`}
-            checked={show.cameras}
-            onChange={onOverlay('cameras')}
-          />
-          {!read?.view && <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />}
-        </Group>
-        <Text
-          size="xs"
-          c="dimmed"
-          component="button"
-          type="button"
-          className={classes.cloudHome}
-          onClick={() => {
-            // from outside, the camera's mark shows where it stands
-            if (read?.view) setShow(current => ({ ...current, cameras: true }));
-            built.current?.home();
-          }}
-        >
-          {read?.view ? 'See it from outside' : 'Back to the start'}
-        </Text>
-        {read?.view && camera && (
+          )}
+          {draw === 'points' && (
+            <>
+              <SegmentedControl
+                size="xs"
+                value={colour}
+                onChange={v => setColour(v as Colour)}
+                data={[
+                  { value: 'rgb', label: 'Colour' },
+                  { value: 'height', label: 'Height' },
+                  ...(combined ? [{ value: 'camera', label: 'By camera' }] : []),
+                ]}
+                aria-label="Colour the points by"
+              />
+              <Group gap="xs" align="center" wrap="nowrap">
+                <Text size="xs" c="dimmed">
+                  Point size
+                </Text>
+                <Slider value={size} onChange={setSize} min={1} max={8} step={0.5} w={120} thumbLabel="Point size" />
+              </Group>
+            </>
+          )}
+          <Group gap="md">
+            <Checkbox size="xs" label="Floor" checked={show.floor} onChange={onOverlay('floor')} />
+            <Checkbox
+              size="xs"
+              label={read?.view ? 'Camera mark' : `Cameras${cams.length ? ` (${cams.length})` : ''}`}
+              checked={show.cameras}
+              onChange={onOverlay('cameras')}
+            />
+            {!read?.view && <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />}
+            {combined && (
+              <Checkbox
+                size="xs"
+                label="Only inside the plan"
+                checked={inside}
+                onChange={event => setInside(event.currentTarget.checked)}
+              />
+            )}
+          </Group>
           <Text
             size="xs"
             c="dimmed"
@@ -495,72 +559,89 @@ function CloudMap({ place }: { place: string }) {
             type="button"
             className={classes.cloudHome}
             onClick={() => {
-              setShow(current => ({ ...current, cameras: false }));
-              built.current?.lookFrom(camera);
+              // from outside, the camera's mark shows where it stands
+              if (read?.view) setShow(current => ({ ...current, cameras: true }));
+              built.current?.home();
             }}
           >
-            Back to the camera's view
+            {read?.view ? 'See it from outside' : 'Back to the start'}
           </Text>
-        )}
-      </Group>
-      {splatLoading && (
-        <Group gap="xs" mt="xs" wrap="nowrap" role="status">
-          <Text size="xs" c="dimmed">
-            {loadingText(splatBytes.got.received, splatBytes.got.total, !!splatBytes.data)}
-            {draw === 'splat' && !loading ? ' The points are drawn meanwhile.' : ''}
-          </Text>
-          {!splatBytes.data && splatBytes.got.total > 0 && (
-            <Progress
-              value={(splatBytes.got.received / splatBytes.got.total) * 100}
-              size="sm"
-              w={120}
-              aria-label="How much of the splat has loaded"
-            />
+          {read?.view && camera && (
+            <Text
+              size="xs"
+              c="dimmed"
+              component="button"
+              type="button"
+              className={classes.cloudHome}
+              onClick={() => {
+                setShow(current => ({ ...current, cameras: false }));
+                built.current?.lookFrom(camera);
+              }}
+            >
+              Back to the camera's view
+            </Text>
           )}
         </Group>
-      )}
-      {newer && (
-        <Text size="xs" c="dimmed" mt="xs" role="status">
-          A newer version of this map is loading. This one stays until it's ready.
-        </Text>
-      )}
-      {splatError && (
-        <Group gap="xs" mt="xs" role="alert">
-          <Text size="xs" c="red">
-            Couldn't show the splat: {splatError}. The points are drawn instead.
+        {splatLoading && (
+          <Group gap="xs" mt="xs" wrap="nowrap" role="status">
+            <Text size="xs" c="dimmed">
+              {loadingText(splatBytes.got.received, splatBytes.got.total, !!splatBytes.data)}
+              {draw === 'splat' && !loading ? ' The points are drawn meanwhile.' : ''}
+            </Text>
+            {!splatBytes.data && splatBytes.got.total > 0 && (
+              <Progress
+                value={(splatBytes.got.received / splatBytes.got.total) * 100}
+                size="sm"
+                w={120}
+                aria-label="How much of the splat has loaded"
+              />
+            )}
+          </Group>
+        )}
+        {newer && (
+          <Text size="xs" c="dimmed" mt="xs" role="status">
+            A newer version of this map is loading. This one stays until it's ready.
           </Text>
-          <Button size="compact-xs" variant="light" onClick={retry}>
-            Retry
-          </Button>
-        </Group>
-      )}
-      {note && (
-        <Text size="xs" c="dimmed" mt="xs" role="status">
-          {note}
-        </Text>
-      )}
-      {learning && (
-        <Text size="xs" c="dimmed" mt="xs">
-          {learning}
-        </Text>
-      )}
-      {plan && (
-        <Text size="xs" c="dimmed" mt="xs">
-          {plan}
-        </Text>
-      )}
-      {cams.length > 0 && !read?.view && (
-        <Group gap="xs" mt="xs" wrap="wrap">
-          <Text size="xs" c="dimmed">
-            Look from
-          </Text>
-          {cams.map(name => (
-            <Button key={name} size="compact-xs" variant="light" onClick={() => built.current?.lookFrom(name)}>
-              {name}
+        )}
+        {splatError && (
+          <Group gap="xs" mt="xs" role="alert">
+            <Text size="xs" c="red">
+              Couldn't show the splat: {splatError}. The points are drawn instead.
+            </Text>
+            <Button size="compact-xs" variant="light" onClick={retry}>
+              Retry
             </Button>
-          ))}
-        </Group>
-      )}
-    </div>
+          </Group>
+        )}
+        {note && (
+          <Text size="xs" c="dimmed" mt="xs" role="status">
+            {note}
+          </Text>
+        )}
+        {learning && (
+          <Text size="xs" c="dimmed" mt="xs">
+            {learning}
+          </Text>
+        )}
+        {plan && (
+          <Text size="xs" c="dimmed" mt="xs">
+            {plan}
+          </Text>
+        )}
+        {cams.length > 0 && !read?.view && (
+          <Group gap="xs" mt="xs" wrap="wrap">
+            <Text size="xs" c="dimmed">
+              Look from
+            </Text>
+            {cams.map(name => (
+              <Button key={name} size="compact-xs" variant="light" onClick={() => built.current?.lookFrom(name)}>
+                {viewName(name)}
+              </Button>
+            ))}
+          </Group>
+        )}
+      </div>
+      {layers}
+    </>
   );
 }

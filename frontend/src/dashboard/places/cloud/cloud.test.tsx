@@ -3,6 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
+import type { ScenePair, ScenePlaced } from '../api';
 import { buildScene } from '../scene/build';
 import CloudView from './CloudView';
 import { collisionMesh, glb, glbUrl } from './collision';
@@ -18,8 +19,9 @@ import {
   robustRange,
   type V3,
 } from './geometry';
+import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
+import { learningNote, loadingText, pairLine, placedLine, planNote, splatNote, viewNote, viewWhy } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -441,26 +443,135 @@ it("says nothing more about a place's map once it has one, or when the scene doe
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
 });
 
-it("leads a camera's cloud with whose view it is, then its points, when it was made, and how it was sized", () => {
+it("leads a camera's cloud with whose view it is, then its points, when it was made, and that its size is a guess", () => {
   const now = new Date(2026, 10, 10, 9, 0);
   const at = new Date(2026, 10, 10, 1, 40).getTime() / 1000;
-  const own = { place: 'p1', revision: 'c1', view: { camera: 'cam0', points: 123554, at, floor_found: true } } as const;
-  expect(viewNote({ ...own, view: { ...own.view, size: 'height' } }, 'Hall', now)).toBe(
-    "What Hall sees on its own. 123,554 points, today 01:40. Sized from the camera's mounting height.",
+  const own = {
+    place: 'p1',
+    revision: 'c1',
+    view: { camera: 'cam0', points: 123554, at, size: 'approximate' },
+  } as const;
+  expect(viewNote(own, 'Hall', now)).toBe(
+    "What Hall sees on its own. 123,554 points, today 01:40. Approximate size: the model's own estimate of distances, which can be a tenth off or more.",
   );
-  expect(viewNote({ ...own, view: { ...own.view, at: at - 7 * 3600, size: 'height' } }, 'Hall', now)).toMatch(
+  expect(viewNote({ ...own, view: { ...own.view, at: at - 7 * 3600 } }, 'Hall', now)).toMatch(
     /123,554 points, yesterday 18:40\./,
-  );
-  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate' } }, 'Hall', now)).toMatch(
-    /Approximate size\. Give this camera its mounting height \(mount\.height_m .+config\/devices\.toml\) for a true one\.$/,
-  );
-  // with no floor in view a height wouldn't help, so that is what it says
-  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate', floor_found: false } }, 'Hall', now)).toMatch(
-    /Approximate size: no floor is in this camera's view/,
   );
   expect(viewNote({ place: 'p1', revision: 'r2' })).toBeNull(); // the place's own map
   expect(viewNote({ place: 'p1', revision: null, view: { camera: 'hall' } })).toBeNull(); // no cloud yet
   expect(splatNote({ ...own, splat: null })).toBeNull(); // no splat goes with a camera's cloud
+});
+
+// The scene of all the cameras' clouds (#445): how each camera is placed, what each pair's pictures said, and which
+// points are drawn.
+const placedAs = (how: ScenePlaced['how'], more: Partial<ScenePlaced> = {}): ScenePlaced => ({
+  camera: 'hall',
+  points: 100,
+  placed: !['no_spot', 'no_facing', 'moved_unplaced'].includes(how),
+  how,
+  size: 'approximate',
+  against: [],
+  shift_m: 0,
+  turn_deg: 0,
+  suggest: null,
+  ...more,
+});
+
+it.each([
+  [placedAs('spot'), 'Placed from its spot on your plan.'],
+  [
+    placedAs('adjusted', { against: ['porch'], shift_m: 0.161, turn_deg: 1.7 }),
+    'Placed from its spot, adjusted against porch by what their pictures share: 16 cm and 2° from the spot.',
+  ],
+  [
+    placedAs('moved', { shift_m: 0.5, turn_deg: 35.2 }),
+    'This camera was moved: by its pictures, 50 cm and 35° from its spot. Its cloud followed.',
+  ],
+  [
+    placedAs('moved_against', { against: ['porch'] }),
+    "This camera was moved. It is placed from what its picture shares with porch's.",
+  ],
+  [placedAs('no_spot'), 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.'],
+  [
+    placedAs('moved_unplaced'),
+    "This camera was moved and isn't placed: its picture matches neither its old one nor another camera's. Set its spot again in the plan editor.",
+  ],
+])('says how a camera is placed in the scene, or why it is not in it', (camera, text) => {
+  expect(placedLine(camera)).toBe(text);
+});
+
+const pairOf = (state: ScenePair['state'], more: Partial<ScenePair> = {}): ScenePair => ({
+  a: 'hall',
+  b: 'porch',
+  state,
+  off_m: 0.34,
+  off_deg: 0.5,
+  measured: null,
+  latest: null,
+  ...more,
+});
+
+it('says what an overlapping pair of cameras came to, and nothing for a pair that shares no space', () => {
+  expect(pairLine(pairOf('tightened'))).toBe(
+    'hall and porch see the same space and are adjusted to what their pictures share: the spots were 34 cm and 1° from it.',
+  );
+  // a correction measured by day is kept through a night look that didn't match, and says so
+  expect(pairLine(pairOf('tightened', { latest: 'apart' }))).toMatch(
+    /A later look didn't match well enough \(pictures at night often don't\), so that measurement is kept\.$/,
+  );
+  expect(pairLine(pairOf('disagrees', { off_m: 2.5, off_deg: 50 }))).toBe(
+    'hall and porch: their pictures put them 2.5 m and 50° from where their spots do. One of the two spots is off. Nothing was moved.',
+  );
+  expect(pairLine(pairOf('unsure'))).toMatch(/placed from their spots only/);
+  expect(pairLine(pairOf('apart'))).toBeNull();
+  expect(pairLine(pairOf('moved'))).toBeNull();
+});
+
+it('draws only the points of the cameras shown, and leaves out those outside the plan when asked', () => {
+  const views = new Uint16Array([0, 0, 1, 1]);
+  const outside = new Uint8Array([0, 1, 0, 0]);
+  const square = (i: number) => [i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3];
+  expect([...pointIndices(4, views, outside, new Set(), false)]).toEqual([0, 1, 2, 3].flatMap(square));
+  expect([...pointIndices(4, views, outside, new Set([1]), false)]).toEqual([0, 1].flatMap(square));
+  expect([...pointIndices(4, views, outside, new Set(), true)]).toEqual([0, 2, 3].flatMap(square));
+  expect(pointIndices(4, views, outside, new Set([0, 1]), true)).toHaveLength(0);
+  // a cloud that says nothing of its points (one camera's own) is drawn whole
+  expect(pointIndices(2, null, null, new Set([0]), true)).toHaveLength(12);
+  expect(outsideCounts(views, outside)).toEqual([1]);
+});
+
+it("mixes each camera's colour into its points, and gives a point with no colour the camera's alone", () => {
+  const views = new Uint16Array([0, 1]);
+  const mixed = tinted(2, new Uint8Array([100, 100, 100, 200, 200, 200]), views);
+  const [a, b] = [tintOf(0), tintOf(1)];
+  expect([...mixed.slice(0, 3)]).toEqual(a.map(t => Math.round(100 * (1 - TINT_SHARE) + t * TINT_SHARE)));
+  expect([...mixed.slice(3)]).toEqual(b.map(t => Math.round(200 * (1 - TINT_SHARE) + t * TINT_SHARE)));
+  expect([...tinted(1, null, new Uint16Array([1]))]).toEqual([...b]);
+});
+
+it("reads whose each point is and whether it lies outside the plan from a scene's points", () => {
+  const head = [
+    'ply',
+    'format binary_little_endian 1.0',
+    'element vertex 2',
+    'property float x',
+    'property float y',
+    'property float z',
+    'property ushort view',
+    'property ushort outside',
+    'end_header',
+    '',
+  ].join('\n');
+  const bytes = new ArrayBuffer(head.length + 2 * 16);
+  new Uint8Array(bytes).set(new TextEncoder().encode(head));
+  const body = new DataView(bytes, head.length);
+  body.setUint16(12, 3, true);
+  body.setUint16(16 + 12, 1, true);
+  body.setUint16(16 + 14, 1, true);
+  const cloud = parseCloud(bytes, 'ply');
+  expect([...(cloud.views ?? [])]).toEqual([3, 1]);
+  expect([...(cloud.outside ?? [])]).toEqual([0, 1]);
+  expect(parseCloud(ply(), 'ply').views).toBeNull(); // a cloud with no such tags
 });
 
 it.each([

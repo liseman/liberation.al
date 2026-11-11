@@ -223,8 +223,13 @@ says that no cloud can be made. This is a relief of one camera's view, not a roo
 4. Turn Learn surroundings on (the Live tab). A camera gets its cloud once it has been in view of nobody for about
    20 seconds, and a pass needs 4 GB of free GPU memory.
 
-For a fixed camera, set its measured `mount.height_m` in `config/devices.toml`. If the camera sees a floor, that
-height sizes the cloud. Otherwise its size is approximate. Clouds do not register cameras or place people on plans.
+A cloud's size is approximate: it is in the model's own metres. A fixed camera's measured `mount.height_m` in
+`config/devices.toml` no longer sizes its cloud (that put walls up to a quarter too far); it only checks that the
+floor found is the camera's own. Clouds do not register cameras or place people on plans.
+
+The 3D view can also show every camera's cloud in one scene (All cameras), each placed at its camera's spot on
+your plan. It needs no setting. Each camera's cloud is made again once after this upgrade, so that its picture is
+kept for comparing with its neighbours' and with its own later ones.
 
 `pack-reset-places` deletes the clouds with the rest of what the machine made; they are made again.
 

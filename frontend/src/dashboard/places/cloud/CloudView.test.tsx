@@ -11,7 +11,7 @@ import CloudView from './CloudView';
 import type { Built, View } from './scene';
 
 const build = vi.hoisted(() => vi.fn());
-vi.mock('./scene', () => ({ build }));
+vi.mock('./scene', () => ({ build, ABOVE: '@above' }));
 
 /** What the stood-in viewer was asked to show, newest last, and how its splat's load ends. */
 let shown: Parameters<Built['show']>[0][] = [];
@@ -187,18 +187,12 @@ it("opens on the first camera's own cloud, from that camera, as points with no s
   expect(build.mock.calls[0]?.[3]).toBeNull(); // no splat
   expect(build.mock.calls[0]?.[4]).toBe('hall'); // from where the camera stands
   expect(
-    await screen.findByText(/^What hall sees on its own\. 1,024 points, .+ Approximate size\. Give this camera/),
+    await screen.findByText(/^What hall sees on its own\. 1,024 points, .+ Approximate size: the model's own estimate/),
   ).toBeTruthy();
   expect(screen.getByLabelText('Camera mark')).not.toBeChecked(); // its own mark would lie along the picture's edges
   expect(screen.queryByText('Splat')).toBeNull();
   expect(screen.queryByLabelText('Plan')).toBeNull();
   expect(screen.queryByText(/No splat/)).toBeNull();
-});
-
-it('says a cloud was sized from the mounting height when it was', async () => {
-  serve(cloudOf('hall', { view: { camera: 'hall', size: 'height', floor_found: true, points: 1024, at: 1.8e9 } }));
-  renderPage(<CloudView place="p1" />);
-  expect(await screen.findByText(/Sized from the camera's mounting height\./)).toBeTruthy();
 });
 
 it('shows the camera picked, and says why one with no cloud has none', async () => {
@@ -521,4 +515,134 @@ it('shows the shared error and Retry when the view fails, then builds it again',
   await waitFor(() => expect(shown.at(-1)).toMatchObject({ floor: true, cameras: true, plan: true }));
   expect(screen.queryByRole('alert')).toBeNull();
   expect(build.mock.calls.length).toBe(before + 1);
+});
+
+// Every camera's cloud placed in the place (#445): asked for with All cameras, drawn from above, a layer a camera.
+const placedRow = (camera: string, more: object = {}) => ({
+  camera,
+  points: 1024,
+  placed: true,
+  how: 'spot',
+  size: 'approximate',
+  against: [],
+  shift_m: 0,
+  turn_deg: 0,
+  suggest: null,
+  ...more,
+});
+const allCameras = (cameras: object[], pairs: object[] = []) =>
+  scene({
+    revision: 's1',
+    map: '/places/map?place=p1&revision=s1&scene=1',
+    splat: null,
+    plan_transform: [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0],
+    learning: learning(),
+    views: VIEWS,
+    combined: { place: 'p1', id: 's1', cameras, pairs },
+  });
+
+function serveAll(cameras: object[], pairs: object[] = []) {
+  const asked: URLSearchParams[] = [];
+  server.use(
+    http.get('/places/scene', ({ request }) => {
+      const q = new URL(request.url).searchParams;
+      asked.push(q);
+      return HttpResponse.json(q.get('all') === '1' ? allCameras(cameras, pairs) : cloudOf('hall'));
+    }),
+    http.get('/places/map', () => bytes(MAP)),
+  );
+  return asked;
+}
+
+const toAll = async () => {
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  await userEvent.click(screen.getByRole('radio', { name: 'All cameras' }));
+};
+
+it('shows every camera placed in one scene from above, each saying how it is placed', async () => {
+  const asked = serveAll(
+    [
+      placedRow('hall', { how: 'adjusted', against: ['porch'], shift_m: 0.16, turn_deg: 1.7 }),
+      placedRow('porch', { how: 'adjusted', against: ['hall'], shift_m: 0.16, turn_deg: 1.2 }),
+      placedRow('yard', { placed: false, how: 'no_spot' }),
+    ],
+    [{ a: 'hall', b: 'porch', state: 'tightened', off_m: 0.34, off_deg: 0.5, measured: null, latest: null }],
+  );
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+  expect(asked.at(-1)?.get('all')).toBe('1');
+  expect(build.mock.calls[1]?.[4]).toBe('@above'); // looking down at the plan
+  expect(
+    await screen.findByText(/adjusted against porch by what their pictures share: 16 cm and 2° from the spot/),
+  ).toBeTruthy();
+  expect(screen.getByText(/Not in the scene: it has no spot on your plan/)).toBeTruthy();
+  expect(screen.getByText(/hall and porch see the same space and are adjusted/)).toBeTruthy();
+  expect(
+    screen.getByText(/a relief of what it alone sees, standing where its camera is: not a whole room/),
+  ).toBeTruthy();
+  expect(screen.getByLabelText("Show yard's points")).toBeDisabled(); // nothing of it to show
+  expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull(); // the picker is One camera's
+});
+
+it("hides a camera's points when its box is cleared, and the points outside the plan until asked for", async () => {
+  serveAll([placedRow('hall'), placedRow('porch')]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(shown.at(-1)?.inside).toBe(true)); // left out by default, and the box says so
+  expect(screen.getByLabelText('Only inside the plan')).toBeChecked();
+  expect([...(shown.at(-1)?.hidden ?? [])]).toEqual([]);
+  await userEvent.click(screen.getByLabelText("Show porch's points"));
+  await waitFor(() => expect([...(shown.at(-1)?.hidden ?? [])]).toEqual([1]));
+  await userEvent.click(screen.getByLabelText('Only inside the plan'));
+  await waitFor(() => expect(shown.at(-1)?.inside).toBe(false));
+  expect(build).toHaveBeenCalledTimes(2); // nothing was loaded or built again
+});
+
+it("offers a moved camera's measured spot, and saves it only when it is taken", async () => {
+  serveAll([placedRow('hall', { how: 'moved', shift_m: 0.5, turn_deg: 35.2, suggest: [3.4, -0.9, 212.4] })]);
+  const posted: object[] = [];
+  server.use(
+    http.post('/places/scene/spot', async ({ request }) => {
+      posted.push((await request.json()) as object);
+      return HttpResponse.json({ ok: true, spot: { at: [3.4, -0.9], yaw: 212.4 } });
+    }),
+  );
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  expect(await screen.findByText(/This camera was moved: by its pictures, 50 cm and 35° from its spot/)).toBeTruthy();
+  expect(posted).toEqual([]);
+  await userEvent.click(screen.getByRole('button', { name: 'Use this as its spot' }));
+  await waitFor(() => expect(posted).toEqual([{ place: 'p1', camera: 'hall' }]));
+});
+
+it('says so when no camera can be placed, with why for each', async () => {
+  server.use(
+    http.get('/places/scene', ({ request }) =>
+      HttpResponse.json(
+        new URL(request.url).searchParams.get('all') === '1'
+          ? {
+              place: 'p1',
+              revision: null,
+              learning: learning(),
+              views: VIEWS,
+              combined: {
+                place: 'p1',
+                id: 's0',
+                cameras: [placedRow('hall', { placed: false, how: 'no_facing' })],
+                pairs: [],
+              },
+            }
+          : cloudOf('hall'),
+      ),
+    ),
+    http.get('/places/map', () => bytes(MAP)),
+  );
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  expect(
+    await screen.findByText(/No camera can be placed yet: each needs a spot with a facing on your plan/),
+  ).toBeTruthy();
+  expect(screen.getByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
 });

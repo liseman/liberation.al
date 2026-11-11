@@ -24,6 +24,7 @@ class Made:
         self.store = store
         self.asked: list[tuple[str, np.ndarray, int]] = []
         self.fail = False
+        self.pictures = True  # whether a cloud's picture is kept with it
 
     def __call__(self, camera, pixels, now, frames, thumb):
         self.asked.append((camera, pixels, frames))
@@ -31,10 +32,10 @@ class Made:
             return None
         cloud = camera_clouds.Cloud(
             id=f"00000000-0000-7000-8000-{len(self.asked):012d}", camera=camera, at=now, points=10, share=0.8,
-            size="approximate", factor=1.0, floor_found=True, pose=tuple(np.eye(4).ravel()), focal=70.0, width=64,
+            size="approximate", floor_found=True, pose=tuple(np.eye(4).ravel()), focal=70.0, width=64,
             height=36, thumb=tuple(thumb),
         )  # fmt: skip
-        self.store.replace(camera_clouds.Made(cloud, b"ply"))
+        self.store.replace(camera_clouds.Made(cloud, b"ply", pixels if self.pictures else None))
         return cloud
 
 
@@ -107,6 +108,18 @@ def test_a_cloud_stays_while_the_view_is_as_it_shows_it(clouds, made):
     later = T + due.REFRESH_MIN_S + 60
     assert looks(clouds, [picture(1, noise=n) for n in range(5, 15)], start=later) == ["fine"] * 10
     assert len(made.asked) == 1
+
+
+def test_a_cloud_made_before_pictures_were_kept_is_made_again_once(clouds, made):
+    made.pictures = False
+    looks(clouds, [picture(1, noise=n) for n in range(5)])
+    made.pictures = True
+    later = T + due.REFRESH_MIN_S + 60
+    assert (
+        looks(clouds, [picture(1, noise=n) for n in range(5, 15)], start=later)
+        == ["collecting"] * 4 + ["made"] + ["wait"] * 5
+    )
+    assert len(made.asked) == 2
 
 
 def test_a_changed_view_gets_a_new_cloud_in_place_of_the_old_one(clouds, made, store):
