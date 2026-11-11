@@ -266,13 +266,6 @@ def suggestions(view: reports.Reports) -> list[dict[str, Any]]:
     return out[:MAX_SUGGESTIONS]
 
 
-def _same_origin_json(handler: H) -> bool:
-    origin, host = handler.headers.get("Origin"), handler.headers.get("Host") or ""
-    return handler.headers.get_content_type() == "application/json" and (
-        not origin or origin in (f"http://{host}", f"https://{host}")
-    )
-
-
 def _read_json(handler: H) -> Any:
     n = int(handler.headers.get("Content-Length") or 0)
     if not 0 <= n <= MAX_JSON:
@@ -304,7 +297,7 @@ def handle(handler: H, view: reports.Reports | None = None) -> bool:
         return _reply(handler, 404, {"error": "not found"})
     if handler.command != "POST":
         return False
-    if not _same_origin_json(handler):
+    if not handler._same_origin_json():
         return _reply(handler, 403, {"error": "same-origin JSON only"})
     if route != "layout":
         return _reply(handler, 404, {"error": "not found"})

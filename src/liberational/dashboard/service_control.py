@@ -260,12 +260,9 @@ def _get_services(h: H) -> None:
 
 @routes.post("/services")
 def _post_services(h: H, body: Any) -> None:
-    origin = h.headers.get("Origin")
     if not h._can_control():
         return h._json({"ok": False, "error": "services can only be changed from this machine"}, 403)
-    if h.headers.get_content_type() != "application/json" or (
-        origin and origin not in (f"http://{h.headers.get('Host') or ''}", f"https://{h.headers.get('Host') or ''}")
-    ):
+    if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     with SERVICES_LOCK:  # one action at a time: two Disables at once would each rewrite pack.toml
         if "all" in body:

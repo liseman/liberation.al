@@ -368,16 +368,7 @@ def handle(handler: H) -> bool:
         return True
     if handler.command != "POST" or path == "/network-cameras":
         return False
-    origin = handler.headers.get("Origin")
-    if (
-        not handler._can_control()
-        or handler.headers.get_content_type() != "application/json"
-        or (
-            origin
-            and origin
-            not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
-        )
-    ):
+    if not handler._can_control() or not handler._same_origin_json():
         handler._json({"error": "Local same-origin JSON only."}, 403)
         return True
     try:

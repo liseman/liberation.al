@@ -283,11 +283,6 @@ def remote_items(raw: object) -> list[src.RemoteItem]:
     return out
 
 
-def _same_origin(handler: H) -> bool:
-    origin, host = handler.headers.get("Origin"), handler.headers.get("Host") or ""
-    return not origin or origin in (f"http://{host}", f"https://{host}")
-
-
 def _read_json(handler: H) -> Any:
     n = int(handler.headers.get("Content-Length") or 0)
     if not 0 <= n <= MAX_JSON:
@@ -324,7 +319,7 @@ def handle(handler: H) -> bool:
         return _reply(handler, 404, {"error": "not found"})
     if handler.command != "POST":
         return False
-    if not _same_origin(handler):
+    if not handler._same_origin():  # a POST here: no browser Origin, or this dashboard's own
         return _reply(handler, 403, {"error": "same-origin requests only"})
     if route == "upload":
         name = (query.get("name") or ["upload"])[0]

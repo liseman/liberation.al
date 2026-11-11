@@ -618,15 +618,10 @@ def handle(handler: H) -> bool:
         return True
     if handler.command != "POST" or path == "/devices":
         return False
-    origin = handler.headers.get("Origin")
     if not handler._can_control():
         handler._json({"ok": False, "error": "devices can only be changed from this machine"}, 403)
         return True
-    if handler.headers.get_content_type() != "application/json" or (
-        origin
-        and origin
-        not in (f"http://{handler.headers.get('Host') or ''}", f"https://{handler.headers.get('Host') or ''}")
-    ):
+    if not handler._same_origin_json():
         handler._json({"ok": False, "error": "same-origin JSON only"}, 403)
         return True
     try:
