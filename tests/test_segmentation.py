@@ -73,6 +73,20 @@ def test_another_active_segmentation_is_refused_instead_of_queued():
         segmentation._lock.release()
 
 
+class FrozenClock:
+    """The segmentation module's clock, held still, so the idle boundary is exactly IDLE_S: on a live clock
+    `(used + IDLE_S) - used` can land a hair under IDLE_S for the uptime a runner happens to have, and the reaper
+    thread's own look at the child (real clock) could be the one that stops it."""
+
+    now = 1000.0  # 1000.0 + IDLE_S is exact in binary floating point, so the boundary comparison is exact
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        time.sleep(seconds)  # the reaper keeps its cadence; the frozen clock is what keeps it from reaping
+
+
 class FakeConn:
     """The dashboard's end of the warm child's pipe: answers each request with `answers` in turn, or never."""
 
@@ -154,6 +168,9 @@ def test_a_timeout_ends_the_warm_child_and_the_next_request_starts_another(monke
 
 def test_the_warm_child_serves_the_next_request_and_stops_only_after_idle_s(monkeypatch):
     started = fake_children(monkeypatch, (True, MASK, 0.9), (True, MASK, 0.8))
+    clock = FrozenClock()
+    monkeypatch.setattr(segmentation, "time", clock)
+    monkeypatch.setattr(segmentation, "REAP_EVERY_S", 3600.0)  # the idle reaper's own tick never reaps in this test
     args = (b"image", {"point": [0.5, 0.5]}, "fixture/edgetam", "cpu")
     assert segmentation._run(segmentation._infer, args, 1)[1] == 0.9
     assert segmentation._run(segmentation._infer, args, 1)[1] == 0.8
@@ -161,6 +178,7 @@ def test_the_warm_child_serves_the_next_request_and_stops_only_after_idle_s(monk
     server = segmentation._server
     assert server is not None
     used = server.used
+    assert used == clock.now, "the child was used until the second request finished"
     assert not segmentation.reap_idle(used + segmentation.IDLE_S - 1)
     assert segmentation._lock.acquire(blocking=False)
     try:
