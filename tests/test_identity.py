@@ -457,16 +457,22 @@ def test_the_worker_follows_the_speech_log_and_resumes_after_the_last_line_handl
     old.close()  # before the worker's first run: never replayed
     worker = threading.Thread(target=brain.run, args=(6.0,), daemon=True)
     worker.start()
-    time.sleep(2.0)  # following, from now
-    now = time.time()
+    # The first run saves its place before it follows anything (history is never replayed), so waiting for that file
+    # rather than a fixed time is what says the line below is new to the worker; a fixed sleep flaked when loaded.
+    place = paths.state / identity.SPEECH_CURSOR
+    deadline = time.monotonic() + 15.0
+    while not place.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert place.exists(), "the first run saves its place before it follows"
 
     async def feed() -> None:
+        now = time.time()  # after the wait: both followers are following, and the line is past the saved place
         client = await continuum_py.Client.connect(str(socket), client_name="test-feed")
         try:
             faces_out = segment_log.Writers(segment_log.root(tmp_path))
             match = {
                 "id": segment_log.new_id(),
-                "ts_start": now - 0.2,
+                "ts_start": now,
                 "cam": "cam0",
                 "track_id": "1",
                 "frame_id": segment_log.new_id(),

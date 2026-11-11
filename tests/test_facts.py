@@ -374,7 +374,8 @@ def test_a_purge_during_consolidation_keeps_the_held_fact(env, monkeypatch):
     facts.facts_pass(env.state)
     facts.facts_pass(env.state)
     [dog] = held(env, env.dana)  # the fact from the first hour, which nobody forgot, still stands
-    assert dog["parents"] == [a] or dog["support"] == 1
+    assert dog["parents"] == [a]
+    assert dog["support"] == 1
 
 
 def test_facts_follow_a_merge(env):
