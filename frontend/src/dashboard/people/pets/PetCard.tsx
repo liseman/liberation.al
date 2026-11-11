@@ -43,7 +43,7 @@ export function learningText(learning: Learning): string {
   const measured =
     learning.automatic_percent == null
       ? `No time-separated check is available within the last ${learning.days} days.`
-      : `Within the last ${learning.days} days, ${learning.automatic_percent}% correctly named automatically in ${learning.tested} held-out sightings: ${learning.wrong} wrong, ${learning.unknown} unsure. Available check: ${span(learning.start ?? 0, learning.end ?? 0)}.`;
+      : `Checked ${span(learning.start ?? 0, learning.end ?? 0)}: ${learning.automatic_percent}% correctly named automatically in ${learning.tested} held-out sightings: ${learning.wrong} wrong, ${learning.unknown} unsure.`;
   return `${measured} ${learning.references} usable teaching examples.${learning.stranded ? ` ${learning.stranded} earlier taught sightings have no usable reference.` : ''}`;
 }
 
