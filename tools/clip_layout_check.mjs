@@ -48,6 +48,10 @@ try {
       page.setDefaultTimeout(15000);
       console.log(`Checking ${width} ${scheme}`);
       const cameras = ['front-room', 'kitchen', 'study'];
+      const microphone = 'Demo microphone with a very long device name';
+      await context.route('**/ambient', route => route.fulfill({ json: {
+        devices: { demo: { name: microphone, healthy: true } },
+      } }));
       const start = Math.floor(Date.now() / 1000) - 3600;
       const clips = cameras.map((camera, i) => ({
         id: `demo-clip-${i}`, camera, start: start - i * 60, end: start - i * 60 + 10,
@@ -121,6 +125,22 @@ try {
       await page.waitForFunction(() => document.querySelectorAll('canvas[data-captured-at]').length >= 3);
       await cards.nth(2).getByRole('button', { name: 'Pause', exact: true }).click();
       states.playing = await measure();
+      if (!baseline) {
+        for (const card of await cards.all()) {
+          const name = card.getByText(microphone, { exact: true });
+          await name.waitFor();
+          assert.match(await name.getAttribute('title'), new RegExp(microphone));
+          const bounds = await card.getByRole('region', { name: 'Video' }).boundingBox();
+          const box = await name.boundingBox();
+          assert(box.x >= bounds.x && box.x + box.width <= bounds.x + bounds.width);
+          for (const label of ['Yes', 'No', 'Not sure']) {
+            const button = card.getByRole('button', { name: label, exact: true });
+            assert(await button.locator('.mantine-Button-label').evaluate(el => el.scrollWidth <= el.clientWidth), `${label} must not truncate`);
+          }
+        }
+        const name = cards.first().getByText(microphone, { exact: true });
+        assert(await name.evaluate(el => getComputedStyle(el).textOverflow === 'ellipsis' && el.scrollWidth > el.clientWidth));
+      }
       await page.mouse.move(0, 0);
       await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
       await page.waitForTimeout(150);

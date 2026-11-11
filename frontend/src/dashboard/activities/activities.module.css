@@ -128,11 +128,16 @@
 .ask {
   gap: 8px;
 }
+/* Reserve a second line for wrapped clip facts before playback, so narrow cards keep their questions aligned. */
+.clip > p {
+  min-height: 2lh;
+}
 .answers {
   display: flex;
 }
 .answers > * {
   flex: 1;
+  padding-inline: 8px;
 }
 .callIt {
   align-self: flex-start;
