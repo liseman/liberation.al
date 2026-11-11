@@ -188,3 +188,25 @@ else:
         next(helper.start_broker(tmp_path))
     assert str(binary) in str(caught.value) and "listening timed out" in str(caught.value)
     assert "exit=None" in str(caught.value) and "stderr:" in str(caught.value)
+
+
+def test_a_missing_build_never_skips_a_server_thread(checkout):
+    """A skip raised while a request is being answered has no test to skip: it dropped the connection (a dashboard
+    page asking for camera status on a runner with no broker build). On a server thread that becomes an ordinary
+    error, so the page answers as it does on an install with no broker; a test's own thread still skips."""
+    import threading
+
+    seen: list[BaseException] = []
+
+    def answer_a_request() -> None:
+        try:
+            helper.broker_or_skip()
+        except BaseException as error:  # which signal comes out is the whole point
+            seen.append(error)
+
+    server = threading.Thread(target=answer_a_request, name="a-request")
+    server.start()
+    server.join()
+    assert [type(error) for error in seen] == [RuntimeError]
+    with pytest.raises(pytest.skip.Exception, match="no compatible continuum-broker"):
+        helper.broker_or_skip()  # a test that needs the broker still skips

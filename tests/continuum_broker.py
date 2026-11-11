@@ -13,6 +13,7 @@ import socket as py_socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -87,9 +88,21 @@ def _startup_error(binary: str, process: subprocess.Popen[bytes], stderr: Binary
     return f"broker {binary}: {reason}; exit={process.poll()}; stderr: {detail or '(empty)'}"
 
 
+def broker_or_skip() -> str:
+    """`broker_binary`, but a skip only where a skip means something. A request being answered in a server thread has
+    no test to skip: raising pytest's Skipped there drops the connection instead of answering, so a missing build is an
+    ordinary error on that thread and the page answers as an install with no broker does."""
+    try:
+        return broker_binary()
+    except pytest.skip.Exception as skip:
+        if threading.current_thread() is threading.main_thread():
+            raise
+        raise RuntimeError(str(skip)) from None
+
+
 def start_broker(tmp_path: pathlib.Path) -> Iterator[pathlib.Path]:
     """Yield a bounded tiny broker on a short socket path; always reap it and remove the socket directory."""
-    binary = broker_binary()
+    binary = broker_or_skip()
     die_with_parent = ["setpriv", "--pdeathsig", "KILL"] if sys.platform == "linux" and shutil.which("setpriv") else []
     with tempfile.TemporaryDirectory(prefix="cb-") as short, tempfile.TemporaryFile() as stderr:
         socket = pathlib.Path(short) / "b.sock"
