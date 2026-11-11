@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -14,9 +15,36 @@ from urllib.request import Request, urlopen
 
 import pytest
 from PIL import Image
+from websockets.sync.client import connect
 
 from liberational import config as cfg
 from liberational.demo import cli, dataset
+
+
+def review_spans(port: int, start: float, end: float) -> list[tuple[float, float]]:
+    """Use the gateway protocol Review actually uses, not the media files' presence on disk."""
+    spans = []
+    with connect(f"ws://127.0.0.1:{port}/ws", open_timeout=10) as ws:
+        assert json.loads(ws.recv(timeout=10))["type"] == "hello"
+        ws.send(json.dumps({"type": "streams"}))
+        streams = json.loads(ws.recv(timeout=10))["streams"]
+        for stream in streams:
+            if not re.fullmatch(r".+\.video(?:_v1)?", stream["name"]):
+                continue
+            ws.send(
+                json.dumps(
+                    {
+                        "type": "spans",
+                        "stream": stream["id"],
+                        "start_us": int(start * 1e6),
+                        "end_us": int(end * 1e6),
+                        "gap_us": 0,
+                        "media_context": True,
+                    }
+                )
+            )
+            spans.extend((a / 1e6, b / 1e6) for a, b in json.loads(ws.recv(timeout=10))["spans"])
+    return spans
 
 
 def test_demo_denies_network_and_command_execution(tmp_path: Path) -> None:
@@ -101,6 +129,17 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
                 assert (root / "state" / "demo" / f"{camera}.mp4").stat().st_size > 1000
             assert len(set(pictures)) == 4
             recording = json.loads((root / "state" / "demo" / "day.json").read_text())
+            page = read("/").decode()
+            gateway = re.search(r'gatewayPort\\?":\s*(\d+)', page)
+            assert gateway is not None
+            day = dataset.dt.date.fromisoformat(recording["day"])
+            start = dataset._local(day, 0)
+            spans = review_spans(int(gateway[1]), start, start + 86400)
+            assert spans
+            assert all(
+                any(a <= dataset._local(day, *line.at[:2]) + line.at[2] < b for a, b in spans)
+                for line in dataset.TRANSCRIPT
+            )
             clouds = list((root / "state" / "camera_clouds").glob("*/cloud.json"))
             assert len(clouds) == 4
             assert all(json.loads(p.read_text())["at"] == recording["start"] for p in clouds)
@@ -152,11 +191,15 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
             result = json.loads(read(job["poll_url"]))
             assert result["status"] == "completed"
             assert "pasta" in result["result"]["answer"]
-            # Deep research takes the real way: the demo has no Ask server of its own, so it says research can't run
+            # Prepared reports stay readable, but creating new research never starts a worker or model.
             with pytest.raises(HTTPError) as refused:
                 read("/pack-ask/jobs", {"question": "What changed in the garden?", "deep": True})
             assert refused.value.code == 409
-            assert json.loads(read("/research/jobs"))["jobs"] == []
+            inbox = json.loads(read("/research/jobs"))
+            assert [job["status"] for job in inbox["jobs"]] == ["queued", "done", "done", "done"]
+            report_id = inbox["jobs"][1]["id"]
+            assert "pasta" in json.loads(read(f"/research/jobs/{report_id}"))["result"]["answer"]
+            assert json.loads(read(f"/research/jobs/{report_id}/read", {"read": True}))["ok"]
             saved = json.loads(read("/pack-ask/history"))["items"]
             assert saved[0]["question"] == "What did we have for dinner?"
             examples = json.loads(read("/people/examples?name=Alice"))["examples"]
@@ -214,7 +257,7 @@ def test_demo_day_routes_cross_only_doorways() -> None:
     assert set(paths) == {*dataset.PEOPLE, dataset.PET}
 
 
-@pytest.mark.parametrize("action", ["cameras", "remove", "zones", "settings"])
+@pytest.mark.parametrize("action", ["cameras", "remove", "zones", "settings", "research"])
 def test_demo_settings_and_teaching_use_scratch_state(tmp_path: Path, action: str) -> None:
     root = tmp_path / "demo"
     cli.prepare(root)
@@ -225,6 +268,7 @@ def test_demo_settings_and_teaching_use_scratch_state(tmp_path: Path, action: st
             """
 import json, sys, threading
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from liberational import config as cfg
 from liberational.demo import dataset, server
 from liberational.dashboard.server import DashboardServer
@@ -244,6 +288,19 @@ try:
         cameras = read('/devices')['cameras']
         assert [c['stream'] for c in cameras] == ['front-room', 'kitchen', 'porch', 'study'], cameras
         assert all(c['present'] and c['selected'] and c['in_use'] for c in cameras)
+    elif sys.argv[1] == 'research':
+        with cfg.override({'ask.ollama_url': 'http://example.invalid'}):
+            listing = read('/research/jobs')
+            assert not listing['available']
+            assert 'offline demo' in listing['reason']
+            try:
+                read('/pack-ask/jobs', {'question': 'How was the afternoon?', 'deep': True})
+            except HTTPError as error:
+                assert error.code == 409
+                assert 'running model' in json.load(error)['error']
+            else:
+                raise AssertionError('The offline demo queued new research')
+            assert read('/research/jobs')['jobs'] == []
     elif sys.argv[1] == 'zones':
         zone = {'name': 'Table', 'polygon': [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8]]}
         result = read('/zones', {'cam': 'kitchen', 'base': None, 'zones': [zone]})
