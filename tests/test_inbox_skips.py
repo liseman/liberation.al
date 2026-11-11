@@ -9,7 +9,6 @@ from liberational.dashboard import (
     inbox_state,
     people_list,
     roster_read,
-    speaker_lines,
     unnamed_groups,
 )
 from liberational.people import voice_edits
@@ -51,9 +50,9 @@ def test_skipped_things_stay_out_of_the_inbox(state, monkeypatch):
     write_voices(state, {2: None, 3: None})
     audio = {"stream": "mic.audio", "start_ns": 0, "end_ns": 1000000000}
     lines = [
-        {"ts_start": 100.5, "speaker_id": 1, "speaker_sim": 0.4, "text": "kept", "audio": audio},
-        {"ts_start": 101.5, "speaker_id": 1, "speaker_sim": 0.4, "text": "skipped", "audio": audio},
-        {"ts_start": 102.5, "speaker_id": 2, "speaker_sim": 0.9, "text": "voice 2", "audio": audio},
+        {"ts_start": 100.5, "speaker_id": 2, "speaker_sim": 0.9, "text": "kept", "audio": audio},
+        {"ts_start": 101.5, "speaker_id": 2, "speaker_sim": 0.9, "text": "skipped", "audio": audio},
+        {"ts_start": 102.5, "speaker_id": 1, "speaker_sim": 0.4, "text": "a named voice", "audio": audio},
         {"ts_start": 103.5, "speaker_id": 3, "speaker_sim": 0.9, "text": "voice 3", "audio": audio},
     ]
     fake().write(lines)
@@ -65,10 +64,10 @@ def test_skipped_things_stay_out_of_the_inbox(state, monkeypatch):
     monkeypatch.setattr(context, "STATE", state)
     monkeypatch.setattr(people_list, "_faces_mod", lambda: faces)  # the face model
     view = roster_read.people_view()
-    refine = speaker_lines.speakers_refine_list()
     assert [v["id"] for v in view["unknown"]["voices"]] == [2]
     assert [f["id"] for f in view["unknown"]["faces"]] == [7]
-    assert ([i["text"] for i in refine["items"]], refine["remaining"]) == (["kept"], 1)
+    # The line answered "Nobody" is not offered as a clip of voice 2; its neighbour is.
+    assert [c["text"] for c in view["unknown"]["voice_clips"]] == ["kept"]
 
 
 def test_a_line_put_aside_by_key_leaves_the_other_microphones_line_and_a_time_reaches_both():

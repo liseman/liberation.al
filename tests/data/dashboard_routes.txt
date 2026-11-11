@@ -81,7 +81,6 @@ GET /skeletons/api/poses
 GET /skeletons/api/spans
 GET /speaker/(\d{1,6})/(latest|latest-clip)
 GET /speakers
-GET /speakers/refine
 GET /speakers/refine/log
 GET /static/...
 GET /stats

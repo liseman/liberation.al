@@ -70,7 +70,6 @@ beforeEach(() => {
     http.get('/objects/api/status', () => HttpResponse.json({ cameras: [], objects: 0, observer: null })),
     http.get('/objects/api/objects', () => HttpResponse.json({ objects: [] })),
     http.get('/live/happening', () => HttpResponse.json({ items: [], updated: null })),
-    http.get('/speakers/refine', () => HttpResponse.json({ items: [], remaining: 0 })),
     http.get('/calls', () => HttpResponse.json([])),
     http.get('/clones', () =>
       HttpResponse.json({

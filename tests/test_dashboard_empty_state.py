@@ -55,7 +55,6 @@ def empty_api(tmp_path, monkeypatch, move_dashboard_state, serve_dashboard):
         ("/clones", "clones", []),
         ("/calls", None, []),
         ("/speakers", "speakers", []),
-        ("/speakers/refine", "items", []),
         ("/journal/evidence?day=2026-01-01", "sources", []),  # no day page: nothing cited yet
     ],
 )
