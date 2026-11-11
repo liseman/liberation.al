@@ -13,6 +13,8 @@ from itertools import pairwise
 import numpy as np
 from PIL import Image
 
+from liberational.demo import dataset
+
 CAMERAS = ("front-room", "kitchen", "porch", "study")
 COLORS = ((83, 111, 113), (170, 112, 82), (91, 104, 133))
 
@@ -115,7 +117,14 @@ def room(camera: str, variant: int = 0) -> Mesh:
     for i in range(int(w * 5)):
         mesh.box((i * 0.2, d / 2, 0.002), (0.006, d, 0.004), (151, 130, 105))
     mesh.box((w / 2, d, 1.4), (w, 0.12, 2.8), cream)
-    mesh.box((w, d / 2, 1.4), (0.12, d, 2.8), (208, 207, 196))
+    if camera in {"front-room", "kitchen"}:
+        # The same 1.2 m doorway between the kitchen and living room, including the floor just beyond it.
+        mesh.box((w, 0.575, 1.4), (0.12, 1.15, 2.8), (208, 207, 196))
+        mesh.box((w, (2.35 + d) / 2, 1.4), (0.12, d - 2.35, 2.8), (208, 207, 196))
+        mesh.box((w, 1.75, 2.55), (0.12, 1.2, 0.5), (208, 207, 196))
+        mesh.box((w + 0.3, 1.75, -0.06), (0.6, 1.2, 0.12), (176, 153, 123))
+    else:
+        mesh.box((w, d / 2, 1.4), (0.12, d, 2.8), (208, 207, 196))
     window_x = 0.8 if camera == "porch" else w * 0.62
     mesh.box((window_x, d - 0.075, 1.8), (1.55, 0.04, 1.25), (242, 239, 227))
     mesh.box((window_x, d - 0.105, 1.8), (1.35, 0.025, 1.06), (160, 187, 190))
@@ -183,8 +192,8 @@ def render(
     mesh: Mesh, *, portrait: bool = False, variant: int = 0, pet: bool = False
 ) -> tuple[bytes, np.ndarray, np.ndarray, np.ndarray]:
     width, height = (800, 800) if portrait else (960, 540)
-    eye = np.array((2.5 + (variant - 1) * 0.65, 3.65, 0.85 if pet else 1.7) if portrait else (-1.0, -1.2, 2.65))
-    target = np.array((2.5, 2.3, 0.48 if pet else 1.58) if portrait else (2.3, 2.5, 0.95))
+    eye = np.array((2.5 + (variant - 1) * 0.65, 3.65, 0.85 if pet else 1.7) if portrait else dataset.CAMERA_EYE)
+    target = np.array((2.5, 2.3, 0.48 if pet else 1.58) if portrait else dataset.CAMERA_TARGET)
     forward = target - eye
     forward /= np.linalg.norm(forward)
     right = np.cross(forward, (0.0, 0.0, 1.0))

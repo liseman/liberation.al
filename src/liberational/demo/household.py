@@ -5,19 +5,24 @@ The generated media depicts only the procedural demo meshes. No camera, model, o
 
 import asyncio
 import datetime as dt
+import io
 import json
+import math
 import subprocess
 import time
 import uuid
 from itertools import pairwise
 from pathlib import Path
 
+import numpy as np
+from PIL import Image
+
 from liberational import config as cfg
 from liberational import segment_log as segments
 from liberational.demo import dataset, scenes
 from liberational.memory import events, places
 from liberational.people import registry
-from liberational.spatial import camera_clouds, ply, positions
+from liberational.spatial import camera_clouds, cloud_scene, ply, positions
 
 
 def media(state: Path, day: dt.date) -> None:
@@ -69,6 +74,10 @@ def media(state: Path, day: dt.date) -> None:
             timeout=60,
         )
         index.append({"cam": camera, "file": clip.name, "start": start, "fps": 5.0, "w": 960, "h": 540})
+        # Normalize the renderer's world coordinates exactly as real camera clouds are stored:
+        # floor z=0, camera above the origin, forward along +y.
+        camera_points = (points - pose[:3, 3]) @ pose[:3, :3]
+        points, pose, _ = camera_clouds.level(camera_points, (pose[2, :3], float(pose[2, 3])))
         cloud = camera_clouds.Cloud(
             str(uuid.uuid4()),
             camera,
@@ -82,7 +91,12 @@ def media(state: Path, day: dt.date) -> None:
             960,
             540,
         )
-        clouds.replace(camera_clouds.Made(cloud, ply.dumps(points, colors)))
+        clouds.replace(
+            camera_clouds.Made(
+                cloud, ply.dumps(points, colors), np.asarray(Image.open(io.BytesIO(jpg)))[:, :, ::-1].copy()
+            )
+        )
+    camera_pairs(state)
     (folder / "index.jsonl").write_text("".join(json.dumps(row) + "\n" for row in index))
     for n, name in enumerate(dataset.PEOPLE):
         gallery = cfg.path("paths.faces") / registry.photo_folder(name)
@@ -102,7 +116,6 @@ def media(state: Path, day: dt.date) -> None:
             for k in range(dataset.EXAMPLES)
         ]
     )
-    import numpy as np
 
     from liberational.vision import face_examples, faces
 
@@ -175,6 +188,41 @@ def media(state: Path, day: dt.date) -> None:
                 await client.register_video_index(camera, str(folder))
 
     asyncio.run(register())
+
+
+def camera_pairs(state: Path) -> None:
+    """A simulated match from the known render geometry, never a model result.
+
+    Kitchen and front-room see the same doorway. Their true poses refine the owner's rough kitchen spot;
+    the other cameras keep their owner spots. Store ordinary anchors and pair evidence for the real viewer.
+    """
+    store = camera_clouds.Store(camera_clouds.root(state))
+    spots = cloud_scene.spots_of(state)
+    a, b = store.current("front-room"), store.current("kitchen")
+    assert a is not None and b is not None
+
+    def world(camera: str, pose: tuple[float, ...]) -> np.ndarray:
+        spot = spots[camera].at
+        assert spot is not None
+        angle = spot.bearing
+        transform = np.eye(4)
+        transform[:3, :3] = [[math.cos(angle), math.sin(angle), 0], [-math.sin(angle), math.cos(angle), 0], [0, 0, 1]]
+        transform[:2, 3] = (0.2 if camera == "kitchen" else spot.x, spot.y)
+        return transform @ np.asarray(pose).reshape(4, 4)
+
+    relative = np.linalg.inv(world(a.camera, a.pose)) @ world(b.camera, b.pose)
+    match = {
+        "rotation": relative[:3, :3].ravel().tolist(),
+        "shift": relative[:3, 3].tolist(),
+        "match": [0.22, 0.18],
+        "sure": [0.2, 0.18],
+        "disagree": [0.0, 0.0, 0.0],
+        "scale": 1.0,
+    }
+    for camera in scenes.CAMERAS:
+        cloud = store.current(camera)
+        assert cloud is not None
+        cloud_scene.record(store, cloud, {"kitchen": match} if camera == "front-room" else {}, spots)
 
 
 def activity(state: Path, day: dt.date) -> None:
@@ -356,6 +404,14 @@ def calls(day: dt.date) -> None:
 
 
 def seed(state: Path, day: dt.date) -> None:
+    from liberational.proximity import devices
+
+    for label, target, name in (
+        ("Alice's phone", "person", "Alice"),
+        ("Sam's watch", "person", "Sam"),
+        ("Key tag", "thing", "House keys"),
+    ):
+        devices.at().save("ble_name", label, target, name)
     media(state, day)
     activity(state, day)
     paths(state, day)
