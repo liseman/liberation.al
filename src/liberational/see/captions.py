@@ -53,8 +53,9 @@ LOG = logs.get("see-captions")
 def grounded_items(text: str) -> list[objects.Item]:
     """A complete finite grounding array; malformed/truncated responses are unknown, never an empty scene.
 
-    Keep the legacy box normalization/filtering after validating the whole model response. Code fences and
-    surrounding prose remain accepted, but every array row must have a finite box and a real label.
+    Code fences and surrounding prose are accepted, but every array row must have a finite box and a real label;
+    the boxes are then normalized and filtered by `objects.clean` (lowercased, clamped, deduplicated), which reads
+    the rows rather than the text, so a label with a brace in it survives.
     """
     if not isinstance(text, str) or len(text.encode()) > MAX_GROUNDING_BYTES:
         raise ValueError("grounding response exceeds its text budget")
@@ -76,7 +77,7 @@ def grounded_items(text: str) -> list[objects.Item]:
             raise ValueError("grounding object has no complete box")
         if any(isinstance(value, bool) or not math.isfinite(float(value)) for value in box):
             raise ValueError("grounding object has a nonfinite box")
-    return objects.parse(json.dumps(rows, allow_nan=False))
+    return objects.clean(rows)
 
 
 class Captioner(Protocol):

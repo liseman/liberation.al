@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from liberational import segment_log, vision_log
-from liberational.see.captions import CaptionPipeline
+from liberational.see.captions import CaptionPipeline, grounded_items
 from liberational.vision import objects
 
 RNG = np.random.default_rng(7)
@@ -65,6 +65,13 @@ def feed(p: CaptionPipeline, frame: np.ndarray, ts: float, seq: int = 0):
             }
     return out
 
+
+
+def test_a_grounded_label_with_a_brace_in_it_is_kept() -> None:
+    # The reply was validated, then re-parsed as text by `objects.parse`, whose brace scan dropped this object and
+    # stored a "fresh" observation with nothing in it. The rows are cleaned, not re-scanned, so it survives.
+    items = grounded_items('[{"label": "bag {red}", "bbox_2d": [10, 20, 30, 40]}]')
+    assert [it["label"] for it in items] == ["bag {red}"]
 
 def test_the_first_frame_is_captioned_fresh() -> None:
     vlm = VLM("an empty workshop")

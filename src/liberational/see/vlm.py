@@ -107,9 +107,9 @@ class OllamaVLM:
             return ""
 
     def ground(self, img: np.ndarray, prompt: str = objects.PROMPT) -> str:
-        """Notable objects with boxes as the model's raw text (objects.parse reads it), or what `prompt` asks for
-        in the same form (see/caption_animals.py asks for animals only). Raises on HTTP errors, and
-        GroundingTruncated when the reply ran out of tokens."""
+        """Notable objects with boxes as the model's raw text (see/captions.grounded_items reads it), or what
+        `prompt` asks for in the same form (see/caption_animals.py asks for animals only). Raises on HTTP errors,
+        and GroundingTruncated when the reply ran out of tokens."""
         reply = ollama.chat(
             self.model,
             [{"role": "user", "content": prompt, "images": [to_jpeg_b64(img, 85)]}],
