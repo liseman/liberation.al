@@ -612,10 +612,14 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         "warnings": history.get("warnings") or [],
         "recorded_answer": history.get("answer"),
     }
+    # The JSON as it stands, kept as a running length: dumping the whole structure per evidence item made this cost
+    # the evidence list squared. json.dumps writes ", " between items, so one more item adds its own length and a
+    # separator, and nothing else in the structure changes here.
     if len(json.dumps(compact, ensure_ascii=False)) > budget // 2:
         compact["coverage"] = {"detail": "See complete coverage in the dashboard."}
         compact["warnings"] = [str(x)[:180] for x in compact["warnings"][:3]]
         compact["recorded_answer"] = str(compact["recorded_answer"] or "")[: budget // 4]
+    written = len(json.dumps(compact, ensure_ascii=False))
     selected = 0
     evidence = history.get("evidence") or []
     camera_names = views.names() if any(item.get("camera") for item in evidence) else {}
@@ -629,9 +633,11 @@ def evidence_context(history: Mapping[str, Any], budget: int) -> tuple[str, bool
         if isinstance(camera_id, str) and (name := camera_names.get(camera_id)) and name != camera_id:
             row["camera_name"] = name
         row.setdefault("text", str(item.get("caption") or item.get("quote") or ""))
-        if len(json.dumps({**compact, "evidence": compact["evidence"] + [row]}, ensure_ascii=False)) > budget - 160:
+        grown = written + len(json.dumps(row, ensure_ascii=False)) + (2 if compact["evidence"] else 0)
+        if grown > budget - 160:
             continue
         compact["evidence"].append(row)
+        written = grown
         selected += 1
     total = len(history.get("evidence") or [])
     compact["input_selection"] = {"included": selected, "available": total, "partial": selected < total}

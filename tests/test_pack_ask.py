@@ -750,6 +750,21 @@ def test_evidence_context_keeps_what_fits_and_says_so():
     assert json.loads(context)["input_selection"] == {"included": 1, "available": 2, "partial": True}
 
 
+def test_evidence_context_keeps_the_budget_exactly():
+    """The last row kept fits the budget and the next row would not: the running count is the dumped length, so the
+    "partial" flag stays what it was."""
+    budget = 3000
+    rows = [{"id": f"T{i}", "text": "x" * 120} for i in range(40)]
+    context, partial = p.evidence_context({"evidence": rows}, budget)
+    assert partial
+    built = json.loads(context)
+    kept = built["evidence"]
+    base = {**built, "evidence": []}
+    del base["input_selection"]
+    assert len(json.dumps({**base, "evidence": kept}, ensure_ascii=False)) <= budget - 160
+    assert len(json.dumps({**base, "evidence": [*kept, rows[len(kept)]]}, ensure_ascii=False)) > budget - 160
+
+
 def test_evidence_context_keeps_the_video_method():
     row = {"id": "C1", "text": "A person", "source": "video", "method": "sampled recorded frames"}
     context, partial = p.evidence_context({"evidence": [dict(row, ts=1.0, link="/review")]}, 4000)
