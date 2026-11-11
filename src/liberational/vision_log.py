@@ -26,6 +26,12 @@ from liberational import continuum_link
 from liberational.continuum import from_ns, to_ns
 from liberational.continuum_link import BrokerLink
 
+
+async def _query(client: Client, stream: str, lo: int, hi: int, **page: Any) -> continuum_py.QueryResult:
+    """One page of `stream`'s items in [lo, hi) nanoseconds: the broker catalog's query, not a database one."""
+    return await client.query(stream, lo, hi, **page)  # pi-lens-ignore: python-sql-injection -- broker catalog, not SQL
+
+
 CAPTIONS = "camera.caption"
 OBJECTS = "camera.objects"
 ZONE_VISITS = "zone.visit"
@@ -332,7 +338,7 @@ async def _h264_stretch(client: Client, stream: str, lo: int, hi: int) -> _Gop |
     window does it: a Tier 1 chunk's records are stored in decode order and kept so, chunks by their start; a Tier 0
     access unit goes by its capture epoch (epochs by their first start), then its device sequence, or by its time
     when capture didn't attest them. Tier 0 follows the chunks flushed from it, and one unit in both is kept once."""
-    result = await client.query(stream, lo, hi)
+    result = await _query(client, stream, lo, hi)
     entries: list[tuple[tuple[int, int, int, int], str, int, bytes]] = []
     tier0: list[tuple[Mapping[str, Any], str, int, bytes]] = []
     flip = False
@@ -455,7 +461,7 @@ async def clip_frames(client: Client, cam: str, start: float, end: float, fps: f
         if any(f is not None for f in out):
             return out
     try:
-        kept = (await client.query(stream, to_ns(start), to_ns(end) + 1, all=False, max_items=1))["items"]
+        kept = (await _query(client, stream, to_ns(start), to_ns(end) + 1, all=False, max_items=1))["items"]
     except continuum_py.ContinuumError:
         return [None] * len(ticks)
     if not kept:
@@ -516,7 +522,7 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
     lo, hi = max(0, target - 1000), target + 1001
     found: list[FrameEvidence] = []
     try:
-        result = await client.query(f"{cam}.video", lo, hi, all=False, max_items=8)
+        result = await _query(client, f"{cam}.video", lo, hi, all=False, max_items=8)
         if result.get("truncated"):
             return None
         items = result["items"]
@@ -610,7 +616,7 @@ async def frame_at(client: Client, cam: str, ts: float, within_s: float = 0.001)
     stream = f"{cam}.video"
     lo, hi = to_ns(ts) - to_ns(within_s), to_ns(ts) + to_ns(within_s)
     try:
-        result = await client.query(stream, lo, hi)
+        result = await _query(client, stream, lo, hi)
     except continuum_py.ContinuumError:
         return None
     if result["items"] and continuum_py.decode_header(result["items"][0]["header"])["shape_name"] == H264:
@@ -638,7 +644,7 @@ async def video_spans(client: Client, cam: str, start: float, end: float, gap_s:
     """The stretches of [start, end) where `cam` has video on the broker (`<cam>.video`, any tier), as [a, b] seconds,
     oldest first: its payloads' spans, joined across gaps up to `gap_s` (a frame or a GOP apart is one stretch)."""
     try:
-        result = await client.query(f"{cam}.video", to_ns(start), to_ns(end))
+        result = await _query(client, f"{cam}.video", to_ns(start), to_ns(end))
     except continuum_py.ContinuumError:
         return []
     out: list[list[float]] = []
@@ -665,7 +671,7 @@ async def video_days(client: Client) -> list[str]:
     for cam in await video_cameras(client):
         stream = f"{cam}.video"
         try:
-            first = (await client.query(stream, 0, to_ns(now + 1), all=False, max_items=1))["items"]
+            first = (await _query(client, stream, 0, to_ns(now + 1), all=False, max_items=1))["items"]
         except continuum_py.ContinuumError:
             continue
         if not first:
@@ -674,7 +680,7 @@ async def video_days(client: Client) -> list[str]:
         while day <= dt.date.fromtimestamp(now):
             if day.isoformat() not in days:
                 start = dt.datetime.combine(day, dt.time()).timestamp()
-                found = await client.query(stream, to_ns(start), to_ns(start + 86400), all=False, max_items=1)
+                found = await _query(client, stream, to_ns(start), to_ns(start + 86400), all=False, max_items=1)
                 if found["items"]:
                     days.add(day.isoformat())
             day += dt.timedelta(days=1)
@@ -685,7 +691,7 @@ async def has_video(client: Client, start: float, end: float) -> bool:
     """Whether any camera has a frame on the broker in [start, end) (seconds): one item asked per camera."""
     for cam in await video_cameras(client):
         try:
-            found = await client.query(f"{cam}.video", to_ns(start), to_ns(end), all=False, max_items=1)
+            found = await _query(client, f"{cam}.video", to_ns(start), to_ns(end), all=False, max_items=1)
         except continuum_py.ContinuumError:
             continue
         if found["items"]:
