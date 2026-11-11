@@ -63,6 +63,7 @@ GET /pets/sightings/photo
 GET /places
 GET /places/map
 GET /places/plan/history
+GET /places/plan/scene
 GET /places/positions
 GET /places/scene
 GET /places/splat
