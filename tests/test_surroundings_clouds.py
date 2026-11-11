@@ -110,6 +110,39 @@ def test_a_cloud_stays_while_the_view_is_as_it_shows_it(clouds, made):
     assert len(made.asked) == 1
 
 
+def test_a_view_that_gave_no_better_cloud_is_known_and_not_tried_again(clouds, made, store):
+    looks(clouds, [picture(1, noise=n) for n in range(5)])
+    have = store.current("hall")
+    store.seen(have, worker.thumbnail(picture(2)))  # the same camera by night, say: looked at, and no better
+    later = T + due.REFRESH_MIN_S + 60
+    assert looks(clouds, [picture(2, noise=n) for n in range(5)], start=later) == ["fine"] * 5
+    assert looks(clouds, [picture(1, noise=n) for n in range(5)], start=later + 60) == ["fine"] * 5
+    assert len(made.asked) == 1
+
+
+def test_a_cameras_squaring_is_checked_every_minute_and_right_after_a_new_cloud(store, made):
+    squared = []
+    clouds = due.Clouds(store, made, None, lambda pixels: pixels.mean() > 10, worker.thumbnail,
+                        submit=lambda job: job(), square=squared.append)  # fmt: skip
+    looks(clouds, [picture(1, noise=n) for n in range(5)])  # the first look checks; the fifth makes its cloud
+    assert squared == ["hall"]
+    clouds.look("hall", picture(1), T + 30)
+    assert squared == ["hall", "hall"]  # a new cloud is squared at the next look
+    looks(clouds, [picture(1, noise=n) for n in range(10)], start=T + 35)
+    assert squared == ["hall", "hall"]
+    clouds.look("hall", np.zeros((36, 64, 3), np.uint8), T + 30 + due.SQUARE_EVERY_S)  # in the dark too
+    assert squared == ["hall", "hall", "hall"]
+
+
+def test_a_squaring_that_fails_doesnt_stop_the_looks(store, made):
+    def broken(camera):
+        raise OSError("no plan to read")
+
+    clouds = due.Clouds(store, made, None, lambda pixels: pixels.mean() > 10, worker.thumbnail,
+                        submit=lambda job: job(), square=broken)  # fmt: skip
+    assert looks(clouds, [picture(1, noise=n) for n in range(5)])[-1] == "made"
+
+
 def test_a_cloud_made_before_pictures_were_kept_is_made_again_once(clouds, made):
     made.pictures = False
     looks(clouds, [picture(1, noise=n) for n in range(5)])

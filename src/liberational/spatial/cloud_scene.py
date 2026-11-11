@@ -35,6 +35,13 @@ looking at other space: it is tried against the other cameras' pictures, and pla
 If none does, the camera leaves the scene, saying it was moved and isn't placed, until its spot is set again (which
 makes a new anchor) or a picture registers. A moved camera's cloud is never left at its old spot.
 
+**Square to the house** (`align`, spatial/cloud_align.py). Between 1 and 2: a cloud's own walls say how its camera
+really faces, better than a facing set by hand. A camera placed from its spot is turned, and where its walls have
+clear counterparts slid, so its walls run along the plan's (bounded; a rigid move). A camera squared this way holds:
+the plan is the reference, so a pair's measurement no longer moves it, only a partner that couldn't be squared, and
+between two squared cameras the measurement is a check that says how far off it is ("checked"). The squaring is
+kept beside the cloud and used only while it is of the same cloud, spot, and plan.
+
 What a scene is good for: reliefs standing in the right places, not a whole room. Clouds that overlap meet with a seam
 (the pair above is right to tens of centimetres), and cameras that share no space are only as right as their spots.
 """
@@ -54,7 +61,7 @@ import numpy as np
 
 from liberational import json_state, logs
 from liberational.memory import places
-from liberational.spatial import camera_clouds, ply
+from liberational.spatial import camera_clouds, cloud_align, ply
 
 LOG = logs.get("camera-clouds")
 
@@ -70,6 +77,7 @@ AGREE = (
 STILL = (0.3, 4.0)  # metres and degrees: a camera's own pictures this close are one position
 BOUND = (0.75, 20.0)  # metres and degrees a match may move a camera from its spot
 EDGE = 10.0  # how much a confident match weighs against a spot
+FIRM = 10.0  # and how much a camera squared to the plan weighs against a match
 TURN_M = 1.5  # metres a radian of facing counts as, when a shift and a turn are weighed together
 TINY = (0.01, 0.5)  # metres and degrees: a correction under both isn't one
 PAIRS = "pairs.json"
@@ -171,11 +179,16 @@ def relative(pose: Sequence[float], match: Match) -> tuple[float, float, float] 
     return float(at[0]), float(at[1]), math.atan2(float(ahead[0]), float(ahead[1]))
 
 
-def solve(spots: Mapping[str, At], edges: Sequence[tuple[str, str, tuple[float, float, float]]]) -> dict[str, At]:
+def solve(
+    spots: Mapping[str, At],
+    edges: Sequence[tuple[str, str, tuple[float, float, float]]],
+    firm: Sequence[str] = (),
+) -> dict[str, At]:
     """Where each camera stands, given its spot and what the confident pairs measured (`edges`: for (a, b, rel), b
     as seen from a). Each camera is held to its spot and each pair to its measurement, a measurement `EDGE` times
-    as hard, so a pair's two cameras share the correction between them and nothing floats off the plan. With no
-    edges it is the spots."""
+    as hard, so a pair's two cameras share the correction between them and nothing floats off the plan. A camera in
+    `firm` (one squared to the plan) is held `FIRM` times as hard as a measurement: its partner takes the
+    correction. With no edges it is the spots."""
     names = sorted(spots)
     if not edges:
         return dict(spots)
@@ -183,10 +196,14 @@ def solve(spots: Mapping[str, At], edges: Sequence[tuple[str, str, tuple[float, 
 
     index = {name: i for i, name in enumerate(names)}
     start = np.array([[spots[n].x, spots[n].y, spots[n].bearing] for n in names]).ravel()
+    hold = np.array([EDGE * FIRM if n in firm else 1.0 for n in names])
 
     def residuals(flat: np.ndarray) -> np.ndarray:
         q = flat.reshape(-1, 3)
-        out = [(q[:, :2] - start.reshape(-1, 3)[:, :2]).ravel(), TURN_M * (q[:, 2] - start.reshape(-1, 3)[:, 2])]
+        out = [
+            (hold[:, None] * (q[:, :2] - start.reshape(-1, 3)[:, :2])).ravel(),
+            hold * TURN_M * (q[:, 2] - start.reshape(-1, 3)[:, 2]),
+        ]
         for a, b, (right, ahead, turn) in edges:
             pa, pb = At(*q[index[a]]), At(*q[index[b]])
             got = pb.seen_from(pa)
@@ -260,6 +277,63 @@ def compare(store: camera_clouds.Store, camera: str, spots: Mapping[str, SpotAt]
     return out + [(other, path) for _, other, path in sorted(near)[:MAX_OTHERS]]
 
 
+def stayed(store: camera_clouds.Store, camera: str, matches: Sequence[Match | None]) -> bool:
+    """Whether a new picture of `camera` shows it where its anchor was taken: `matches` holds what the picture
+    matched of the anchor (the first of `compare`'s). False with no anchor or no confident match."""
+    held = anchor(store, camera)
+    against = matches[0] if matches else None
+    if held is None or confident(against):
+        return False
+    rel = relative(held["pose"], against or {})
+    return rel is not None and math.hypot(rel[0], rel[1]) <= STILL[0] and abs(math.degrees(rel[2])) <= STILL[1]
+
+
+def relevel(store: camera_clouds.Store, camera: str) -> bool:
+    """Stand an older cloud up by its walls (spatial/camera_clouds.py `Store.relevel`), carrying over what the scene
+    keeps of it: its anchor's pose, when the anchor is its picture, and that it had moved. Whether it was stood up."""
+    was = store.current(camera)
+    now = store.relevel(camera)
+    if was is None or now is None:
+        return False
+    held = json_state.read(_camera_file(store, camera, "anchor.json"))
+    if isinstance(held, dict) and held.get("at") == was.at:
+        json_state.write(_camera_file(store, camera, "anchor.json"), {**held, "pose": list(now.pose)})
+    gone = moved(store, camera)
+    if gone is not None and gone.get("cloud") == was.id:
+        json_state.write(_camera_file(store, camera, "moved.json"), {**gone, "cloud": now.id})
+    LOG.info("%s: its cloud had no floor and stood as if the camera were upright; stood up by its walls", camera)
+    return True
+
+
+def plan_rooms(state: Path, place: str, mirrored: bool) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """The rooms of `place`'s plan, when the owner drew it, in the scene's frame; none otherwise."""
+    held = places.get(state, place)
+    return rooms_of(held.plan if held is not None and held.plan_source == "owner" else None, mirrored)
+
+
+def align(
+    store: camera_clouds.Store, camera: str, spots: Mapping[str, SpotAt], rooms: Callable[[str, bool], Sequence[Ring]]
+) -> bool:
+    """Bring `camera`'s squaring to the plan up to date (the module docstring): made when it has a cloud, a spot with
+    a facing, and none that is of this cloud, spot, and plan (`rooms`: a place's plan rooms, `plan_rooms` with the
+    state bound). Whether one was made. Writes only beside the cloud."""
+    cloud, spot = store.current(camera), spots.get(camera)
+    folder = _camera_file(store, camera, cloud_align.ALIGN).parent
+    if cloud is None or spot is None or spot.at is None:
+        return False
+    ring = rooms(spot.place, spot.mirrored)
+    have = cloud_align.kept(folder)
+    if have is not None and have.holds(cloud.id, spot.basis, cloud_align.plan_key(ring)):
+        return False
+    points, _, _ = ply.read(store.file(cloud))
+    found = cloud_align.make(cloud.id, points, (spot.at.x, spot.at.y, spot.at.bearing), spot.basis, ring)
+    cloud_align.keep(folder, found)
+    LOG.info("%s: squared to the plan: %s, turned %.1f degrees, moved %.2f m (%d walls, %d with a counterpart)", camera,
+             found.square.state, found.square.turn_deg, math.hypot(found.square.right_m, found.square.ahead_m),
+             found.square.walls, found.square.slid_on)  # fmt: skip
+    return True
+
+
 def record(
     store: camera_clouds.Store,
     cloud: camera_clouds.Cloud,
@@ -278,7 +352,7 @@ def record(
     else:
         against = matches.get("anchor")
         rel = None if confident(against) else relative(held["pose"], against or {})
-        if rel is not None and math.hypot(rel[0], rel[1]) <= STILL[0] and abs(math.degrees(rel[2])) <= STILL[1]:
+        if stayed(store, camera, [against]):
             _set_anchor(store, cloud, mine.basis)  # the same position: the newer picture is the one to match next
         elif rel is not None:
             was = {"state": "followed", "cloud": cloud.id, "rel": list(rel), "at": cloud.at}
@@ -398,6 +472,14 @@ class Placed:
     shift_m: float = 0.0  # how far from its spot it is placed
     turn_deg: float = 0.0
     suggest: tuple[float, float, float] | None = None  # the spot to offer: plan x, y, and facing in degrees
+    at: float = 0.0  # when its cloud's picture was taken
+    level: str = "none"  # what its cloud was levelled by: "floor", "walls", or "none"
+    tilt_deg: float = 0.0  # the camera's tilt (down) and roll, by that
+    roll_deg: float = 0.0
+    #: Its squaring to the plan (spatial/cloud_align.py `Square`, as a dict), when one holds; `squared` when it is
+    #: what placed it.
+    square: Mapping[str, Any] | None = None
+    squared: bool = False
 
     @property
     def placed(self) -> bool:
@@ -410,8 +492,9 @@ class Pair:
 
     a: str
     b: str
-    #: "tightened", "apart" (different space), "unsure", "disagrees" (beyond the bound), "moved" (one of the two
-    #: moved since), or "stale" (measured at another spot)
+    #: "tightened", "checked" (both cameras are squared to the plan: the measurement moves neither, and `off_m`
+    #: and `off_deg` say how far the two are from it), "apart" (different space), "unsure", "disagrees" (beyond the
+    #: bound), "moved" (one of the two moved since), or "stale" (measured at another spot)
     state: str
     match: tuple[float, float] = (0.0, 0.0)
     sure: tuple[float, float] = (0.0, 0.0)
@@ -485,10 +568,18 @@ def outside(xy: np.ndarray, rooms: Sequence[Ring], margin: float = MARGIN_M) -> 
 
 def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], rooms: Sequence[Ring] = ()) -> Scene:
     """`place`'s scene as it stands now: every camera of the place that has a cloud, placed (the module docstring) or
-    with why it isn't. `rooms` are the plan's, for the view to leave out what lies outside them. Reads only; nothing
-    is written."""
+    with why it isn't. `rooms` are the plan's, for the view to leave out what lies outside them, and for a squaring
+    to be of. Reads only; nothing is written."""
     clouds = {c: cloud for c in store.cameras() if (cloud := store.current(c)) is not None}
     mine = {c: clouds[c] for c in clouds if spots.get(c) is None or spots[c].place == place}
+    plan = cloud_align.plan_key(rooms)
+    squares: dict[str, cloud_align.Square] = {}  # each camera's squaring that still holds
+    for camera, cloud in mine.items():
+        spot = spots.get(camera)
+        kept_align = cloud_align.kept(_camera_file(store, camera, cloud_align.ALIGN).parent)
+        if spot is not None and kept_align is not None and kept_align.holds(cloud.id, spot.basis, plan):
+            squares[camera] = kept_align.square
+    firm: set[str] = set()
     start: dict[str, At] = {}  # the cameras placed from their own spots
     how: dict[str, str] = {}
     later: dict[str, dict[str, Any]] = {}  # the ones placed from another camera
@@ -508,6 +599,9 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
             )
             if not current or was is None:
                 start[camera], how[camera] = spot.at, "spot"
+                if camera in squares and squares[camera].state == "squared":
+                    start[camera] = spot.at.step(*squares[camera].rel)
+                    firm.add(camera)
             elif was["state"] == "followed":
                 start[camera], how[camera] = spot.at.step(*was["rel"]), "moved"
             elif was["state"] == "against":
@@ -546,12 +640,15 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
             rel = (float(row["rel"][0]), float(row["rel"][1]), float(row["rel"][2]))
             said = start[b].seen_from(start[a])
             off = (math.hypot(said[0] - rel[0], said[1] - rel[1]), abs(math.degrees(wrap(said[2] - rel[2]))))
+            if a in firm and b in firm:  # both squared to the plan: the plan wins, and the pictures are a check
+                told.append(Pair(a, b, "checked", off_m=off[0], off_deg=off[1], **numbers))
+                continue
             told.append(Pair(a, b, "tightened", off_m=off[0], off_deg=off[1], **numbers))
             edges.append((a, b, rel))
     # A match that would move a camera past the bound is dropped, the farthest off first, and says so.
     spotted = {c: at for c, at in start.items() if how[c] == "spot"}
     while True:
-        solved = solve(spotted, edges)
+        solved = solve(spotted, edges, sorted(firm))
         over = [
             c
             for c in spotted
@@ -581,8 +678,18 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
     out = []
     for camera in sorted(mine):
         cloud, spot = mine[camera], spots.get(camera)
+        tilt, roll = cloud_align.tilt_roll(np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4))
+        told_square = squares.get(camera)
+        about: dict[str, Any] = {
+            "at": cloud.at,
+            "level": cloud.levelled,
+            "tilt_deg": round(tilt, 1),
+            "roll_deg": round(roll, 1),
+            "square": None if told_square is None else asdict(told_square),
+            "squared": camera in firm,
+        }
         if camera not in at:
-            out.append(Placed(camera, cloud.id, cloud.points, how[camera], cloud.size))
+            out.append(Placed(camera, cloud.id, cloud.points, how[camera], cloud.size, **about))
             continue
         transform = _transform(at[camera])
         shift, turn = moved_by(at[camera], spot.at) if spot is not None and spot.at is not None else (0.0, 0.0)
@@ -604,6 +711,7 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
                 plan_spot(at[camera], spot.mirrored)
                 if spot is not None and kind in ("moved", "moved_against")
                 else None,
+                **about,
             )
         )
     mirrored = next((spots[c].mirrored for c in mine if spots.get(c) is not None), False)

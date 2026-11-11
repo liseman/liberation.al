@@ -1,18 +1,21 @@
 """The demo's HTTP process: ordinary dashboard reads plus offline live and Ask fixtures.
 
 Only pack-demo launches this module. It never starts dashboard warmers or hardware discovery. Outbound sockets
-and subprocesses are refused, and writes that could trigger a service, model, call, or import are unavailable.
+and subprocesses are refused. Ordinary teaching writes use the demo scratch state; hardware and model actions
+explain what they need at their endpoint. The launcher resets the household on every start.
 """
 
 import datetime as dt
 import json
 import mimetypes
+import os
 import signal
 import socket
 import sys
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 from liberational import config as cfg
@@ -24,6 +27,19 @@ STOP = threading.Event()
 
 
 def offline(event: str, args: tuple[Any, ...]) -> None:
+    # Mutable files and SQLite databases belong only to this demo, including through symlinks.
+    writing = event == "open" and bool(args[2] & (os.O_WRONLY | os.O_RDWR | os.O_CREAT))
+    paths = args[:1] if writing or event in {"os.remove", "os.mkdir", "os.rmdir", "sqlite3.connect"} else ()
+    if event in {"os.rename", "os.link", "os.symlink"}:
+        paths = args[:2]
+    root = cfg.local_config().parent.resolve()
+    for path in paths:
+        if (
+            isinstance(path, (str, bytes, os.PathLike))
+            and str(path) != ":memory:"
+            and not Path(os.fsdecode(path)).resolve().is_relative_to(root)
+        ):
+            raise PermissionError("Demo changes must stay in its scratch directory")
     if event in ("socket.connect", "socket.sendto", "socket.sendmsg") and args[0].family != socket.AF_UNIX:
         raise PermissionError("The demo never connects to a model or network service")
     if event in ("socket.getaddrinfo", "socket.gethostbyname", "socket.gethostbyaddr") and args[0] not in (
@@ -46,6 +62,8 @@ def answer(question: str) -> str:
         return "Dana stopped by with groceries at lunchtime and returned for dinner. Alice and Sam were home in the evening."
     if "deadline" in text or "friday" in text:
         return "The project deadline moved to Friday. Dana is helping Alice with the slides."
+    if "today" not in text and "day" not in text and "happened" not in text:
+        return "Answering a new question needs a running model. This offline demo has prepared answers about the household day, dinner, visitors, Rex, and the project deadline."
     return "Alice worked in the study, Dana brought groceries, and Sam came home before dinner. Alice is cooking pasta while Dana and Sam wait in the living room with Rex. This demo has prepared answers about dinner, visitors, Rex, and the project deadline."
 
 
@@ -59,18 +77,25 @@ def clock() -> float:
 
 
 def here(name: str) -> dict[str, Any]:
+    from liberational.vision import views
+
     camera, label, _, since = dataset.HERE[name]
-    return {"cam": camera, "camera_name": label, "since": dataset._local(day(), *since)}
+    return {"cam": camera, "camera_name": views.names().get(camera, label), "since": dataset._local(day(), *since)}
 
 
 def devices(path: str) -> dict[str, Any]:
     now = clock()
-    links = [
-        {"id": str(n), "kind": "ble_name", "value": label, "target": target, "name": name}
-        for n, (label, target, name) in enumerate(
-            (("Alice's phone", "person", "Alice"), ("Sam's watch", "person", "Sam"), ("Key tag", "thing", "House keys"))
-        )
-    ]
+    from dataclasses import asdict
+
+    from liberational.proximity import devices as proximity
+
+    store = proximity.at()
+    links = [asdict(link) for link in store.links()]
+    observations = ["Alice's phone", "Sam's watch", "Key tag"]
+    linked = {link["value"]: link for link in links}
+    options = proximity.location_options()
+    names = {option["id"]: option["name"] for option in options}
+    located = {location.value: location.as_dict(names) for location in store.locations()}
     common = {
         "at": now,
         "start": now - 8 * 3600,
@@ -89,7 +114,9 @@ def devices(path: str) -> dict[str, Any]:
                     "place": "Demo house",
                     "links": 1,
                 }
-                for name in ("Alice", "Sam")
+                for name in dict.fromkeys(
+                    link["name"] for link in links if link["target"] == "person" and link["value"] in observations
+                )
             ],
         }
     if path == "/device-whereabouts":
@@ -116,9 +143,9 @@ def devices(path: str) -> dict[str, Any]:
             "devices": [
                 {
                     "mac": f"demo-device-{n}",
-                    "name": l["value"],
+                    "name": label,
                     "place": "Demo house",
-                    "linked": l,
+                    "linked": linked.get(label),
                     "stays": [
                         {
                             "start": dataset._local(day(), 7),
@@ -127,36 +154,138 @@ def devices(path: str) -> dict[str, Any]:
                         {"start": dataset._local(day(), 13 if n == 0 else 17), "end": now},
                     ],
                 }
-                for n, l in enumerate(links[:2])
+                for n, label in enumerate(observations[:2])
             ],
         }
     return {
         "devices": [
             {
                 "source": "bluetooth.sighting",
-                "identifier": l["value"],
-                "name": l["value"],
+                "identifier": label,
+                "name": label,
                 "place": "Demo house",
                 "rssi": -48 - n * 5,
                 "last_seen": now - 30,
                 "sightings": 28 + n * 7,
-                "selectors": [{"kind": l["kind"], "value": l["value"]}],
-                "linked": l,
+                "selectors": [{"kind": "ble_name", "value": label}],
+                "linked": linked.get(label),
+                "location": located.get(label),
             }
-            for n, l in enumerate(links)
+            for n, label in enumerate(observations)
         ],
         "links": links,
-        "total": 3,
-        "linked": 3,
-        "unknown": 0,
+        "total": len(observations),
+        "linked": len(links),
+        "unknown": len(observations) - len(linked.keys() & set(observations)),
         "hours": 24,
-        "places": [],
+        "places": options,
+        "locations": list(located.values()),
+    }
+
+
+def unavailable(path: str) -> str | None:
+    """Only operations requiring hardware, a model, or a remote service are excluded."""
+    if path.startswith(
+        (
+            "/services",
+            "/devices/capture",
+            "/devices/camera-controls",
+            "/devices/mic",
+            "/devices/privacy",
+            "/objects/api/capture",
+            "/network-cameras/",
+        )
+    ):
+        return "The demo replays prepared pictures and sound. Connecting hardware or restarting capture needs a real install."
+    if path in {"/calls/place", "/calls/hangup"}:
+        return "Making a phone call needs a connected phone service. The demo includes two recorded example calls."
+    if path.startswith("/playback/"):
+        return "Playing through a speaker needs a real audio device. Use the recording player in this browser."
+    if path in {
+        "/research/jobs",
+        "/clones/say",
+        "/clones/build",
+        "/clones/record",
+        "/speakers/refine",
+        "/people/search",
+        "/objects/api/segment",
+        "/objects/api/find",
+    } or path.endswith(("/lookup", "/reference-url", "/reference-upload")):
+        return "This action needs a running model or online search. The demo runs neither; you can still name and correct its saved examples."
+    if path.startswith("/ingest/") and not path.endswith(("/items", "/remove", "/delete")):
+        return "Importing new recordings needs the ingestion service. The demo's prepared recordings can be reviewed and labelled."
+    return None
+
+
+def camera_settings() -> dict[str, Any]:
+    from liberational.audio import sensitivity
+    from liberational.dashboard import cameras as camera_manifest
+    from liberational.dashboard import devices as device_view
+
+    return {
+        "ok": True,
+        "control": True,
+        "mics": [
+            {
+                "id": dataset.MIC,
+                "name": dataset.MIC,
+                "stream": dataset.MIC,
+                "present": True,
+                "selected": True,
+                "in_use": False,
+                "host_api": "Prepared transcript",
+                "level_dbfs": None,
+                **device_view._sensitivity(dataset.MIC),
+                **device_view._auto_gain(dataset.MIC, None),
+            }
+        ],
+        "default_sensitivity": sensitivity.default(),
+        "notes": {
+            "cameras": "Prepared camera pictures. Names, zones, and saved preferences are editable; live capture needs a real camera.",
+            "mics": "The demo transcript uses demo-mic. Live listening needs a real microphone.",
+        },
+        "cameras": [
+            {
+                "index": n,
+                "name": camera,
+                "path": None,
+                "usb": None,
+                "paths": [],
+                "shared_usb": False,
+                "present": True,
+                "selected": True,
+                "stream": camera,
+                "in_use": True,
+                "flip": bool(camera_manifest.video_settings(camera).get("flip", False)),
+                "video": {
+                    "width": 960,
+                    "height": 540,
+                    "fps": 5,
+                    "format": "MJPEG",
+                    "auto_exposure": True,
+                    "exposure_target": 110,
+                    **camera_manifest.video_settings(camera),
+                },
+                "exposure_supported": True,
+                "exposure_note": "Preferences are saved; the prepared picture stays the same.",
+                "modes": {
+                    "status": "unavailable",
+                    "choices": [],
+                    "diagnostics": ["Prepared pictures have a fixed size"],
+                },
+            }
+            for n, camera in enumerate(scenes.CAMERAS)
+        ],
     }
 
 
 class Handler(server.H):
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        if path.startswith(("/ingest/api/google_photos/", "/devices/camera-controls")):
+            return self._json(
+                {"error": "This needs a connected device or online service; the demo uses prepared recordings."}, 409
+            )
         if path in server.APP_PATHS and (path == "/" or "text/html" in self.headers.get("Accept", "")):
             code, page = server.app_page()
             # Date-based defaults open the archived demo day; timers and performance clocks remain ordinary.
@@ -340,7 +469,7 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
                     ],
                 }
             )
-        if path.startswith("/device-"):
+        if path in {"/device-links", "/device-presence", "/device-whereabouts", "/device-comings"}:
             return self._json(devices(path))
         if path == "/config":
             return self._json(
@@ -373,33 +502,42 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
         if path.startswith("/pack-ask/jobs/"):
             job = JOBS.get(path.rsplit("/", 1)[-1])
             return self._json(job or {"error": "Question not found"}, 200 if job else 404)
-        if path == "/pack-ask/history":
-            return self._json({"items": [], "total": 0})
         if path == "/services":
             return self._json({"ok": True, "control": False, "platform": "demo", "services": []})
+        if path == "/devices/privacy":
+            from liberational.dashboard import privacy
+
+            return self._json(
+                {
+                    "ok": True,
+                    "control": True,
+                    "ready": False,
+                    "devices": [dict(row, state="on") for row in privacy.devices()],
+                }
+            )
         if path == "/devices":
-            return self._json({"ok": True, "control": False, "mics": [], "cameras": [], "notes": {}})
+            return self._json(camera_settings())
         if path in ("/usage", "/audio/levels"):
             return self._json({"demo": True})
         return super().do_GET()
 
     def do_POST(self) -> None:
-        if self.path == "/pack-ask/jobs":
-            length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 8192:
-                return self._json({"error": "Invalid question size"}, 400)
-            body = json.loads(self.rfile.read(length))
-            if body.get("deep") is True:
-                # Deep research goes the real way (memory/ask.py): queued for the Inbox where research can run, else
-                # refused with why. The demo runs no research worker, so a queued report stays waiting.
-                from liberational.memory import ask
+        path = self.path.split("?", 1)[0]
+        if path == "/pack-ask/jobs":
+            try:
+                body = self.demo_body()
+                if body.get("deep") is True:
+                    # Deep research goes the real way (memory/ask.py): queued for the Inbox where research can run,
+                    # else refused with why. The demo runs no research worker, so a queued report stays waiting.
+                    from liberational.memory import ask
 
-                try:
                     return ask._deep_http(self, body, ask.validate_day(body.get("day")))
-                except ValueError as exc:
-                    return self._json({"error": str(exc)}, 400)
-            question = str(body.get("question", ""))
-            now, key = clock(), uuid.uuid4().hex
+                question = str(body.get("question", "")).strip()
+                if not question or len(question) > 8192:
+                    raise ValueError("Ask a question of 1 to 8192 characters")
+            except ValueError as error:
+                return self._json({"error": str(error)}, 400)
+            now, key = clock(), uuid.uuid7().hex
             job = {
                 "id": key,
                 "poll_url": f"/pack-ask/jobs/{key}",
@@ -416,32 +554,125 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
                     "warnings": ["Prepared answer from the fictional demo household."],
                 },
             }
+            from liberational.memory import ask_history
+
+            history = ask_history.at(self.state)
+            history.start(
+                question,
+                exchange_id=key,
+                surface=body.get("surface", "live"),
+                day=body.get("day"),
+                scope="history",
+                created_at=now,
+            )
+            history.finish(key, job["result"], started_at=now, finished_at=now, status="completed")
             JOBS[key] = job
             return self._json({"id": key, "status": "queued", "poll_url": job["poll_url"]}, 202)
-        # These writes only teach the isolated household. All operational actions stay unavailable.
-        if self.path in {
-            "/activity/name",
-            "/activity/feedback",
-            "/people/assign",
-            "/people/assign-many",
-            "/people/rename",
-            "/people/describe",
-            "/people/claim",
-            "/people/add",
-            "/people/photo",
-            "/people/correct",
-            "/people/undo",
-            "/faces/not",
-            "/faces/unknown/reject",
-            "/faces/unknown/split",
-            "/faces/unknown/hide",
-            "/faces/unknown/restore",
-            "/pets/save",
-            "/pets/rename",
-            "/pets/photo",
-        }:
+        reason = unavailable(path)
+        if reason:
+            return self._json({"error": reason}, 409)
+        if path == "/config":
+            return self.save_config()
+        if path in {"/devices/sensitivity", "/devices/auto_gain"}:
+            return self.save_microphone()
+        if path == "/devices/camera":
+            return self.save_camera()
+        try:
             return super().do_POST()
-        return self._json({"error": "This action is unavailable in the offline demo."}, 403)
+        except PermissionError as error:
+            return self._json({"error": str(error)}, 409)
+
+    def demo_body(self) -> dict[str, Any]:
+        if not self._can_control() or self.headers.get_content_type() != "application/json":
+            raise ValueError("Use local, same-origin JSON")
+        origin = self.headers.get("Origin")
+        if origin and origin not in (f"http://{self.headers.get('Host')}", f"https://{self.headers.get('Host')}"):
+            raise ValueError("Use local, same-origin JSON")
+        length = int(self.headers.get("Content-Length", "0"))
+        if not 0 < length <= 65536:
+            raise ValueError("Invalid request size")
+        body = json.loads(self.rfile.read(length))
+        if not isinstance(body, dict):
+            raise ValueError("Send a JSON object")
+        return body
+
+    def save_config(self) -> None:
+        from liberational.dashboard import settings
+
+        owner, pinned = cfg.owner_name(), cfg.get("owner.speaker_label").strip()
+        before = cfg.local_config().read_text()
+        try:
+            values = self.demo_body().get("values")
+            if not isinstance(values, dict):
+                raise ValueError("Send settings in values")
+            for key, value in values.items():
+                if (
+                    (key.startswith("paths.") or key in {"owner.voice_ref", "agent.openclaw_config"})
+                    and value
+                    and not cfg.owner_file(str(value)).resolve().is_relative_to(cfg.local_config().parent)
+                ):
+                    raise ValueError("Demo file paths must stay in its scratch directory")
+            written, overridden = cfg.save(values)
+            if settings.owner_moved(owner, pinned):
+                code, reply = settings._carry_owner(owner, cfg.owner_name())
+                if code != 200:
+                    settings._put_back(cfg.local_config(), before)
+                    return self._json(reply, code)
+        except ValueError as error:
+            return self._json({"error": str(error)}, 400)
+        return self._json(
+            {"ok": True, "written": written, "overridden": overridden, "restarted": [], "restarting": False}
+        )
+
+    def save_microphone(self) -> None:
+        from liberational.audio import gain, sensitivity
+
+        try:
+            body = self.demo_body()
+            if "default" in body:
+                value = body["default"]
+                if type(value) is not int or not 0 <= value <= 100:
+                    raise ValueError("Sensitivity must be a whole number from 0 to 100")
+                cfg.save({"audio.sensitivity": value})
+            elif body.get("mic") != dataset.MIC:
+                raise ValueError("Choose the demo microphone")
+            elif self.path == "/devices/auto_gain":
+                if type(body.get("on")) is not bool:
+                    raise ValueError("Automatic gain must be true or false")
+                gain.save(dataset.MIC, body["on"])
+            else:
+                value = body.get("sensitivity")
+                if value is not None and (type(value) is not int or not 0 <= value <= 100):
+                    raise ValueError("Sensitivity must be a whole number from 0 to 100, or null")
+                sensitivity.save(dataset.MIC, value)
+        except ValueError as error:
+            return self._json({"error": str(error)}, 400)
+        return self._json(camera_settings())
+
+    def save_camera(self) -> None:
+        from liberational.dashboard import cameras as camera_manifest
+
+        try:
+            body = self.demo_body()
+            index = body.pop("index", None)
+            if type(index) is not int or not 0 <= index < len(scenes.CAMERAS):
+                raise ValueError("Choose a demo camera")
+            if "on" in body:
+                raise ValueError(
+                    "These cameras replay prepared pictures; starting or stopping capture needs a real camera"
+                )
+            if set(body) not in ({"flip"}, {"auto_exposure"}, {"exposure_target"}):
+                raise ValueError("Changing capture resolution needs a real camera; demo pictures have a fixed size")
+            if any(type(v) is not bool for k, v in body.items() if k != "exposure_target"):
+                raise ValueError("Camera switches must be true or false")
+            if "exposure_target" in body and (
+                type(body["exposure_target"]) is not int or not 60 <= body["exposure_target"] <= 180
+            ):
+                raise ValueError("Target brightness must be between 60 and 180")
+            camera_manifest.update_video(scenes.CAMERAS[index], body)
+        except ValueError as error:
+            return self._json({"error": str(error)}, 400)
+        return self._json(camera_settings())
 
 
 def main() -> None:

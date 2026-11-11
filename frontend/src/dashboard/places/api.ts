@@ -218,6 +218,34 @@ export interface ScenePlaced {
   turn_deg: number;
   /** The spot offered for a camera that moved: plan x and y, and facing in degrees. Saved only when taken. */
   suggest: [number, number, number] | null;
+  /** When its cloud's picture was taken (epoch seconds). */
+  at?: number;
+  /** What its cloud was levelled by: its own floor, its walls (no floor in view), or nothing (it stands as if the
+   *  camera were upright). With the camera's tilt (degrees it looks down) and roll by that. */
+  level?: CloudLevel;
+  tilt_deg?: number;
+  roll_deg?: number;
+  /** Its cloud's squaring to the plan's walls, when one was made from this cloud, spot, and plan; `squared` when it
+   *  is what placed the camera (a camera that moved is placed by its pictures instead). */
+  square?: SceneSquare | null;
+  squared?: boolean;
+}
+
+export type CloudLevel = 'floor' | 'walls' | 'none';
+
+/** How a cloud was squared to the plan: turned about the vertical so its walls run along the plan's, and slid onto
+ *  them where they have clear counterparts. A rigid move, never a stretch. */
+export interface SceneSquare {
+  /** "squared"; "no_walls": no wall in the cloud; "no_plan": no plan wall near the camera; "beyond": its walls line
+   *  up only farther round than a cloud is turned, so it was left alone (`turn_deg` is what it would have taken). */
+  state: 'squared' | 'no_walls' | 'no_plan' | 'beyond';
+  turn_deg: number;
+  right_m: number;
+  ahead_m: number;
+  /** Why it wasn't slid, when it wasn't: no wall with one clear counterpart, or a slide past the bound. */
+  slide: '' | 'no_counterpart' | 'beyond';
+  /** How far the cloud's walls are out with each other (degrees), which no rigid move takes out. */
+  bend_deg: number;
 }
 
 /** What two cameras' pictures said of each other. */
@@ -226,8 +254,9 @@ export interface ScenePair {
   b: string;
   /** "tightened": they match, and adjust the pair; "apart": they show different space; "unsure": they share some,
    *  but don't agree well enough; "disagrees": they match, but farther from the spots than a correction may go;
-   *  "moved": one of the two has moved since; "stale": measured at another spot. */
-  state: 'tightened' | 'apart' | 'unsure' | 'disagrees' | 'moved' | 'stale';
+   *  "moved": one of the two has moved since; "stale": measured at another spot; "checked": both cameras are squared
+   *  to the plan, which the measurement doesn't move, so it only says how far off the two are. */
+  state: 'tightened' | 'checked' | 'apart' | 'unsure' | 'disagrees' | 'moved' | 'stale';
   /** How far what they measured is from what the spots say: metres, and degrees. */
   off_m: number;
   off_deg: number;
@@ -291,6 +320,10 @@ export interface Scene {
     floor_found?: boolean;
     points?: number;
     at?: number;
+    /** What the cloud was levelled by, and the camera's tilt and roll by that. */
+    level?: CloudLevel;
+    tilt_deg?: number;
+    roll_deg?: number;
   };
 }
 

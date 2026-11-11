@@ -607,6 +607,32 @@ it('shows every camera placed in one scene from above, each saying how it is pla
   expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull(); // the picker is One camera's
 });
 
+it("says in a row's detail how its cloud was levelled and squared, that its walls bend, and when its picture was taken", async () => {
+  serveAll([
+    placedRow('hall', {
+      at: new Date(2026, 5, 1, 15, 53).getTime() / 1000,
+      level: 'walls',
+      tilt_deg: 12.5,
+      roll_deg: 0.6,
+      squared: true,
+      square: { state: 'squared', turn_deg: -2.73, right_m: 0, ahead_m: 0, slide: 'beyond', bend_deg: 2.7 },
+    }),
+  ]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  // the lines are in the row's detail from the start, shown when it is opened
+  expect(
+    await screen.findByText(/^Squared to your plan by its walls: turned 2\.7°\. Not slid onto the plan's walls/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText('No floor in view, so levelled from its walls: the camera looks 13° down and is rolled 1°.'),
+  ).toBeTruthy();
+  expect(
+    screen.getByText('Walls in this cloud bend by about 3°: that is the depth estimate, not the placement.'),
+  ).toBeTruthy();
+  expect(screen.getByText(/^From a picture taken .* 15:53\.$/)).toBeTruthy();
+});
+
 it("hides a camera's points when its box is cleared, and the points outside the plan until asked for", async () => {
   serveAll([placedRow('hall'), placedRow('porch')]);
   renderPage(<CloudView place="p1" />);
@@ -685,5 +711,5 @@ it('says so when no camera can be placed, with why for each', async () => {
   expect(
     await screen.findByText(/No camera can be placed yet: each needs a spot with a facing on your plan/),
   ).toBeTruthy();
-  expect(screen.getByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
+  expect(await screen.findByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
 });
