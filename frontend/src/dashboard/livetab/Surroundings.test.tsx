@@ -4,14 +4,7 @@ import { delay, HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
-import {
-  applied,
-  LearnSurroundings,
-  type SurroundingsChange,
-  type SurroundingsView,
-  surroundingsHint,
-  toggled,
-} from './Surroundings';
+import { applied, LearnSurroundings, type SurroundingsChange, type SurroundingsView, toggled } from './Surroundings';
 
 let view: SurroundingsView;
 let posts: SurroundingsChange[];
@@ -150,7 +143,7 @@ describe("Live's Learn surroundings switch", () => {
     const user = userEvent.setup();
     renderPage(<LearnSurroundings />);
     await toggle();
-    expect(screen.getByRole('status')).toHaveTextContent(surroundingsHint(view).off);
+    expect(screen.getByRole('status')).toHaveTextContent('Builds a 3D view of what each camera sees');
     expect(await menuButton()).toHaveTextContent('front');
     await user.click(await toggle());
     await waitFor(async () => expect(await toggle()).toBeChecked());
@@ -165,7 +158,7 @@ describe("Live's Learn surroundings switch", () => {
     expect(shown).toBeChecked();
     expect(shown).toBeDisabled();
     expect(await menuButton()).toBeDisabled();
-    expect(screen.getByText('Only the machine Liberational runs on can change this.')).toBeInTheDocument();
+    expect(screen.getByText('Change this on the host machine.')).toBeInTheDocument();
   });
 
   it('keeps the controls disabled with a reason when no cameras are available', async () => {
@@ -193,7 +186,8 @@ describe("Live's Learn surroundings switch", () => {
     const space = container.querySelector('.surroundings-hint-space');
     expect(shown).toBeDisabled();
     expect(menu).toBeDisabled();
-    expect(space).toHaveTextContent(surroundingsHint(view).off);
+    expect(screen.getByTestId('count-skeleton')).toBeInTheDocument();
+    expect(space).toHaveTextContent('Builds a 3D view of what each camera sees');
     release();
     await waitFor(() => expect(shown).toBeEnabled());
     expect(screen.getByRole('switch')).toBe(shown);

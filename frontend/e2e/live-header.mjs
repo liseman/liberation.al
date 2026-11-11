@@ -121,6 +121,10 @@ try {
       await shot('on');
       await page.getByRole('button', { name: 'Cameras to learn from' }).click();
       await page.getByRole('menu').waitFor();
+      await page.waitForFunction(() => {
+        const menu = document.querySelector('[role="menu"]');
+        return menu && getComputedStyle(menu).opacity === '1';
+      });
       await shot('menu');
       measurements.push({ width, theme, before, after });
       await context.close();

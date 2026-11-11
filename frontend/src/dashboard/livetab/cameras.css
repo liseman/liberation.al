@@ -28,7 +28,7 @@
 }
 .cams-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 10px;
 }
@@ -37,6 +37,7 @@
   font: 600 18px / 1.45 var(--mantine-font-family); /* a section heading, as theme.ts h2 */
 }
 .cams-head > span {
+  line-height: 26.1px;
   font-size: 13px;
   color: var(--mantine-color-dimmed);
 }
@@ -53,6 +54,7 @@
   min-width: 0;
 }
 .cams-head .surroundings-row {
+  min-height: 26.1px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -62,8 +64,11 @@
   width: 8rem;
   flex: none;
 }
-.surroundings-cameras .mantine-Button-label {
-  display: block;
+.surroundings-cameras:disabled {
+  background: transparent;
+}
+.surroundings-camera-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -347,5 +352,11 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--mantine-spacing-sm);
-  flex-wrap: wrap;
+}
+.cams-overview-bar > :first-child {
+  min-width: 0;
+  color: var(--lib-dim);
+}
+.cams-overview-bar > :last-child {
+  flex: none;
 }

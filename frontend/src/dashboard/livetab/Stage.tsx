@@ -348,22 +348,24 @@ export function Stage({
       onClose={() => setFaceDraft(null)}
     />
   );
+  // The hash and configured cameras are known before live status; keep these controls in place while it loads.
+  const selected = chosen && cams.includes(chosen) && cams.length > 1 ? chosen : null;
   const header = (
     <div className="cams-head">
       <h2>Cameras</h2>
       <span>{cams.length === 1 ? '1 camera' : `${cams.length} cameras`}</span>
       <NameNudge cams={cams} />
       <LearnSurroundings />
-      {large && shown.length > 1 && (
+      {selected && (
         <div className="cam-controls">
           <Button variant="default" size="xs" onClick={() => choose(null)}>
             All cameras
           </Button>
           <NativeSelect
             aria-label="Choose camera"
-            value={large}
+            value={selected}
             onChange={e => choose(e.currentTarget.value)}
-            data={shown.map(cam => ({ value: cam, label: viewName(cam) }))}
+            data={cams.map(cam => ({ value: cam, label: viewName(cam) }))}
           />
         </div>
       )}
@@ -383,9 +385,7 @@ export function Stage({
         {overview ? (
           <>
             <div className="cams-overview-bar">
-              <Text size="sm" c="dimmed">
-                Open a camera for face names and object selections.
-              </Text>
+              <Text size="sm">Open a camera for face names and object selections.</Text>
               <LiveTilesSwitch />
             </div>
             <div className={`cams-grid${cams.length > 4 ? ' many' : ''}`}>
@@ -437,9 +437,7 @@ export function Stage({
       ) : (
         <>
           <div className="cams-overview-bar">
-            <Text size="sm" c="dimmed">
-              Open a camera for face names and object selections.
-            </Text>
+            <Text size="sm">Open a camera for face names and object selections.</Text>
             <LiveTilesSwitch />
           </div>
           <div className={`cams-grid${shown.length > 4 ? ' many' : ''}`}>

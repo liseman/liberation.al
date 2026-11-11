@@ -11,6 +11,7 @@ import { IconCamera } from '@tabler/icons-react';
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { messageOf, request } from '../../shared/http';
+import { CountSkeleton } from '../lib/loading';
 import { Toast } from '../lib/Toast';
 import { viewName } from '../review/views';
 import { linkClick } from '../router';
@@ -36,22 +37,13 @@ export interface SurroundingsChange {
 export const SURROUNDINGS_KEY = ['surroundings'] as const;
 const REFRESH_MS = 15_000; // another browser, or Settings, may change it
 
-const OFF_HINT = "Collects the cameras' pictures, and keeps a point cloud of what each one sees";
-const ELSEWHERE = 'Only the machine Liberational runs on can change this.';
+const OFF_HINT = 'Builds a 3D view of what each camera sees';
+const ELSEWHERE = 'Change this on the host machine.';
 
-/** How many cameras are sampled, for the menu button and the on-state hint. */
+/** How many cameras are sampled, for the menu button. */
 export function sampledLabel(view: SurroundingsView): string {
   const sampled = view.cameras.filter(c => c.sampled);
   return sampled.length === 1 ? viewName(sampled[0]?.name ?? '') : `${sampled.length} cameras`;
-}
-
-/** The dimmed line beside the switch while this browser may change it. */
-export function surroundingsHint(view: SurroundingsView): { off: string; on: string } {
-  const from = sampledLabel(view);
-  return {
-    off: OFF_HINT,
-    on: `Collecting pictures from ${from}. See them in Places`,
-  };
 }
 
 /** The cameras sampled after `name` is switched: taking the last one away leaves none chosen, which is the default. */
@@ -106,7 +98,7 @@ export function LearnSurroundings() {
   const reason = status.isError
     ? "Couldn't load learning status. Retrying."
     : !view
-      ? 'Loading learning status'
+      ? null
       : !view.cameras.length
         ? 'No cameras available to learn from.'
         : !view.control
@@ -139,7 +131,7 @@ export function LearnSurroundings() {
               leftSection={<IconCamera size={16} aria-hidden />}
               aria-label="Cameras to learn from"
             >
-              {from}
+              <span className="surroundings-camera-label">{from}</span>
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
@@ -170,9 +162,6 @@ export function LearnSurroundings() {
                 </Menu.CheckboxItem>
               );
             })}
-            <Text size="xs" c="dimmed" px="sm" py={4} maw={240}>
-              With none chosen, the default camera is used.
-            </Text>
           </Menu.Dropdown>
         </Menu>
       </div>
@@ -181,8 +170,11 @@ export function LearnSurroundings() {
         <Text size="xs" className="surroundings-hint-space" aria-hidden="true">
           {OFF_HINT}
         </Text>
-        <Text size="xs" c="dimmed" className="surroundings-hint" role="status">
-          {reason ??
+        <Text size="xs" c="var(--lib-dim)" className="surroundings-hint" role="status">
+          {status.isPending ? (
+            <CountSkeleton chars={32} label="Loading learning status" />
+          ) : (
+            (reason ??
             (view?.on ? (
               <>
                 Collecting pictures. See them in{' '}
@@ -192,7 +184,8 @@ export function LearnSurroundings() {
               </>
             ) : (
               OFF_HINT
-            ))}
+            )))
+          )}
         </Text>
       </div>
       <Toast text={fail} error label="Learn surroundings" onClose={() => setFail(null)} />
