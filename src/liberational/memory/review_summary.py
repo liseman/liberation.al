@@ -28,7 +28,7 @@ Rollups: at the hour level the summary also has `days`, one per local day in the
 
 - A part of the day (PARTS: Night, Morning, Afternoon, and Evening, by the local clock) is one short sentence on the
   gist of its hour lines (about PART_WORDS words), and the day's (about DAY_WORDS) on the gist of its parts'. Like the
-  lines, they leave the diarist unnamed: a reply that names them, or runs well past its length, is asked for
+  lines, they retain the people named in the evidence: a reply that runs well past its length is asked for
   once more. Each is written only once none of its inputs is
   still pending, so an hour line on its way doesn't cost a rollup that's thrown away a moment later.
 - They're `review.summary` records like the lines, with level `part:<name>` or `day`, the hour entries as parents, and
@@ -36,7 +36,7 @@ Rollups: at the hour level the summary also has `days`, one per local day in the
   sentence. A part whose sentence the model couldn't write cleanly is left out: the feed shows its hours instead.
 - Written ahead with the lines, by the journal's own model, after the last RECENT_S of lines.
 
-Never first person: the journal is written as "I", and plain_text checks every line.
+Journal entries and timeline lines use third-person narration; plain_text checks every line.
 
 Lines are `review.summary` records on the memory log: one per journal entry, over its window, with the entry
 as parent and the hash of the text it was written from, so purging the entry takes its line, and an entry reworded or
@@ -82,7 +82,7 @@ HOUR = 3600
 # hour, end hour). The feed's own part
 # headings (SummaryBlocks.partOfDay) use the same hours.
 PARTS = (("Night", 0, 5), ("Morning", 5, 12), ("Afternoon", 12, 17), ("Evening", 17, 24))
-ROLLUP = "review-rollup-v3"  # in every rollup's source, so a new prompt writes each sentence again
+ROLLUP = "review-rollup-v4"  # in every rollup's source, so a new prompt writes each sentence again
 PART_WORDS = 20
 DAY_WORDS = 25
 SLACK_WORDS = 2  # a reply this much past its limit is a list, not a gist: asked once more
@@ -91,9 +91,8 @@ ROLLUP_SYSTEM = (
     "You write one short sentence giving the gist of {what}, for the top of a timeline, from the short lines already "
     "written for it, each after its clock time. Sum it up instead of listing what happened: a few words on what the "
     "{span} was mostly about, then who it was with or the one thing that stood out, worded from the lines themselves. "
-    "At most {words} words. Write it with no subject: it is "
-    "about the diarist's own {span}, so never name or point to them{owner}; name only other people. Never use I, me, "
-    "my, we, our, or you, and never start with he, she, they, the person, or the owner. Use only what the lines say, "
+    "At most {words} words. Write in third person and past tense, retaining the supplied names. Never use I, me, "
+    "my, we, our, or you as narrator. Use only what the lines say, "
     'in plain, complete words: "on the laptop", never shorthand like "on lap". Then give the sentence\'s topics, '
     "chosen only from this list: "
     + ", ".join(plain_text.TOPICS)
@@ -103,10 +102,8 @@ PLAIN_WORDS = ' Use plain, complete words: "on the laptop", never shorthand like
 
 
 def owner_rule() -> str:
-    """The prompt's words about the diarist's own name, when one is configured: never written, since every line and
-    sentence is already about them (a speaker label can still render as it)."""
-    name = cfg.owner_name()
-    return f" The diarist (I) is {name}: never write {name}, since it is already about them." if name else ""
+    """Name the configured owner just like the other people in a household entry."""
+    return f" The owner is {cfg.owner_or('someone')}; keep that name when the evidence names them."
 
 
 def level_for(span: float, levels: list[int] | None = None) -> int:
@@ -219,7 +216,7 @@ def _evidence_source(record: dict[str, Any], text: str) -> str:
     evidence = record["evidence"] if isinstance(record["evidence"], dict) else {}
     sources = list(evidence.get("sources") or [])
     data = {
-        "format": "review-evidence-v1",
+        "format": "review-evidence-v2",
         "entry_id": str(record["id"]),
         "text": text,
         "evidence": {"status": evidence.get("status", "unverified"), "sources": sources},
@@ -242,8 +239,8 @@ class Lines(plain_text.Rewrites):
     @staticmethod
     def _rewrite(source: str) -> str:
         data = plain_text._json_in(source)
-        if not isinstance(data, dict) or data.get("format") != "review-evidence-v1":
-            return plain_text._ask(plain_text.SYSTEM + owner_rule() + PLAIN_WORDS, f"Diary entry:\n{source}")
+        if not isinstance(data, dict) or data.get("format") != "review-evidence-v2":
+            return plain_text._ask(plain_text.SYSTEM + owner_rule() + PLAIN_WORDS, f"Journal entry:\n{source}")
         system = (
             plain_text.SYSTEM
             + owner_rule()
@@ -337,35 +334,14 @@ def at(state: pathlib.Path) -> Lines:
     return _lines[key]
 
 
-def without_owner(text: str) -> str:
-    """An hour line as a rollup reads it: the diarist's own name taken out ("with <owner>", "<owner> and",
-    "and <owner>"), since a line can name them (a speaker label rendering as them, or one cached before the rule) and the model
-    copies it into the rollup however it's told. Other names stay."""
-    name = cfg.owner_name()
-    if not name:
-        return text
-    who = re.escape(name)
-    for pattern in (
-        rf"(?<!\w){who}\s+and\s+",
-        rf"\s+and\s+{who}(?!\w)",
-        rf"\s+with\s+{who}(?!\w)",
-        rf"(?<!\w){who}(?!\w)",
-    ):
-        text = re.sub(pattern, "", text, flags=re.I)
-    return " ".join(text.split()).strip(" ,;") or text
-
-
 def _check_rollup(reply: str | None, words: int = DAY_WORDS) -> tuple[dict[str, Any] | None, str]:
     """A rollup keeps the lines' prose rules, at a day's sentence's length; it selects no sources. A gist of at most
-    about `words` words, not a list, and never the diarist's own name."""
+    about `words` words, not a list, keeping the supplied names."""
     line, why = plain_text.check(reply, max_chars=DAY_CHARS)
     if line is None:
         return None, why
     if len(line["text"].split()) > words + SLACK_WORDS:
         return None, f"one short sentence of at most {words} words, the gist rather than a list"
-    owner = cfg.owner_name()
-    if owner and re.search(rf"(?<!\w){re.escape(owner.casefold())}(?!\w)", line["text"].casefold()):
-        return None, f"never write {owner}: the sentence is already about them, so name only other people"
     line["source_ids"] = None
     return line, ""
 
@@ -394,7 +370,6 @@ class Rollups(Lines):
             what="someone's whole day" if day else f"one part of someone's day (the {part})",
             words=DAY_WORDS if day else PART_WORDS,
             span="day" if day else part,
-            owner=f" ({cfg.owner_name()})" if cfg.owner_name() else "",
         )
         return journal.chat(system, f"{source}\n\nJSON:", journal.model_name(), 256)
 
@@ -467,11 +442,7 @@ def day_rollup(
         if not inside:
             continue
         part: dict[str, Any] = {"name": name, "start": a, "end": b, "text": None, "status": "pending"}
-        written = [
-            (float(r["ts_start"]), without_owner(line["text"]))
-            for r, (stage, line) in inside
-            if stage == "ready" and line
-        ]
+        written = [(float(r["ts_start"]), line["text"]) for r, (stage, line) in inside if stage == "ready" and line]
         if any(stage == "pending" for _r, (stage, _line) in inside):
             parts.append(part)  # an hour still on its way: this sentence, and the day's, wait for it
             continue

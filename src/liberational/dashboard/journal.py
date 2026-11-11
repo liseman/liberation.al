@@ -158,11 +158,17 @@ def _entry(r: Mapping[str, Any], state: Path, *, by_start: bool) -> dict[str, An
 
 
 def entry_evidence(entry_id: str, start: float, state: Path) -> Reply:
-    """GET /journal?entry=&start=: the evidence of the entry `entry_id`, which starts at `start`."""
-    found = next(
-        (r for r in memory_log.at(state).range(memory_log.JOURNAL, start, start + 1) if str(r.get("id")) == entry_id),
-        None,
-    )
+    """Resolve an entry link through corrections before showing its evidence."""
+    rows = memory_log.at(state).range(memory_log.JOURNAL, start, start + 1)
+    by_id = {str(r["id"]): r for r in rows}
+    corrections = {
+        str(r["supersedes"]): str(r["id"]) for r in sorted(rows, key=lambda r: str(r["id"])) if r.get("supersedes")
+    }
+    visited: set[str] = set()
+    while entry_id in corrections and entry_id not in visited:
+        visited.add(entry_id)
+        entry_id = corrections[entry_id]
+    found = by_id.get(entry_id)
     if found is None:
         return 404, {"error": "no such entry"}
     return 200, evidence(found, state)

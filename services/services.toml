@@ -49,7 +49,7 @@ wait_for_broker = true
 default = true
 
 [journal]
-description = "Writes a first-person journal of the day from what was said and seen, and rolls it up into longer summaries."
+description = "Writes a third-person journal of the day from what was said and seen, and rolls it up into longer summaries."
 group = "workers"
 command = "pack-journal"
 wait_for_broker = true
