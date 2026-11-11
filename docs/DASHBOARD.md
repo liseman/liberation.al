@@ -19,7 +19,7 @@ The web app the owner uses: `pack-dashboard` (`src/liberational/dashboard/`, por
   machine (services, settings, and devices) are accepted only from the machine itself, same origin. Teaching writes
   (names, faces, voices, pets, zones, and transcript fixes) are too, unless `dashboard.remote_teaching` is on: then a
   same-origin request that passed the password may teach. Changing who the owner is always needs the machine itself.
-- **Slow reads run elsewhere.** Face groups, voice groups, the People list, Reports' days, and Review's day history
+- **Slow reads run elsewhere.** Face groups, voice groups, the People list, Statistics' days, and Review's day history
   are computed in long-lived child processes at low priority. A request returns `pending` and the page polls. Crops
   and thumbnails are cut by a background worker; a GET for one that is not ready returns 202.
 - **The live feed.** `/events` streams the transcript, scene, speakers, device status, and shell status. Pages fall
@@ -45,7 +45,7 @@ gitignored.
 | Path under `frontend/src/` | Contents |
 |---|---|
 | `dashboard/App.tsx` | The shell: top bar, command palette, status pill, and gear menu |
-| `dashboard/livetab/`, `review/`, `journal/`, `known/`, `calls/`, `inbox/`, `reports/`, `ingest/`, `debug/` | One folder per tab |
+| `dashboard/livetab/`, `review/`, `journal/`, `known/`, `calls/`, `inbox/`, `statistics/`, `ingest/`, `debug/` | One folder per tab |
 | `dashboard/live/` | The live feed: the event stream, its reducer, and its hooks |
 | `dashboard/people/`, `activities/`, `places/`, `zones/` | Known's tabs and the zone editor |
 | `dashboard/naming/`, `whosthis/` | The naming inbox every kind shares, and "Who's this?" built on it |
@@ -73,12 +73,11 @@ gitignored.
 |---|---|
 | Live | Camera feeds with face, pose, and object overlays; the recent conversation; who is here now, with a link to "Who's this?"; the "Learn surroundings" switch; Ask |
 | Review | A day's timeline, transcript, summary, and recorded video, with filters by person, thing, event, and camera |
-| Journal | Month, week, day, and hour entries with their evidence |
-| Known | People, Pets, Objects, Activities, Devices, and Places: everything the owner names and corrects |
+| Known | People, Pets, Objects, Activities, Devices, and Places: everything the owner names and corrects. Its last tab, Ingest, has imported media and its sources |
 | Calls | The call form, recordings, and transcripts |
 | Inbox | Research reports |
-| Reports | D3 charts over per-day aggregates cached in `state/reports.sqlite3` |
-| Ingest | Imported media and its sources |
+| Journal | Month, week, day, and hour entries with their evidence |
+| Statistics | D3 charts over per-day aggregates cached in `state/reports.sqlite3` |
 | Debug | Service logs, filtered by level |
 
 Known's tabs are paths of their own (`/people`, `/pets`, `/objects`, `/activities`, `/devices`, and `/places`), so a

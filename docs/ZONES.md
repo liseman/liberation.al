@@ -66,7 +66,7 @@ A count takes visits of at least 10 seconds, and joins visits to the same zone l
 - **Ask**: ask a count question that names the zone, such as "how many times did someone use the desk today". When no
   footage of the zone was checked in that time, the answer says it can't count, never zero. A question that names a
   person counts only the visits whose faces were recognized as them, and reports the rest apart.
-- **Reports**: the "Activity and events" card has a "Zone visits" section with one chart per zone: visits each day,
+- **Statistics**: the "Activity and events" card has a "Zone visits" section with one chart per zone: visits each day,
   against a typical day. Under "Suggested reports", a zone with visits is offered as "Visits to <zone>"; press
   **Add** to give it a card of its own. "Pet activity by hour of day" charts each animal's zone visits by hour.
 - **Journal**: a zone visit used as evidence for an entry is listed as "In a zone".
@@ -76,7 +76,7 @@ If a question names both a zone and an event the detector or you have named, the
 ## Verify
 
 1. Have someone stand in the zone for longer than 10 seconds, then step out.
-2. Open **Reports**. In "Activity and events", "Zone visits" shows the zone with a visit today. "Still reading" under
+2. Open **Statistics**. In "Activity and events", "Zone visits" shows the zone with a visit today. "Still reading" under
    the card means some days are not counted yet.
    - "Nothing stayed in a zone long enough to count." means the camera was checked, but no visit lasted 10 seconds.
    - "No zones are drawn yet, or none have been checked." means see-zones has covered none of the window: check that
