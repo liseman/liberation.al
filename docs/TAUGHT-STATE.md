@@ -84,7 +84,8 @@ derived from them should start again.
    a broker is still running, and an older install with a unit per service is told to remove the units with
    `pack-services migrate`.
 
-To keep each place's maps, plans, walks, and splats too, add `--keep-places` to both commands.
+To keep what is under `state/places` too (each place's revisions and the placer's state), add `--keep-places` to
+both commands.
 
 ## Start spatial memory again
 
