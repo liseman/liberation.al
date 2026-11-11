@@ -165,7 +165,7 @@ def test_a_voice_history_question_reaches_the_line_through_execute(state, reg, m
 
     def worker(cmd, *, input, **kwargs):  # the worker, run here: execute on the request it was sent
         data = json.loads(input)
-        result = ask.execute(data["question"], data["mode"], data["state_dir"])
+        result = ask.execute(data["question"], data["state_dir"])
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(result), stderr="")
 
     monkeypatch.setattr(ask.subprocess, "run", worker)

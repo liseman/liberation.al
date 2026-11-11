@@ -306,9 +306,9 @@ def test_an_instant_question_holds_research_from_queued_until_answered():
     state = Path(ask.STATE)
     manager = ask.JobManager(slow)
     try:
-        manager.submit("Explain gravity", "local")
+        manager.submit("Explain gravity")
         assert entered.wait(2)
-        manager.submit("Explain tides", "local")  # waits behind the first
+        manager.submit("Explain tides")  # waits behind the first
         held = len(list(research.busy_dir(state).iterdir()))
     finally:
         release.set()
@@ -328,10 +328,8 @@ def test_the_gate_runs_before_every_wrapped_ollama_call(monkeypatch):
 def test_run_asks_with_researchs_settings(tmp_path, monkeypatch):
     seen = {}
 
-    def execute(question, mode, state, day=None, scope="history"):
-        seen.update(
-            question=question, mode=mode, day=day, rounds=cfg.get("recall.max_rounds"), url=cfg.get("ask.ollama_url")
-        )
+    def execute(question, state, day=None):
+        seen.update(question=question, day=day, rounds=cfg.get("recall.max_rounds"), url=cfg.get("ask.ollama_url"))
         return {"status": "ok", "answer": "x", "evidence": []}
 
     monkeypatch.setattr(ask, "execute", execute)
@@ -339,7 +337,6 @@ def test_run_asks_with_researchs_settings(tmp_path, monkeypatch):
         research.run({"question": "why", "day": "2026-10-22"}, tmp_path)
     assert seen == {
         "question": "why",
-        "mode": "local",
         "day": "2026-10-22",
         "rounds": 8,
         "url": "http://127.0.0.1:11435",
@@ -497,10 +494,11 @@ def http_(serve_dashboard, monkeypatch, tmp_path):
     return send
 
 
-def test_the_inbox_routes_queue_list_read_and_delete(http_):
+def test_ask_queues_deep_research_and_the_inbox_lists_reads_and_deletes_it(http_):
     with cfg.override(OWN):
-        code, job = http_("POST", "/research/jobs", {"question": "what did Dana say about the garden"})
-        assert (code, job["status"]) == (202, "queued")
+        code, job = http_("POST", "/pack-ask/jobs", {"question": "what did Dana say about the garden", "deep": True})
+        assert (code, job["status"], job["deep"]) == (202, "queued", True)
+        assert http_("POST", "/research/jobs", {"question": "why"})[0] == 405  # one way in: Ask's route
         code, listing = http_("GET", "/research/jobs")
         assert (code, listing["available"], [j["id"] for j in listing["jobs"]]) == (200, True, [job["id"]])
         assert http_("POST", f"/research/jobs/{job['id']}/read", {"read": True}) == (200, {"ok": True, "read": True})
@@ -511,14 +509,35 @@ def test_the_inbox_routes_queue_list_read_and_delete(http_):
 
 def test_the_inbox_refuses_research_where_it_cant_run_and_other_sites(http_):
     with cfg.override({"ask": {"ollama_url": ""}}):
-        code, reply = http_("POST", "/research/jobs", {"question": "why"})
+        code, reply = http_("POST", "/pack-ask/jobs", {"question": "why", "deep": True})
         assert (code, "ask-ollama" in reply["error"]) == (409, True)
         assert http_("GET", "/research/jobs")[1]["available"] is False
     with cfg.override(OWN):
-        assert http_("POST", "/research/jobs", {"question": "why"}, origin="http://elsewhere.example")[0] == 403
+        origin = "http://elsewhere.example"
+        assert http_("POST", "/pack-ask/jobs", {"question": "why", "deep": True}, origin=origin)[0] == 403
 
 
 def test_the_list_says_a_partial_answer_and_none_before_one(store):
     partial = finished(store, {"status": "partial", "answer": "Some of it.", "evidence": []})
     waiting = store.submit("who came by", now=T + 100)["id"]
     assert {j["id"]: j["answer_status"] for j in store.jobs()} == {partial: "partial", waiting: None}
+
+
+@pytest.mark.parametrize(
+    "took, typical",
+    [
+        pytest.param([], None, id="none-yet"),
+        pytest.param([300.0], 300.0, id="one"),
+        pytest.param([100.0, 900.0, 200.0], 200.0, id="odd-median"),
+        pytest.param([100.0, 300.0], 200.0, id="even-median"),
+    ],
+)
+def test_typical_research_time_is_the_median_of_done_reports(took, typical):
+    jobs = [{"status": "done", "took_s": t} for t in took]
+    jobs += [{"status": "failed", "took_s": 9999.0}, {"status": "queued"}]  # neither says how long research takes
+    assert research.typical_s(jobs) == typical
+
+
+def test_only_the_newest_reports_set_the_typical_time():
+    jobs = [{"status": "done", "took_s": 60.0}] * 3 + [{"status": "done", "took_s": 6000.0}] * 30
+    assert research.typical_s(jobs, recent=3) == 60.0

@@ -139,7 +139,7 @@ def test_a_404_while_down_means_ollama_is_back_for_the_other_models(health, cloc
 
 
 def test_a_404_for_a_call_with_no_model_is_not_a_missing_model(health, lines):
-    """ask_friends' /api/ps names no model, so its 404 must not log "pull it with `ollama pull `"."""
+    """A call that names no model (like /api/ps) gets a 404 that must not log "pull it with `ollama pull `"."""
     with pytest.raises(requests.HTTPError), oh.call("", health):
         raise not_found("")
     assert lines == []
@@ -362,12 +362,6 @@ def _facts():
     facts._ask("system", "user", {"type": "object"})
 
 
-def _ask_friends():
-    from liberational.assistant import ask_friends
-
-    ask_friends.request(cfg.ollama_url(), "/api/chat", {"model": "qwen3:4b-instruct"})
-
-
 def _phone_bridge():
     from liberational.phone import bridge
 
@@ -388,7 +382,6 @@ def tried(call):
         pytest.param(_whisper_names, id="whisper-names"),
         pytest.param(_profiles, id="profiles"),
         pytest.param(_facts, id="facts"),
-        pytest.param(_ask_friends, id="ask-friends"),
         pytest.param(_phone_bridge, id="phone-bridge"),
     ],
 )

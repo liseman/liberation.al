@@ -1,5 +1,5 @@
-// A finished (or partial) Ask result: the answer, each model's own answer, warnings, the search rounds, history
-// coverage, and the recorded evidence behind it. History panels only ever show for a history (Review) answer.
+// A finished (or partial) Ask result: the answer, warnings, the search rounds, history coverage, and the recorded
+// evidence behind it.
 import type { ReactNode } from 'react';
 import { Disclosure } from '../lib/Disclosure';
 import { shownName } from '../lib/speakers';
@@ -7,38 +7,9 @@ import { viewName } from '../review/views';
 import classes from './ask.module.css';
 import { AppLink, type NewSetting, NewTag, Stamp, StatusBadge } from './bits';
 import { Crossings } from './Crossings';
-import { duration, isRec, label, list, nameOf, noteText, plain, type Rec, reason, records, roundText } from './format';
+import { isRec, label, list, noteText, plain, records, roundText } from './format';
 import { Paged } from './Paged';
 import { inline, TextBlock } from './prose';
-
-function ModelCard({ item }: { item: Rec }) {
-  const answer = plain(item.answer);
-  const status = plain(item.status) || (answer ? 'ok' : 'unavailable');
-  const kind =
-    item.backend === 'ollama' || item.backend === 'mlx'
-      ? 'Local model'
-      : item.backend === 'cloud'
-        ? 'Cloud model'
-        : plain(item.backend);
-  const meta = [kind, duration(item.elapsed_seconds)].filter(Boolean);
-  const failure = item.error || item.reason;
-  return (
-    <article className={classes.card}>
-      <header className={classes.cardHeader}>
-        <h4>{nameOf(item)}</h4>
-        <StatusBadge status={status} />
-      </header>
-      {meta.length > 0 && <p className={classes.muted}>{meta.join(' · ')}</p>}
-      {answer.trim() && <TextBlock value={answer} />}
-      {failure ? (
-        <p className={classes.error}>{reason(failure)}</p>
-      ) : (
-        !answer.trim() && <p className={classes.muted}>No answer was returned.</p>
-      )}
-      {item.finish_reason === 'length' && <p className={classes.muted}>This response reached its length limit.</p>}
-    </article>
-  );
-}
 
 function Notes({ title, items, collapsed = false }: { title: string; items: unknown; collapsed?: boolean }) {
   if (!Array.isArray(items) || !items.length) return null;
@@ -62,44 +33,6 @@ function Notes({ title, items, collapsed = false }: { title: string; items: unkn
     <section className={classes.notes}>
       <h3>{title}</h3>
       {body}
-    </section>
-  );
-}
-
-function Panel({ panel }: { panel: Rec | unknown[] }) {
-  const legacy = Array.isArray(panel); // an older server sent the participants as a bare list
-  const participants = records(legacy ? panel : panel.participants);
-  const answered = participants.filter(p => plain(p.answer).trim() && (!p.status || p.status === 'ok')).length;
-  const referee = !legacy && isRec(panel.referee) ? panel.referee : null;
-  return (
-    <section>
-      <h3>Individual model answers</h3>
-      {participants.length > 0 ? (
-        <>
-          <p className={classes.muted}>{`${answered} of ${participants.length} models returned an answer.`}</p>
-          <div className={classes.grid}>
-            <Paged items={participants} render={p => <ModelCard item={p} />} />
-          </div>
-        </>
-      ) : (
-        <p className={classes.muted}>No individual model answers were returned.</p>
-      )}
-      {!legacy && (
-        <>
-          <Notes title="Unavailable models" items={panel.unavailable} />
-          <Notes title="Model discovery issues" items={panel.discovery_errors} />
-          {!!panel.error && <p className={classes.error}>{reason(panel.error)}</p>}
-          {referee && referee.status !== 'ok' && (
-            <p className={classes.error}>
-              {`Combined answer could not be completed: ${reason(referee.error || referee.status)}`}
-            </p>
-          )}
-          {participants.length > 1 && plain(panel.disagreement_note) && (
-            <p className={classes.muted}>{plain(panel.disagreement_note)}</p>
-          )}
-          <Notes title={`Models not included (${records(panel.excluded).length})`} items={panel.excluded} collapsed />
-        </>
-      )}
     </section>
   );
 }
@@ -230,8 +163,6 @@ export function Result({
   const recorded = history && result.scope !== 'general' && result.is_history !== false;
   const evidence = recorded ? list(result.evidence) : [];
   const rounds = recorded ? records(result.rounds) : [];
-  const panel = isRec(result.panel) || Array.isArray(result.panel) ? result.panel : null;
-  const referee = isRec(panel) && isRec(panel.referee) ? panel.referee : null;
   const warnings = Array.isArray(result.warnings)
     ? result.warnings
     : typeof result.warnings === 'string'
@@ -245,7 +176,7 @@ export function Result({
     <>
       {answer && result.answer !== undefined && (
         <section className={classes.answer} data-bare={bare || undefined}>
-          {!bare && <h3>{panel ? (result.panel_answer ? 'Recorded answer' : 'Combined answer') : 'Answer'}</h3>}
+          {!bare && <h3>Answer</h3>}
           {!bare && !!result.status && result.status !== 'ok' && <StatusBadge status={plain(result.status)} />}
           <TextBlock value={evidence.length ? citeLinks(plain(result.answer), evidence) : result.answer} />
           {after}
@@ -264,20 +195,8 @@ export function Result({
               A person deleted in People. <NewTag setting="assistant.forgotten_reply" />
             </p>
           )}
-          {panel && plain(result.panel_answer) && (
-            <>
-              <h4>Panel summary</h4>
-              <TextBlock value={result.panel_answer} />
-            </>
-          )}
-          {referee?.status === 'ok' && (
-            <p className={classes.muted}>
-              {`Combined by ${nameOf(referee)}${duration(referee.elapsed_seconds) ? ` · ${duration(referee.elapsed_seconds)}` : ''}`}
-            </p>
-          )}
         </section>
       )}
-      {panel && <Panel panel={panel} />}
       {recorded && isRec(result.crossings) && <Crossings crossings={result.crossings} />}
       {!folded && <Notes title="Warnings" items={warnings} />}
       {rounds.length > 0 && (

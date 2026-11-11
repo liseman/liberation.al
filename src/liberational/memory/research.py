@@ -480,7 +480,7 @@ def run(job: Mapping[str, Any], state: Path | None = None) -> dict[str, Any]:
     try:
         with deep():
             restore = url != cfg.ollama_url() and ask.ollama_url() == url and ask.local_settings() != (model, num_ctx)
-            return ask.execute(str(job["question"]), "local", state, day=job.get("day"), scope="history")
+            return ask.execute(str(job["question"]), state, day=job.get("day"))
     finally:
         # deep() has restored normal Ask settings and the previous gate, even when the answer raised.
         if restore:

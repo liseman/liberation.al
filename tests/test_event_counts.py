@@ -139,7 +139,7 @@ def test_an_event_count_is_the_answer_with_no_model(events, tmp_path, monkeypatc
         pack_ask, "local_answer", create_autospec(pack_ask.local_answer, side_effect=AssertionError("no model"))
     )
     monkeypatch.setattr(recall, "loop", create_autospec(recall.loop, side_effect=AssertionError("no recall")))
-    result = pack_ask.execute("How many times did I open the fridge today?", "local", tmp_path, now=NOW)
+    result = pack_ask.execute("How many times did I open the fridge today?", tmp_path, now=NOW)
     assert result["paths"] == ["events"]
     assert result["answer"].startswith("opened the fridge: 2 times (2 at 09:14)")
 
@@ -417,7 +417,7 @@ def test_what_the_camera_model_doesnt_detect_says_so_without_a_model(tmp_path, m
         pack_ask, "local_answer", create_autospec(pack_ask.local_answer, side_effect=AssertionError("no model"))
     )
     monkeypatch.setattr(recall, "loop", create_autospec(recall.loop, side_effect=AssertionError("no recall")))
-    result = pack_ask.execute(question, "local", tmp_path, now=NOW)
+    result = pack_ask.execute(question, tmp_path, now=NOW)
     assert result["answer"] == event_counts.UNSUPPORTED
     assert result["evidence"] == []
     assert result["coverage"]["activity"] == {"available": False, "reason": "unsupported"}

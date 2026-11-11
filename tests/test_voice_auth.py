@@ -25,7 +25,6 @@ AGENT = {
     "url": "http://127.0.0.1:18789/v1/chat/completions",
     "openclaw_config": "~/.openclaw/openclaw.json",
     "phone_agent": "openclaw/phone",
-    "friends_agent": "openclaw/friends-advisor",
 }
 SALT = b"test salt only"
 VERIFIER = {
@@ -370,15 +369,12 @@ def test_a_password_said_after_the_prompt_is_heard(conv, clock, monkeypatch, pro
     assert say("dummy secret", {**GUEST, **heard}) == "done"
 
 
-def test_friends_authorization_and_optional(monkeypatch):
+def test_asking_friends_is_gone_but_still_behind_authorization(monkeypatch):
     module = create_autospec(pack_ask)
-    module.ask.return_value = {"answer": "Consensus", "status": "ok"}
-    module.spoken.side_effect = pack_ask.spoken
     monkeypatch.setattr(b, "optional_module", {"liberational.memory.ask": module}.get)
-    assert say("Ask your friends why stars shine") == "Consensus"
-    module.ask.assert_called_once_with("why stars shine", mode="friends")
+    assert say("Ask your friends why stars shine") == b.NO_OUTSIDE_MODELS
     assert "password" in say("Hey Bob, ask your friends why stars shine", STRANGER)
-    module.ask.assert_called_once()
+    module.ask.assert_not_called()
 
 
 @pytest.mark.parametrize("named_by", ["introduction", "merge"])

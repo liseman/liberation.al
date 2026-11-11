@@ -83,8 +83,8 @@ def test_same_day_counts_reach_chips_and_ask_and_voice_agree(detector_day, monke
 
     voice_results = []
 
-    def execute_at_fixed_time(request, mode="local", **kwargs):
-        result = ask.execute(request, mode=mode, state_dir=state, now=now, **kwargs)
+    def execute_at_fixed_time(request, **kwargs):
+        result = ask.execute(request, state_dir=state, now=now, **kwargs)
         voice_results.append(result)
         return result
 
@@ -92,7 +92,7 @@ def test_same_day_counts_reach_chips_and_ask_and_voice_agree(detector_day, monke
     monkeypatch.setattr(ask, "ask", backend)
     speaker = create_autospec(voice.Speaker, instance=True)
     said = voice.handle(question, speaker, {"speaker_id": 1, "speaker_sim": 0.9})
-    backend.assert_called_once_with(question, mode="local", on_short=ANY)
+    backend.assert_called_once_with(question, on_short=ANY)
     assert callable(backend.call_args.kwargs["on_short"])
     assert said == ask.spoken(asked)
     speaker.speak.assert_called_once_with(said)
@@ -440,15 +440,13 @@ def test_a_walk_by_question_says_how_many_times_people_walked_past_in_plain_word
     assert [row["ts"] for row in cited] == [start + 22, start + 600]
 
 
-@pytest.mark.parametrize("mode", ["local", "friends", "everyone"])
-def test_direction_requests_answer_and_cite_directions_in_ask_and_voice(detector_day, vision, monkeypatch, mode):
+def test_direction_requests_answer_and_cite_directions_in_ask_and_voice(detector_day, vision, monkeypatch):
     state, start, end = detector_day
     vision.add(segment_log.WALKBY_COVERAGE, ts_start=start, ts_end=end, cam="cam0", frames=100)
     first = walk_by(vision, start + 10, direction="left_to_right")
     second = walk_by(vision, start + 20, direction="right_to_left")
     question = f"Which way did someone walk past cam0 on {DAY}?"
-    result = ask.execute(question, mode=mode, state_dir=state, now=end + 60)
-    assert result["mode"] == mode
+    result = ask.execute(question, state_dir=state, now=end + 60)
     assert result["model"] == "local-history-evidence"
     assert "left to right" in result["answer"]
     assert "right to left" in result["answer"]
@@ -460,7 +458,7 @@ def test_direction_requests_answer_and_cite_directions_in_ask_and_voice(detector
     monkeypatch.setattr(ask, "ask", backend)
     speaker = create_autospec(voice.Speaker, instance=True)
     said = voice.handle(question, speaker, {"speaker_id": 1, "speaker_sim": 0.9})
-    backend.assert_called_once_with(question, mode="local", on_short=ANY)
+    backend.assert_called_once_with(question, on_short=ANY)
     assert callable(backend.call_args.kwargs["on_short"])
     assert said == ask.spoken(result)
     speaker.speak.assert_called_once_with(said)
