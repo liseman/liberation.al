@@ -1525,12 +1525,6 @@ fn note_live_bytes(w: &mut W) -> Result<()> {
     w.put(META, b"live_bytes", &now.to_be_bytes())
 }
 
-fn now_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-}
-
 fn io_error(e: std::io::Error) -> CatalogError {
     CatalogError::Storage(Box::new(e))
 }
@@ -3450,18 +3444,6 @@ impl Catalog for RedbCatalog {
         let meta = std::fs::metadata(&self.path).map_err(|e| CatalogError::Storage(Box::new(e)))?;
         // redb's default page size, which this catalog never changes.
         Ok(Some(StorageStats { page_size: 4096, file_bytes: meta.len(), disk_bytes: meta.blocks() * 512, tables }))
-    }
-
-    fn record_aged_out(&self, stream: StreamId, spans: &[Interval]) -> Result<()> {
-        self.write(|w| {
-            if !w.has(STREAMS, &k32(stream.0))? {
-                return Err(CatalogError::NotFound(format!("stream {}", stream.0)));
-            }
-            for s in spans {
-                aged_insert(w, stream.0, *s, 0)?;
-            }
-            Ok(())
-        })
     }
 
     fn aged_out(&self, stream: StreamId, window: Interval, max: usize) -> Result<Vec<Interval>> {

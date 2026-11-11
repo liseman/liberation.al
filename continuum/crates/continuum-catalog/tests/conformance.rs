@@ -390,14 +390,6 @@ fn a_chunk_aged_out_whole_keeps_what_its_frames_led_to<C: Catalog>(c: C) {
     assert_eq!(c.parents(id(10)).unwrap(), Vec::<Uuid>::new(), "the frame's row is gone, so the index forgets it");
 }
 
-fn recorded_aged_out_spans_merge_and_need_a_known_stream<C: Catalog>(c: C) {
-    let s = chunked(&c);
-    c.record_aged_out(s, &[iv(33, 99)]).unwrap();
-    c.record_aged_out(s, &[iv(200, 300), iv(99, 120)]).unwrap();
-    assert_eq!(c.aged_out(s, iv(0, 1_000), 10).unwrap(), vec![iv(33, 120), iv(200, 300)]);
-    assert!(matches!(c.record_aged_out(StreamId(u32::MAX), &[iv(0, 1)]), Err(CatalogError::NotFound(_))));
-}
-
 /// One write looks at frames until its window says stop, and the next picks up after the last one it looked
 /// at, so a sweep's commit covers as many frames as its time allows rather than one.
 #[test]
@@ -2406,7 +2398,6 @@ macro_rules! conformance {
                 an_age_out_skips_what_was_committed_after_its_cutoff,
                 a_child_landing_under_an_age_out_is_not_hidden,
                 a_chunk_aged_out_whole_keeps_what_its_frames_led_to,
-                recorded_aged_out_spans_merge_and_need_a_known_stream,
             );
         }
     };

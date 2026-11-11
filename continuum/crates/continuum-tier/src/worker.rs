@@ -865,11 +865,6 @@ impl<O: Outputs> WorkerLoop<O> {
         Ok(())
     }
 
-    /// Commits a chunk recovered at startup, as if it had just closed.
-    pub fn commit_recovered(&mut self, closed: Closed) {
-        self.finish(closed);
-    }
-
     /// Chunks closed but not yet committed.
     #[must_use]
     pub fn uncommitted(&self) -> usize {
