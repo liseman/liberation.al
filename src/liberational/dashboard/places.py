@@ -42,13 +42,10 @@
                                        (`_all_cameras_scene`, spatial/cloud_scene.py): the clouds' points as one
                                        file, the owner's plan under them, and `combined`: how each camera is placed
                                        or why it isn't, and what each pair of cameras' pictures said
-    POST /places/scene/spot {place, camera}
-                                       take the spot the scene suggests for a camera that moved: that camera's spot
-                                       on the owner's plan is moved and turned to it, saved as a new version of the
-                                       plan (`accept_spot`); nothing is saved until this is asked
-    POST /places/scene/spot/undo {place, camera, record}
-                                       take that back: the plan version it replaced holds again, and the camera
-                                       is a moved camera once more (`undo_spot`)
+    POST /places/scene/follow {place, camera, use}
+                                       a camera whose view changed is placed again by itself (spatial/cloud_scene.py);
+                                       `use` "spot" puts it back on the plan's spot until its view next changes, and
+                                       "cloud" takes that back (`follow`). The plan and its spots are never written
     GET /places/scene?...&flat=0       either of those with every point where its cloud has it: by default the floor
                                        and matched walls of a cloud fitted to its room are drawn flat on the plan's
     GET /places/map?place=&revision=[&camera=]
@@ -409,64 +406,27 @@ def scene_file(state: Path, place: str, revision: str) -> Path | None:
     return cloud_scene.drawn(store, found, flat)
 
 
-def accept_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
-    """POST /places/scene/spot: the owner takes the spot the scene suggests for a camera that moved. The camera's
-    spot on their plan is moved and turned to it and the plan saved as a new version, the way the plan editor saves
-    one (`places.correct_plan`); nothing else of the plan changes. `control` is the handler's _can_teach."""
+def follow(body: Mapping[str, Any], control: bool, state: Path) -> Reply:
+    """POST /places/scene/follow: the way back from a camera's automatic placing (spatial/cloud_scene.py). With `use`
+    "spot" the camera stands on the plan's spot again, until its view next changes (`use_spot`); with "cloud" that
+    is taken back and it is placed by its cloud again (`follow_again`). Only what is kept beside the camera's cloud
+    changes: the owner's plan and spots are not written. `control` is the handler's _can_teach."""
     from liberational.spatial import camera_clouds, cloud_scene
 
     if not control:
-        return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
-    place, camera = body.get("place"), body.get("camera")
-    if not isinstance(place, str) or not isinstance(camera, str):
-        return 400, {"ok": False, "error": "send the place's id and the camera"}
-    held = places.get(state, place)
-    if held is None:
-        return 404, {"ok": False, "error": "no such place"}
-    if held.plan_source != "owner" or not held.plan:
-        return 400, {"ok": False, "error": "the place has no plan of yours to set a spot on"}
-    if held.view is not None:
-        return 400, {"ok": False, "error": "this plan was drawn on its own page: move the spot in the plan editor"}
-    store = camera_clouds.Store(camera_clouds.root(state))
-    found = _scene_of(state, held)
-    offered = next((p.suggest for p in found.cameras if p.camera == camera), None)
-    if offered is None:
-        return 400, {"ok": False, "error": "no spot is suggested for that camera now"}
-    try:
-        plan = plan_scene.with_spot(held.plan, camera, (offered[0], offered[1]), offered[2])
-    except KeyError, plan_scene.SceneError:
-        return 400, {"ok": False, "error": "that camera has no spot on the plan to move"}
-    history = places.plan_history(state, place)
-    places.correct_plan(state, place, plan, now=now, base=held.plan_revision)
-    spot = cloud_scene.spots_of(state).get(camera)
-    if spot is not None:
-        cloud_scene.accept(store, camera, spot.basis)  # its picture now is the one it's placed with
-    return 200, {
-        "ok": True,
-        "spot": {"at": [offered[0], offered[1]], "yaw": offered[2]},
-        # the version this one replaced, for Undo (POST /places/scene/spot/undo)
-        "previous": history[-1].id if history else None,
-    }
-
-
-def undo_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
-    """POST /places/scene/spot/undo: take back a spot accepted from the scene. The plan version it replaced
-    (`record`) holds again, written on top as a new version (`places.restore_plan`), and the camera is once more one
-    that moved from the picture it was placed with: it isn't left at its old spot."""
-    from liberational.spatial import camera_clouds, cloud_scene
-
-    if not control:
-        return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
-    place, camera, record = body.get("place"), body.get("camera"), body.get("record")
-    if not isinstance(place, str) or not isinstance(camera, str) or not isinstance(record, str):
-        return 400, {"ok": False, "error": "send the place's id, the camera, and the plan version to put back"}
+        return 403, {"ok": False, "error": "this can only be changed from this machine (Remote teaching is off)"}
+    place, camera, use = body.get("place"), body.get("camera"), body.get("use")
+    if not isinstance(place, str) or not isinstance(camera, str) or use not in ("spot", "cloud"):
+        return 400, {"ok": False, "error": 'send the place\'s id, the camera, and use: "spot" or "cloud"'}
     if places.get(state, place) is None:
         return 404, {"ok": False, "error": "no such place"}
-    try:
-        places.restore_plan(state, place, record, now=now)
-    except (KeyError, ValueError) as e:
-        return 400, {"ok": False, "error": str(e)}
-    cloud_scene.take_back(camera_clouds.Store(camera_clouds.root(state)), camera)
+    spot = cloud_scene.spots_of(state).get(camera)
+    if spot is None or spot.place != place or spot.at is None:
+        return 400, {"ok": False, "error": "that camera has no spot with a facing on this place's plan"}
+    store = camera_clouds.Store(camera_clouds.root(state))
+    done = (cloud_scene.use_spot if use == "spot" else cloud_scene.follow_again)(store, camera, spot.basis)
+    if not done:
+        return 400, {"ok": False, "error": "there is nothing to change for that camera now"}
     return 200, {"ok": True}
 
 
@@ -1006,19 +966,11 @@ def _post_places_plan(h: H, body: Any) -> None:
     return h._json(o, code)
 
 
-@routes.post("/places/scene/spot")
-def _post_places_scene_spot(h: H, body: Any) -> None:
+@routes.post("/places/scene/follow")
+def _post_places_scene_follow(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    code, o = accept_spot(body, h._can_teach(), h.state)
-    return h._json(o, code)
-
-
-@routes.post("/places/scene/spot/undo")
-def _post_places_scene_spot_undo(h: H, body: Any) -> None:
-    if not h._same_origin_json():
-        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
-    code, o = undo_spot(body, h._can_teach(), h.state)
+    code, o = follow(body, h._can_teach(), h.state)
     return h._json(o, code)
 
 

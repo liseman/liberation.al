@@ -1080,49 +1080,43 @@ def moved_camera(tmp_path, store):
     cloud_scene.record(store, cloud, {"anchor": turned}, cloud_scene.spots_of(tmp_path))
 
 
-def test_a_moved_cameras_suggested_spot_is_saved_only_when_the_owner_takes_it(tmp_path, spotted):
-    place, store = spotted
-    moved_camera(tmp_path, store)
-    hall = next(
-        c for c in view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"] if c["camera"] == "hall"
-    )
-    assert hall["how"] == "moved" and hall["suggest"] == pytest.approx([1.0, 2.0, 125.0], abs=0.01)
-    assert plan_of(tmp_path, place) == SPOTTED  # offered, not saved
-    versions = len(places.plan_history(tmp_path, place))
-
-    assert view.accept_spot({"place": place, "camera": "hall"}, False, tmp_path)[0] == 403
-    assert plan_of(tmp_path, place) == SPOTTED
-    code, reply = view.accept_spot({"place": place, "camera": "hall"}, True, tmp_path, now=T + 120)
-    assert (code, reply["ok"]) == (200, True)
-    saved = {name: (at, yaw) for name, at, _, yaw, _ in plan_scene.spots(plan_scene.load(plan_of(tmp_path, place)))}
-    assert saved["hall"] == ((1.0, 2.0), 125.0) and saved["porch"] == ((3.0, 5.0), 0.0)  # only that spot moved
-    assert len(places.plan_history(tmp_path, place)) == versions + 1  # as a new version: the old one can be put back
-    after = next(
-        c for c in view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"] if c["camera"] == "hall"
-    )
-    assert (after["how"], after["suggest"]) == ("spot", None)  # placed from the spot it now has
-
-
-def test_taking_an_accepted_spot_back_restores_the_plan_and_the_camera_is_a_moved_one_again(tmp_path, spotted):
-    place, store = spotted
-    moved_camera(tmp_path, store)
-    reply = view.accept_spot({"place": place, "camera": "hall"}, True, tmp_path, now=T + 120)[1]
-    undo = {"place": place, "camera": "hall", "record": reply["previous"]}
-    assert view.undo_spot(undo, False, tmp_path)[0] == 403
-    assert view.undo_spot(undo, True, tmp_path, now=T + 180)[0] == 200
-    assert plan_of(tmp_path, place) == SPOTTED  # the plan as it was, on top as a new version
+def hall_in(tmp_path, place) -> dict:
     cameras = view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"]
-    hall = next(c for c in cameras if c["camera"] == "hall")
-    # not left at its old spot: it still stands where its pictures put it, and the spot is offered again
-    assert hall["how"] == "moved" and hall["suggest"] == pytest.approx([1.0, 2.0, 125.0], abs=0.01)
-    assert view.undo_spot({**undo, "record": "no-such-version"}, True, tmp_path)[0] == 400
+    return next(c for c in cameras if c["camera"] == "hall")
 
 
-def test_a_spot_is_only_accepted_for_a_camera_that_has_one_suggested(tmp_path, spotted):
+def test_a_camera_whose_view_changed_is_followed_when_the_scene_is_read_and_the_plan_is_not_written(tmp_path, spotted):
+    place, store = spotted
+    versions = len(places.plan_history(tmp_path, place))
+    moved_camera(tmp_path, store)
+    hall = hall_in(tmp_path, place)
+    assert (hall["how"], hall["placed"], hall["turn_deg"]) == ("following", True, 35.0)
+    assert hall["follow"] == {"by": "pictures", "since": T + 60, "lost": "", "pinned": False}
+    assert plan_of(tmp_path, place) == SPOTTED and len(places.plan_history(tmp_path, place)) == versions
+
+
+def test_the_way_back_puts_a_followed_camera_on_the_plans_spot_and_can_be_taken_back(tmp_path, spotted):
+    place, store = spotted
+    moved_camera(tmp_path, store)
+    versions = len(places.plan_history(tmp_path, place))
+    back = {"place": place, "camera": "hall", "use": "spot"}
+    assert view.follow(back, False, tmp_path)[0] == 403
+    assert hall_in(tmp_path, place)["how"] == "following"
+    assert view.follow(back, True, tmp_path) == (200, {"ok": True})
+    hall = hall_in(tmp_path, place)
+    assert (hall["how"], hall["turn_deg"], hall["follow"]["pinned"]) == ("spot", 0.0, True)
+    assert view.follow({**back, "use": "cloud"}, True, tmp_path) == (200, {"ok": True})
+    assert (hall_in(tmp_path, place)["how"], hall_in(tmp_path, place)["turn_deg"]) == ("following", 35.0)
+    # neither way writes the owner's plan or its spots
+    assert plan_of(tmp_path, place) == SPOTTED and len(places.plan_history(tmp_path, place)) == versions
+
+
+def test_the_way_back_is_only_for_a_camera_with_a_spot_on_that_places_plan(tmp_path, spotted):
     place, _ = spotted
-    assert view.accept_spot({"place": place, "camera": "porch"}, True, tmp_path)[0] == 400
-    assert view.accept_spot({"place": "no-such-place", "camera": "hall"}, True, tmp_path)[0] == 404
-    assert view.accept_spot({"place": place}, True, tmp_path)[0] == 400
+    assert view.follow({"place": place, "camera": "attic", "use": "spot"}, True, tmp_path)[0] == 400
+    assert view.follow({"place": "no-such-place", "camera": "hall", "use": "spot"}, True, tmp_path)[0] == 404
+    assert view.follow({"place": place, "camera": "hall", "use": "sideways"}, True, tmp_path)[0] == 400
+    assert view.follow({"place": place, "camera": "hall", "use": "cloud"}, True, tmp_path)[0] == 400  # never put back
 
 
 def test_a_place_with_no_camera_placed_says_why_and_has_no_scene_to_draw(tmp_path, vision, learn):

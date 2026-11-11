@@ -217,6 +217,27 @@ def test_a_worse_cloud_does_replace_the_old_one_when_the_camera_no_longer_sees_w
     assert store.current("hall") == moved
 
 
+def test_a_cloud_of_a_view_that_wasnt_placed_gives_way_when_the_old_view_comes_back_however_good_it_was(
+    store, tmp_path
+):
+    manifest, blank = tmp_path / "devices.toml", np.full((36, 64, 3), 90, np.uint8)
+    spots = spotted()
+
+    def elsewhere(picture, overlay, others=()):
+        return clouds.replace(room(), matches=tuple(ELSEWHERE for _ in others))
+
+    def back_by_night(picture, overlay, others=()):
+        return clouds.replace(room(floor=False, wall=3.0), matches=tuple(SAME_PLACE for _ in others))
+
+    clouds.refresh(store, "hall", blank, T, run=run_room, manifest=manifest, spots=lambda: spots)
+    away = clouds.refresh(store, "hall", blank, T + 600, run=elsewhere, manifest=manifest, spots=lambda: spots)
+    back = clouds.refresh(store, "hall", blank, T + 1200, run=back_by_night, manifest=manifest, spots=lambda: spots)
+    assert away is not None and back is not None
+    # the look back has no floor, so it is the worse cloud; but the better one is of another view, so it goes
+    assert (back.id != away.id, back.level, back.at) == (True, "walls", T + 1200)
+    assert store.current("hall") == back
+
+
 def test_a_camera_with_no_spot_keeps_its_newest_cloud(store, tmp_path):
     manifest, blank = tmp_path / "devices.toml", np.full((36, 64, 3), 90, np.uint8)
     day = clouds.refresh(store, "hall", blank, T, run=run_room, manifest=manifest)
@@ -272,12 +293,12 @@ def test_an_older_cloud_with_a_floor_or_with_no_wall_is_only_marked(store):
     assert store.current("hall") == clouds.replace(was, level="none")
 
 
-def test_a_new_cloud_leaves_the_set_aside_anchor_picture_where_it_is(store):
+def test_a_new_cloud_leaves_the_anchor_picture_where_it_is(store):
     old_cloud(store, leaning_walls(0.0), floor_found=True)
-    aside = store.folder / "hall" / "before.anchor.png"
-    aside.write_bytes(b"png")
+    anchor = store.folder / "hall" / "anchor.png"
+    anchor.write_bytes(b"png")
     old_cloud(store, leaning_walls(0.0), floor_found=True)
-    assert aside.is_file()
+    assert anchor.is_file()
 
 
 def refuse(error):

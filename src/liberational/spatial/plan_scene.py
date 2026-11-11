@@ -347,23 +347,6 @@ def rename_cameras(text: str, names: Mapping[str, str]) -> str:
     return dump(scene)
 
 
-def with_spot(text: str, camera: str, at: Point, yaw: float) -> str:
-    """A stored scene with `camera`'s spot moved to `at` and turned to face `yaw` (degrees clockwise from up the
-    page); its height, field of view, and everything else stay. Raises KeyError for a camera with no spot there."""
-    scene = load(text)
-    side = records(scene)
-    cameras = side.get("cameras")
-    if not isinstance(cameras, dict) or not isinstance(cameras.get(camera), dict):
-        raise KeyError(camera)
-    spot = {
-        **cameras[camera],
-        "at": [round(float(at[0]), 3), round(float(at[1]), 3)],
-        "yaw": round(float(yaw) % 360.0, 1),
-    }
-    _set_records(scene, {**side, "cameras": {**cameras, camera: spot}})
-    return dump(scene)
-
-
 def moved(text: str, point: Callable[[float, float], Point], yaw: Callable[[float], float]) -> str:
     """A stored scene moved rigidly into another frame: every wall, room, floor, and ceiling outline, the site, and
     our own records, each point through `point` and each camera's facing through `yaw`. Openings ride on their walls,

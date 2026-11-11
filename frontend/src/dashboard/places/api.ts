@@ -207,17 +207,18 @@ export interface ScenePlaced {
   points: number;
   placed: boolean;
   /** "spot": from its spot on the plan alone; "adjusted": from its spot, corrected against the cameras in `against`
-   *  by what their pictures share; "moved": it moved, and its cloud followed by what its pictures measured;
-   *  "moved_against": it moved, and is placed from what it shares with the camera in `against`. Not in the scene:
-   *  "no_spot", "no_facing", and "moved_unplaced" (it moved, and its picture matches nothing). */
-  how: 'spot' | 'adjusted' | 'moved' | 'moved_against' | 'no_spot' | 'no_facing' | 'moved_unplaced';
+   *  by what their pictures share; "following": its view changed (it was turned or carried) and it was placed again
+   *  by itself, where `follow` says. Not in the scene: "no_spot", "no_facing", and "lost" (its view changed and
+   *  can't be placed with confidence: `follow.lost` says why). */
+  how: 'spot' | 'adjusted' | 'following' | 'no_spot' | 'no_facing' | 'lost';
   size: 'approximate';
   against: string[];
   /** How far from its spot it is placed: metres, and degrees of facing. */
   shift_m: number;
   turn_deg: number;
-  /** The spot offered for a camera that moved: plan x and y, and facing in degrees. Saved only when taken. */
-  suggest: [number, number, number] | null;
+  /** For a camera that was placed again by itself, or whose view can't be placed; absent for one that never left
+   *  its spot. The owner's plan and its spots are never changed by any of it. */
+  follow?: SceneFollow | null;
   /** When its cloud's picture was taken (epoch seconds). */
   at?: number;
   /** What its cloud was levelled by: its own floor, its walls (no floor in view), or nothing (it stands as if the
@@ -226,13 +227,27 @@ export interface ScenePlaced {
   tilt_deg?: number;
   roll_deg?: number;
   /** Its cloud's squaring to the plan's walls, when one was made from this cloud, spot, and plan; `squared` when it
-   *  is what placed the camera (a camera that moved is placed by its pictures instead). */
+   *  is what placed the camera. */
   square?: SceneSquare | null;
   squared?: boolean;
   /** Its cloud's fit to the rooms of the plan, when one was made from this cloud, spot, and plan; `fitted` when it is
    *  what sized and placed the cloud, whose floor and matched walls can then be drawn flat. */
   fit?: SceneFit | null;
   fitted?: boolean;
+}
+
+/** How a camera whose view changed was placed again, or why it couldn't be. */
+export interface SceneFollow {
+  /** What placed it: "pictures" (what its new picture shares with an earlier one or another camera's), "turned"
+   *  (its walls, where it stood), "walls" (its walls, wherever they fit the plan); "" for none. */
+  by: 'pictures' | 'turned' | 'walls' | '';
+  /** When the picture it was placed with was taken (epoch seconds). */
+  since: number;
+  /** Why its view can't be placed, or "": no wall in view, no wall on the plan, walls that fit nowhere well enough,
+   *  walls that fit in more than one place, or (briefly) it hasn't been placed again yet. */
+  lost: '' | 'no_walls' | 'no_plan' | 'no_match' | 'ambiguous' | 'pending';
+  /** The owner put it back on the plan's spot: it stays there until its view next changes. */
+  pinned: boolean;
 }
 
 /** How a cloud was fitted to the plan's rooms: resized about its camera and slid so its walls land on the plan's. */
@@ -352,17 +367,10 @@ export interface Scene {
   };
 }
 
-/** Take the spot the scene suggests for a camera that moved: its spot on the owner's plan is moved and turned to
- *  it, saved as a new version of the plan. */
-export const acceptSpot = (place: string, camera: string) =>
-  request<{ ok: true; spot: { at: [number, number]; yaw: number }; previous: string | null }>('/places/scene/spot', {
-    place,
-    camera,
-  });
-
-/** Take that back: the plan version it replaced (`record`) holds again, and the camera is a moved one once more. */
-export const undoSpot = (place: string, camera: string, record: string) =>
-  request<{ ok: true }>('/places/scene/spot/undo', { place, camera, record });
+/** The way back from a camera's automatic placing: with "spot" it stands on the plan's spot again until its view
+ *  next changes; with "cloud" that is taken back. The owner's plan is not written either way. */
+export const followCamera = (place: string, camera: string, use: 'spot' | 'cloud') =>
+  request<{ ok: true }>('/places/scene/follow', { place, camera, use });
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
  *  often while learning is on, and the view draws it without a reload. With learning off it asks seldom, to notice

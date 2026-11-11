@@ -38,7 +38,8 @@ camera's own frame and a confidence. Then, in the pack:
 
 **Which cloud is kept** (`refresh`, `better`). A camera's view looks different by night, so a cloud is made then
 too, and a dark picture often shows no floor. While the camera hasn't moved (its picture registers with its anchor,
-spatial/cloud_scene.py), a new cloud that is worse than the one it has doesn't replace it: one with no floor against
+spatial/cloud_scene.py, and the cloud it has is of that view), a new cloud that is worse than the one it has
+doesn't replace it: one with no floor against
 one with a floor, or one with under `FEWER` of its points. The look is remembered (`Cloud.also`), so the same view
 isn't tried again. A camera with no spot has no anchor to say it stayed put, and its newest cloud is kept.
 
@@ -514,7 +515,7 @@ class Store:
                 places.write_whole(self.picture(made.cloud), png.tobytes())
         json_state.write(folder / "cloud.json", asdict(made.cloud))
         for old in [*folder.glob("*.ply"), *folder.glob("*.png")]:
-            if old.stem not in (made.cloud.id, "anchor", "before.anchor"):  # spatial/cloud_scene.py's to keep
+            if old.stem not in (made.cloud.id, "anchor"):  # spatial/cloud_scene.py's to keep
                 old.unlink(missing_ok=True)
         self.note(made.cloud.camera, None, made.cloud.at)
 
@@ -600,7 +601,8 @@ def refresh(
 
     With `spots` (the cameras' spots on their plans, spatial/cloud_scene.py `spots_of`), the same run compares the
     picture with the camera's anchor and its neighbours', and what they matched is recorded for the place's scene:
-    whether the camera moved, and how each pair of cameras sits."""
+    whether the camera moved (it is then placed again when its cloud is next squared, spatial/cloud_scene.py
+    `align`), and how each pair of cameras sits."""
     from liberational.spatial import cloud_scene, rig
     from liberational.spatial import lens as lenses
 
@@ -632,6 +634,8 @@ def refresh(
         return None
     have = store.current(camera)
     still = bool(compared) and compared[0][0] == "anchor" and cloud_scene.stayed(store, camera, got.matches[:1])
+    if have is not None and cloud_scene.unsettled(store, camera, have.id) is not None:
+        still = False  # the cloud it has is of a view that couldn't be placed, not of the anchor's: it isn't kept
     if have is not None and still and not better(made.cloud, have):
         LOG.info("%s: a new cloud (%s, %d points) is no better than the one it has; kept", camera, made.cloud.level,
                  made.cloud.points)  # fmt: skip

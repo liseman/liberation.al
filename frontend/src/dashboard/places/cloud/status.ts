@@ -4,7 +4,7 @@
 // cloud yet, and what would make one. What it says about one camera's own cloud (`viewNote`, `viewWhy`): how it was
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
-import { dayWords, hm, isoDay } from '../../lib/format';
+import { ago, dayWords, hm, isoDay } from '../../lib/format';
 import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, ViewWhy } from '../api';
 
 const when = (at: number) =>
@@ -112,28 +112,71 @@ const degrees = (d: number) => `${Math.round(d)}°`;
 const listed = (names: readonly string[]) =>
   names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
-/** How one camera is placed in the scene, or why it isn't in it, in plain words. `name` names a camera for the page. */
-export function placedLine(camera: ScenePlaced, name: (camera: string) => string = c => c): string {
+/** What placed a followed camera, as a sentence. */
+const PLACED_BY: Record<string, string> = {
+  pictures: "Placed by what its new picture shares with an earlier one or another camera's.",
+  turned: 'Placed where it stood, by the walls it now sees.',
+  walls: 'Placed by the walls it now sees, where they fit your plan.',
+};
+
+/** Why a changed view can't be placed, to follow "its view changed, and". */
+const LOST: Record<string, string> = {
+  no_walls: 'there is no wall in view to place it by',
+  no_plan: 'your plan has no walls to place it by',
+  no_match: "the walls it sees don't fit your plan anywhere well enough",
+  ambiguous: 'the walls it sees fit your plan in more than one place',
+};
+
+/** How long ago a camera was placed: "a moment ago" for the first minute and a half, then `ago`'s words. */
+const since = (at: number, now: number) => (now - at < 90 ? 'a moment ago' : ago(at, now));
+
+/** How one camera is placed in the scene, or why it isn't in it, in plain words. `name` names a camera for the page;
+ *  `now` is the time to count a followed camera's age from (epoch seconds). */
+export function placedLine(
+  camera: ScenePlaced,
+  name: (camera: string) => string = c => c,
+  now = Date.now() / 1000,
+): string {
   switch (camera.how) {
     case 'spot':
-      return 'Placed from its spot on your plan.';
+      return camera.follow?.pinned
+        ? 'Placed from its spot on your plan, as you asked. It is followed again when its view next changes.'
+        : 'Placed from its spot on your plan.';
     case 'adjusted':
       return `Placed from its spot, adjusted against ${listed(camera.against.map(name))} by what their pictures share: ${metres(camera.shift_m)} and ${degrees(camera.turn_deg)} from the spot.`;
-    case 'moved':
-      return `This camera was moved: by its pictures, ${metres(camera.shift_m)} and ${degrees(camera.turn_deg)} from its spot. Its cloud followed.`;
-    case 'moved_against':
-      return `This camera was moved. It is placed from what its picture shares with ${listed(camera.against.map(name))}'s.`;
+    case 'following': {
+      const moves = [
+        camera.turn_deg >= 0.5 ? `turned ${degrees(camera.turn_deg)}` : null,
+        camera.shift_m >= 0.01 ? `moved ${metres(camera.shift_m)}` : null,
+      ].filter(Boolean);
+      const what = moves.length ? `${moves.join(', ')} from your plan's spot` : "where your plan's spot has it";
+      const when = camera.follow?.since ? `, ${since(camera.follow.since, now)}` : '';
+      const by = PLACED_BY[camera.follow?.by ?? ''];
+      return `Following: ${what}${when}.${by ? ` ${by}` : ''} Your plan is unchanged.`;
+    }
     case 'no_spot':
       return 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.';
     case 'no_facing':
       return 'Not in the scene: its spot has no facing. Set which way it looks in the plan editor.';
-    case 'moved_unplaced':
-      return "This camera was moved and isn't placed: its picture matches neither its old one nor another camera's. Set its spot again in the plan editor.";
+    case 'lost': {
+      const why = LOST[camera.follow?.lost ?? ''];
+      if (!why) return 'Its view changed. It is being placed again.';
+      return `Not placed: its view changed, and ${why}. It isn't drawn, keeps where it last stood, and is tried again with each new picture.`;
+    }
   }
 }
 
-/** How a camera's cloud was squared to the plan's walls, or why it wasn't; null when nothing was tried (no spot) or
- *  the camera is placed some other way (it moved). */
+/** The one way back a followed or unplaced camera's row offers, or null: put it on the plan's spot, or, once that
+ *  was done, follow it again. Nothing is offered in the moment before a changed view is placed. */
+export function wayBack(camera: ScenePlaced): { use: 'spot' | 'cloud'; label: string } | null {
+  if (camera.how === 'spot' && camera.follow?.pinned) return { use: 'cloud', label: 'Follow it again' };
+  if (camera.how === 'following' || (camera.how === 'lost' && camera.follow?.lost !== 'pending'))
+    return { use: 'spot', label: "Use the plan's spot" };
+  return null;
+}
+
+/** How a camera's cloud was squared to the plan's walls, or why it wasn't; null when nothing was tried (no spot, or
+ *  a view that isn't placed). */
 export function squareLine(camera: ScenePlaced): string | null {
   const square = camera.square;
   if (!square) return null;
@@ -246,23 +289,14 @@ export function placedState(how: ScenePlaced['how']): { label: string; tone: 'pl
       return { label: 'Placed', tone: 'plain' };
     case 'adjusted':
       return { label: 'Adjusted', tone: 'plain' };
-    case 'moved':
-    case 'moved_against':
-      return { label: 'Moved', tone: 'warn' };
-    case 'moved_unplaced':
+    case 'following':
+      return { label: 'Following', tone: 'plain' };
+    case 'lost':
       return { label: 'Not placed', tone: 'warn' };
     case 'no_spot':
     case 'no_facing':
       return { label: 'No spot', tone: 'plain' };
   }
-}
-
-/** What moving a camera's spot to where its pictures put it changes, for the question asked first. */
-export function moveSpotQuestion(camera: ScenePlaced, name: string): { title: string; body: string } {
-  return {
-    title: `Move ${name}'s spot on your plan?`,
-    body: `It moves ${metres(camera.shift_m)} and turns ${Math.round(camera.turn_deg)} degrees to where its pictures now put it. The plan's earlier version stays in Versions.`,
-  };
 }
 
 /** What to say when the scene has nothing to draw. */
