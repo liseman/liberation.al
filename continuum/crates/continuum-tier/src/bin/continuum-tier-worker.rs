@@ -37,22 +37,10 @@ fn main() -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    let (mut state_dir, mut socket, mut chunks, mut manifest, mut streams) =
-        (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, Vec::new());
-    let mut args = std::env::args().skip(1).peekable();
-    while let Some(flag) = args.next() {
-        match (flag.as_str(), args.next()) {
-            ("--state-dir", Some(v)) => state_dir = Some(v.into()),
-            ("--socket", Some(v)) => socket = Some(v.into()),
-            ("--chunks", Some(v)) => chunks = Some(v.into()),
-            ("--manifest", Some(v)) => manifest = Some(v.into()),
-            ("--stream", Some(v)) => streams.push(v),
-            _ => {
-                eprintln!("{USAGE}");
-                return ExitCode::from(2);
-            }
-        }
-    }
+    let Ok(Args { state_dir, socket, chunks, manifest, mut streams }) = parse_args(std::env::args().skip(1)) else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
     // Locators of the files under the state directory are stored relative to it (continuum_core::chunk_path).
     let data_root = state_dir.as_ref().map(|d| std::path::absolute(d).unwrap_or_else(|_| d.clone()));
     let base = state_dir.map(|d| d.join("continuum"));
@@ -152,6 +140,37 @@ fn main() -> ExitCode {
     }
 }
 
+/// The flags after the program name.
+#[derive(Default)]
+struct Args {
+    state_dir: Option<PathBuf>,
+    socket: Option<PathBuf>,
+    chunks: Option<PathBuf>,
+    manifest: Option<PathBuf>,
+    streams: Vec<String>,
+}
+
+/// The flags after the program name: each known one takes the argument after it as its value. An unknown flag, or a
+/// flag with no value, is the usage error, and an unknown flag does not eat the argument after it.
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args, ()> {
+    let mut out = Args::default();
+    while let Some(flag) = args.next() {
+        let slot = match flag.as_str() {
+            "--state-dir" => &mut out.state_dir,
+            "--socket" => &mut out.socket,
+            "--chunks" => &mut out.chunks,
+            "--manifest" => &mut out.manifest,
+            "--stream" => {
+                out.streams.push(args.next().ok_or(())?);
+                continue;
+            }
+            _ => return Err(()),
+        };
+        *slot = Some(args.next().ok_or(())?.into());
+    }
+    Ok(out)
+}
+
 /// Waits `wait`, or less when `stop` is set; whether it ran the whole wait without a stop.
 fn wait_unless_stopped(stop: &AtomicBool, wait: Duration) -> bool {
     let until = Instant::now() + wait;
@@ -162,4 +181,42 @@ fn wait_unless_stopped(stop: &AtomicBool, wait: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(50).min(until.saturating_duration_since(Instant::now())));
     }
     !stop.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(lines: &[&str]) -> Result<Args, ()> {
+        parse_args(lines.iter().map(|s| (*s).to_owned()))
+    }
+
+    #[test]
+    fn each_flag_takes_the_argument_after_it() {
+        let args = parse(&["--state-dir", "s", "--socket", "b.sock", "--chunks", "c", "--manifest", "m"]).unwrap();
+        assert_eq!(args.state_dir, Some(PathBuf::from("s")));
+        assert_eq!(args.socket, Some(PathBuf::from("b.sock")));
+        assert_eq!(args.chunks, Some(PathBuf::from("c")));
+        assert_eq!(args.manifest, Some(PathBuf::from("m")));
+        assert!(args.streams.is_empty());
+    }
+
+    #[test]
+    fn streams_accumulate_in_order() {
+        let args = parse(&["--stream", "cam0.video", "--stream", "mic0.audio"]).unwrap();
+        assert_eq!(args.streams, vec!["cam0.video".to_owned(), "mic0.audio".to_owned()]);
+    }
+
+    #[test]
+    fn an_unknown_flag_is_a_usage_error() {
+        assert!(parse(&["--nope"]).is_err());
+        // The flag after an unknown one is still parsed, not swallowed as its value.
+        assert!(parse(&["--nope", "--socket", "b.sock"]).is_err());
+    }
+
+    #[test]
+    fn a_flag_with_no_value_is_a_usage_error() {
+        assert!(parse(&["--socket"]).is_err());
+        assert!(parse(&["--state-dir", "s", "--stream"]).is_err());
+    }
 }
