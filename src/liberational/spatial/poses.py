@@ -9,9 +9,8 @@ and map frame (`Revision.frame`) the pose is in, the 4x4 camera-to-map pose, a q
 - `seat`: a registration of the camera against the place's map, quality its fitness;
 - `walk`: a match of the camera's frame with a frame whose pose in the map is known;
 - `owner`: a spot the owner measured (position only: its rotation is not evidence).
-`record` appends, `read` reads a span back. Nothing records observations at present: the surroundings jobs that build
-a place's map (spatial/surroundings_map.py and surroundings_positions.py) register each fixed camera in the place's
-revision instead, so a camera is read at the pose its place's revision holds.
+`record` appends, `read` reads a span back. Nothing records observations at present: a camera is read at its spot,
+or at the pose its place's revision holds.
 
 **Reading a pose** (`series`, `Series.at`): a camera's observations in one map frame, in time order, split into still
 stretches where a seat or walk observation lands more than MOVE_M or turns more than MOVE_DEG from the stretch so far

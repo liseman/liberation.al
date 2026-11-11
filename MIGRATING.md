@@ -101,10 +101,11 @@ The `positions` service runs `pack-positions` every hour at 20 past. It replaces
 
 1. **Install the command.** Sync the checkout's environment, keeping your extras ("Every upgrade", step 3).
 
-2. **Add the service.** Under the application, quitting it and opening it again does the same.
+2. **Add the service.** With the application open, have it read the service list again. Quitting it and opening it
+   again does the same.
 
    ```sh
-   uv run --no-sync pack-services install positions
+   uv run --no-sync pack-supervisor reload
    ```
 
 3. **Bring the positions up to date once**, so the first hourly run is short. The first command prints what a run
@@ -118,9 +119,8 @@ The `positions` service runs `pack-positions` every hour at 20 past. It replaces
 
 ### Spatial memory starts again from what the cameras see
 
-A place's map is learned from what the cameras see, by the `surroundings` service, while the Live tab's "Learn
-surroundings" switch is on ([docs/SPATIAL.md](docs/SPATIAL.md#learning-surroundings)). `pack-positions` places
-positions (above), and `pack-spatial-splat` trains a place's splat by hand.
+The `surroundings` service collects pictures of each place while the Live tab's "Learn surroundings" switch is on
+([docs/SPATIAL.md](docs/SPATIAL.md#learning-surroundings)). `pack-positions` places positions (above).
 
 Removed: phone walks (`pack-walkthrough`, and the Places page's "Import a walk"), the nightly fixed-camera pass
 (`pack-spatial-cameras`, the `spatial-cameras` job), and the tools built on them (`tools/rebuild_place.py`,
@@ -176,35 +176,28 @@ On a machine that makes splats, after the pull:
    mise run frontend
    ```
 
-2. **Give each kept splat its SOG copy.** Until this runs, a place shows its points, not its splat.
-
-   ```sh
-   .venv/bin/pack-spatial-splat
-   ```
-
-3. **Restart the dashboard.**
+2. **Restart the dashboard.**
 
    ```sh
    uv run --no-sync pack-services restart dashboard
    ```
 
-### Splats train against a depth model
+### The 3D map is being rebuilt with a new method
 
-On a machine that makes splats (CUDA):
+Nothing makes a 3D map at present. Removed: the map step (`pack-surroundings-map`), the splat trainer
+(`pack-spatial-splat`), MASt3R pairing, the depth model's runs, the plan fits and spot checks they used, and the
+tools built on them (`tools/prune_surroundings.py`, `replay_surroundings.py`, and `splat_holdout.py`). The
+`surroundings` service still collects pictures while "Learn surroundings" is on. The maps and splats already on
+disk stay where they are, and the 3D view doesn't show them.
 
-1. **Rebuild `data/gsplat`** with Depth Anything 3's code.
+1. **Pull, and remove what `pack-config --check` reports** from `pack.toml`: the removed keys `spatial.runtime`,
+   `spatial.gpu`, `spatial.splat_runtime`, `[models.hf.mast3r]`, and `[models.hf.depth_anything]`.
 
-   ```sh
-   mise run gsplat
-   ```
+2. **Sync, build the dashboard, and restart everything**, as in "Every upgrade". Keys were removed from
+   `config/defaults.toml`, so every config-reading service restarts, the dashboard included.
 
-2. **Fetch the depth model** into `data/models/depth-anything-3-metric` (1.3 GB).
-
-   ```sh
-   mise run models
-   ```
-
-3. **Restart every config-reading service**: `[models.hf.depth_anything]` is a new key.
+3. **Optionally, free the disk.** Nothing in the pack reads `data/mast3r/`, `data/gsplat/`, `data/models/mast3r/`,
+   or `data/models/depth-anything-3-metric/` any more, unless a tool of your own uses them.
 
 ### One application instead of a service per daemon
 
@@ -309,7 +302,8 @@ recorded history. What you taught (people, voices, faces, pets, zones, and setti
    .venv/bin/pack-reset-catalog --keep-taught
    ```
 
-3. **Reset.** This stops the services, resets, and starts them again.
+3. **Reset.** With the application open, this stops the services, resets, and starts them again. With it closed,
+   this resets and says to open the application.
 
    ```sh
    .venv/bin/pack-reset-catalog --keep-taught --yes
@@ -385,7 +379,7 @@ A routine upgrade needs no reset. When one does:
    uv run --no-sync pack-reset-catalog --keep-taught
    ```
 
-3. **Reset**, with the same mode and `--yes`:
+3. **Reset**, with the same mode and `--yes`. With the application closed, open it afterwards:
 
    ```sh
    uv run --no-sync pack-reset-catalog --keep-taught --yes

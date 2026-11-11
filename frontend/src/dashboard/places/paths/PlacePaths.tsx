@@ -73,8 +73,6 @@ const LACKS: Record<string, string> = {
   lens: "its lens isn't known, so give its spot a field of view",
   tilt: "it hasn't seen enough people walking to work out how far it's tilted",
   check: 'people come out the wrong height from its spot, so its height or its lens is off',
-  moving: "it's on something that moves, and following a moving camera isn't built yet",
-  floor: "this place's map has no floor yet",
 };
 
 export const lacks = (missing: string[]): string => missing.map(m => LACKS[m] ?? m).join('; ');

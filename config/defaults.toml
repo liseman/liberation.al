@@ -345,16 +345,8 @@ free_floor_percent = 15
 batch = 1000
 
 [spatial]
-# Spatial memory: each indoor place's map, plan, and splat, and where people were on the plan. Its model runtimes
-# need CUDA.
-# Where `mise run mast3r` puts MASt3R's pinned code (src/) and its own venv (.venv/). Jobs that match frames run
-# spatial/mast3r_runner.py there, with its checkpoint ([models.hf.mast3r], `mise run models`).
-runtime = "data/mast3r"
-# GPU index for MASt3R and the splat trainer; -1 picks the one with the most free memory when the job starts.
-gpu = -1
-# Where `mise run gsplat` puts gsplat's own venv (.venv/). spatial/splats.py reads it. With no python at
-# .venv/bin/python, it logs why once and makes nothing.
-splat_runtime = "data/gsplat"
+# Spatial memory: each indoor place's plan, and where people were on it. The 3D map is being rebuilt with a new
+# method; nothing here makes one at present.
 # A fixed camera's measured height and whether it looks outdoors are on its own entry in config/devices.toml, as
 # `mount = { height_m = 1.5, outdoor = false }`, and a camera on a moving rig gives its pose on the rig there instead
 # (spatial/rig.py, #5; config/devices.example.toml shows both).
@@ -676,25 +668,6 @@ needs = "cuda"
 
 # EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
 # Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
-[models.hf.depth_anything]
-# Fixed-camera splats' depth prior (spatial/splats.py `depth_priors`): Depth Anything 3's monocular metric model,
-# DA3METRIC-LARGE (ByteDance; code and these weights Apache-2.0). Only its safetensors and config. Without it a
-# splat trains on its frames alone and the log says so.
-repo = "depth-anything/DA3METRIC-LARGE"
-revision = "4010e39f3634a45bc60553321fb49fb760bd594e"
-path = "data/models/depth-anything-3-metric"
-allow_patterns = ["config.json", "model.safetensors"]
-needs = "cuda"
-
-[models.hf.mast3r]
-# Fixed-camera places: MASt3R ViT-L 512, metric (naver; code and weights CC BY-NC-SA 4.0, the weights also
-# under their training datasets' non-commercial terms; accepted for now). Only its safetensors and config.
-repo = "naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric"
-revision = "06e7259f34c3060f322df5cb0c7b9094f57e41fc"
-path = "data/models/mast3r"
-allow_patterns = ["config.json", "model.safetensors"]
-needs = "cuda"
-
 [models.hf.object_segmentation]
 repo = "yonigozlan/EdgeTAM-hf"
 revision = "c266ce53b3fc00f0f495b583f6a116c4e57f53bb"

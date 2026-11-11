@@ -203,7 +203,6 @@ it('names a splat from another map frame as out of date instead of drawing it', 
         splat: null,
         splat_state: 'stale',
         splat_stale: { revision: 'r1', at: 1_800_000_000 },
-        splat_wait: { reason: 'pass', tried: null, pass_at: '01:00' },
       }),
     ),
     http.get('/places/map', () => new Promise<never>(() => {})),
@@ -251,53 +250,21 @@ it('says how much of a splat has loaded, then that it is being drawn', () => {
   expect(loadingText(13_542_594, 13_542_594, true)).toBe('Drawing the splat…');
 });
 
-it("says nothing about a splat that is the map's own, and why there is none otherwise", () => {
+it("says nothing about a splat that is the map's own, and that there is none otherwise", () => {
   const scene = { place: 'p1', revision: 'r2' };
-  const wait = { tried: null, pass_at: '01:00' };
   expect(splatNote({ ...scene, splat: '/s', splat_state: 'current' })).toBeNull();
-  // a splat still improving is the map's own too: the line about learning says it's improving
-  expect(splatNote({ ...scene, splat: '/s', splat_state: 'improving' })).toBeNull();
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'pass' } })).toBe(
-    "No splat of this place yet. It's made from the fixed cameras' daytime frames, by a pass that runs at 01:00.",
-  );
-  const dark = splatNote({
-    ...scene,
-    splat_state: 'none',
-    splat_wait: { ...wait, reason: 'few_frames', tried: 1.8e9 },
-  });
-  expect(dark).toMatch(/^No splat of this place yet\. It's waiting for daylight: .* too few when it was last tried \(/);
-  expect(dark).toMatch(/It tries again at 01:00\.$/);
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_cameras' } })).toMatch(
-    /no cameras registered yet to make one from/,
-  );
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'no_runtime' } })).toMatch(
-    /trainer isn't installed/,
-  );
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { ...wait, reason: 'failed' } })).toMatch(
-    /Making it failed when it was last tried\. It tries again at 01:00\./,
-  );
-  // with no pass scheduled, it says so and promises no next try
-  expect(splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'pass', tried: null, pass_at: null } })).toBe(
-    'No splat of this place yet. None has been made for this map, and nothing makes splats on a schedule yet.',
-  );
-  expect(
-    splatNote({ ...scene, splat_state: 'none', splat_wait: { reason: 'failed', tried: null, pass_at: null } }),
-  ).toBe('No splat of this place yet. Making it failed when it was last tried.');
+  expect(splatNote({ ...scene, splat_state: 'none' })).toBe('No splat of this place yet.');
 });
 
 it("labels an earlier map's splat as one, and names one that no longer lines up without offering it", () => {
-  const scene = { place: 'p1', revision: 'r2', splat_wait: { reason: 'pass' as const, tried: null, pass_at: '01:00' } };
+  const scene = { place: 'p1', revision: 'r2' };
   const earlier = splatNote({ ...scene, splat: '/s', splat_state: 'earlier', splat_at: 1.8e9 });
   expect(earlier).toMatch(
     /^This splat was made for an earlier map of this place \(.+\); it lines up with the current one\./,
   );
-  expect(earlier).toMatch(
-    /A splat of the current map isn't made yet\. It's made from the fixed cameras' daytime frames/,
-  );
+  expect(earlier).toMatch(/A splat of the current map isn't made yet\.$/);
   const stale = splatNote({ ...scene, splat_state: 'stale', splat_stale: { revision: 'r1', at: 1.8e9 } });
-  expect(stale).toMatch(
-    /doesn't line up with this one, so it isn't shown\. A new one isn't made yet\. It's made from the fixed cameras/,
-  );
+  expect(stale).toMatch(/doesn't line up with this one, so it isn't shown\. A new one isn't made yet\.$/);
 });
 
 it("says so when the browser can't draw 3D", async () => {
@@ -446,89 +413,41 @@ it('writes the collision as a GLB the viewer will take for one: a data URL endin
   expect(url.startsWith('data:model/gltf-binary,%67%6c%54%46')).toBe(true);
 });
 
-// The line about learning (#259), in each state a place can be in. Times are worded in the reader's own zone, so
-// only their presence is checked.
-const learning = (more: object = {}) => ({
-  on: false,
-  cameras: 0,
-  improving: false,
-  views: null,
-  improved: null,
-  ...more,
-});
+// The line about the map (#259): with none, that the 3D map is being rebuilt with a new method, and whether
+// pictures are being collected for it.
+const learning = (more: object = {}) => ({ on: false, cameras: 0, ...more });
 
 it.each([
   [
-    'no map, learning off',
-    { revision: null, learning: learning() },
-    /^No 3D map of this place yet\. Learning is off\. Turn on Learn surroundings on the Live tab, and a map is built from what the cameras see\.$/,
+    'off',
+    learning(),
+    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. Turn on Learn surroundings on the Live tab to collect pictures for it.',
   ],
   [
-    'no map, learning on',
-    { revision: null, learning: learning({ on: true, cameras: 1 }) },
-    /^No 3D map of this place yet\. Learning is on\. A map appears here once the cameras have seen enough to start one\.$/,
+    'on',
+    learning({ on: true, cameras: 1 }),
+    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. Pictures are being collected for it.',
   ],
   [
-    'no map, learning on with first views waiting',
-    { revision: null, learning: learning({ on: true, cameras: 1, improving: true }) },
-    /^No 3D map of this place yet\. Learning is on, and the cameras' first views are being put together\./,
+    'on with no camera',
+    learning({ on: true }),
+    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. No camera is chosen to collect pictures from. Choose one on the Live tab.',
   ],
-  [
-    'no map, learning on with no camera',
-    { revision: null, learning: learning({ on: true }) },
-    /^No 3D map of this place yet\. Learning is on, but no camera is chosen to learn from\. Choose one on the Live tab\.$/,
-  ],
-  [
-    'a map still improving',
-    { revision: 'r2', learning: learning({ on: true, cameras: 2, improving: true, views: 42, improved: 1.8e9 }) },
-    /^Learning is on, and this map is still improving: new views are being added to it\. Built from 42 views, last improved .+\.$/,
-  ],
-  [
-    'a map with learning on and nothing to add',
-    { revision: 'r2', learning: learning({ on: true, cameras: 2, views: 1, improved: 1.8e9 }) },
-    /^Learning is on\. This map improves when the cameras see something it doesn't have yet\. Built from 1 view, last improved .+\.$/,
-  ],
-  [
-    'a map with learning off',
-    { revision: 'r2', learning: learning({ views: 42, improved: 1.8e9 }) },
-    /^Learning is off, so this map stays as it is\. Built from 42 views, last improved .+\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
-  ],
-  [
-    'a map learning never built',
-    { revision: 'r2', learning: learning() },
-    /^Learning is off, so this map stays as it is\. Turn on Learn surroundings on the Live tab to keep improving it\.$/,
-  ],
-])('says how the map is learned: %s', (_, more, text) => {
-  expect(learningNote({ place: 'p1', ...more })).toMatch(text);
+])('says the 3D map is being rebuilt for a place with no map: %s', (_, said, text) => {
+  expect(learningNote({ place: 'p1', revision: null, learning: said })).toBe(text);
 });
 
-it("says nothing about learning when the scene doesn't", () => {
+it("says nothing more about a place's map once it has one, or when the scene doesn't say", () => {
+  expect(learningNote({ place: 'p1', revision: 'r2', learning: learning({ on: true, cameras: 2 }) })).toBeNull();
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
 });
 
-it.each([
-  ['no_floor', /^Your plan isn't drawn on this map yet: the map has no floor yet to lay it on\./],
-  ['too_little', /^Your plan isn't drawn on this map yet: the map covers too little of your plan so far/],
-  ['ambiguous', /^Your plan isn't drawn on this map yet: what the map has so far fits your plan more than one way\./],
-  ['not_tried', /^Your plan isn't drawn on this map yet: the map hasn't been lined up with it yet\./],
-] as const)("says why the owner's plan isn't drawn on a map not lined up with it: %s", (reason, text) => {
-  const said = planNote({
-    place: 'p1',
-    revision: 'r2',
-    plan: 'plan "Home"',
-    plan_source: 'owner',
-    plan_aligned: false,
-    plan_transform: null,
-    plan_lineup: { state: 'unaligned', reason },
-  });
-  expect(said).toMatch(text);
-  expect(said).toMatch(/The Plan view shows your plan as you drew it\.$/);
-});
-
-it("says nothing about an owner's plan that is drawn on its map, and flags a map that moved off it", () => {
-  const drawn = { place: 'p1', revision: 'r2', plan_source: 'owner', plan_aligned: true } as const;
-  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: null } })).toBeNull();
-  expect(planNote({ ...drawn, plan_lineup: { state: 'aligned', reason: 'drifted' } })).toMatch(/moved off it since/);
+it("says the owner's plan isn't drawn on a map not lined up with it, and nothing once it is", () => {
+  const owned = { place: 'p1', revision: 'r2', plan: 'plan "Home"', plan_source: 'owner' } as const;
+  expect(planNote({ ...owned, plan_aligned: false, plan_transform: null })).toBe(
+    "Your plan isn't drawn on this map: the map isn't lined up with it. The Plan view shows your plan as you drew it.",
+  );
+  expect(planNote({ ...owned, plan_aligned: true })).toBeNull();
 });
 
 it('says nothing about a plan for a place with only a machine plan, or with no map', () => {

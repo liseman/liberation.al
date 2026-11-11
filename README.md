@@ -19,8 +19,8 @@ edges, and expect a reset of recorded history now and then (what you taught it i
 - **The dashboard** has Live, Review, Journal, Known (people, pets, objects, activities, devices, and places),
   Calls, Inbox, Reports, Ingest, and Debug. Answers link to the recording they came from, and say so when there's
   a gap in coverage.
-- **Spatial memory** keeps a point cloud and a floorplan of each indoor place, from what the cameras see, and
-  draws where people and pets were on the plan.
+- **Spatial memory** keeps your plan of each indoor place, with each camera's spot on it, and draws where people
+  and pets were on the plan.
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the running system. The wearable hardware in
 [docs/history](docs/history/plan-2026-10.md) is the original idea, not a list of what's built.

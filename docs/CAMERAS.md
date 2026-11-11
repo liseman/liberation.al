@@ -63,20 +63,24 @@ The others keep running.
 
 ## Say how it is mounted
 
-A fixed camera's height puts its place's map at metric scale, and an outdoor camera is kept out of indoor places. Add
-`mount` to the camera's `[[device]]`:
+Add `mount` to a fixed camera's `[[device]]`:
 
 ```toml
 mount = { height_m = 1.5, outdoor = false }
 ```
 
-`height_m` is from the floor to the lens. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg`
-instead ([config/devices.example.toml](../config/devices.example.toml) has an example).
-[Places](PLACES.md) covers putting the camera on a place's plan.
+`height_m` is the camera's height above the floor, measured to its lens. `outdoor = true` marks a camera that looks
+outdoors. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg` instead
+([config/devices.example.toml](../config/devices.example.toml) has an example).
+
+## Put it on a place's plan
+
+A fixed camera places the people it sees once it has a spot on its place's plan: where it is, its height, and which
+way it faces. [Give a camera a spot](PLAN-EDITOR.md#give-a-camera-a-spot) has the steps.
 
 ## Calibrate a wide lens
 
-A wide lens bends straight lines, which throws off maps and positions. `tools/calibrate_lens.py` fits the bend from
+A wide lens bends straight lines, which throws off positions. `tools/calibrate_lens.py` fits the bend from
 edges that are straight in the room, with no checkerboard.
 
 1. Save a frame from the camera, and write a JSON list of rough polylines along edges that are straight in the room
@@ -96,7 +100,7 @@ edges that are straight in the room, with no checkerboard.
        --write config/devices.toml --camera facecam --mask 0.25,0,0.74,0.09
    ```
 
-4. Restart capture so the manifest is read again. The next map built from the camera uses the calibration.
+4. Restart capture so the manifest is read again. The positions job reads the calibration on its next run.
 
 The tool's docstring explains the models it compares and its other options.
 

@@ -1,5 +1,5 @@
 """SOG, the compact copy of a place's Gaussian splat that the Places 3D view loads (#76): PlayCanvas's "spatially
-ordered Gaussians" format, version 2, written from a 3DGS PLY's vertices (spatial/splats.py).
+ordered Gaussians" format, version 2, written from a 3DGS PLY's vertices (`encode`, for `places.write_splat`).
 
 A `.sog` is a zip of a `meta.json` and lossless WebP images, a pixel a Gaussian, in Morton order (neighbours in
 space are neighbours in the image, which is what makes the images small):

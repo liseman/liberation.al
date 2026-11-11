@@ -1,4 +1,5 @@
-// Live's "Learn surroundings" switch (#255): whether the cameras' pictures may refine a place's map, and which
+// Live's "Learn surroundings" switch (#255): whether pictures are collected from the cameras (for the 3D map, which
+// is being rebuilt with a new method), and which
 // cameras are sampled. GET/POST /surroundings (dashboard/surroundings.py). The settings are followed live, so a
 // change here restarts nothing. Any viewer sees the switch; only the machine Liberational runs on can change it.
 //
@@ -47,8 +48,8 @@ export function sampledLabel(view: SurroundingsView): string {
 export function surroundingsHint(view: SurroundingsView): { off: string; on: string } {
   const from = sampledLabel(view);
   return {
-    off: "Uses the cameras' pictures to build a 3D map of this place",
-    on: `Learning from ${from}. See progress in Places`,
+    off: "Collects the cameras' pictures for this place's 3D map",
+    on: `Collecting pictures from ${from}. See them in Places`,
   };
 }
 
@@ -167,7 +168,7 @@ export function LearnSurroundings() {
         <Text size="xs" c="dimmed" className="surroundings-hint">
           {view.on ? (
             <>
-              {`Learning from ${from}. See progress in `}
+              {`Collecting pictures from ${from}. See them in `}
               <Anchor href="/places" size="xs" onClick={linkClick}>
                 Places
               </Anchor>

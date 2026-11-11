@@ -147,7 +147,7 @@ describe("Live's Learn surroundings switch", () => {
     expect(await menuButton()).toHaveTextContent('front');
     await user.click(await toggle());
     await waitFor(async () => expect(await toggle()).toBeChecked());
-    expect(screen.getByText(/Learning from front\. See progress in/)).toBeInTheDocument();
+    expect(screen.getByText(/Collecting pictures from front\. See them in/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Places' })).toHaveAttribute('href', '/places');
   });
 

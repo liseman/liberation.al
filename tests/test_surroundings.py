@@ -172,18 +172,13 @@ def test_a_viewer_without_control_sees_the_switch_but_cannot_change_it(pack_toml
     assert handler.sent[1][1]["control"] is handler.control
 
 
-def test_the_status_route_answers_with_the_map_steps_summary_for_a_fresh_install(pack_toml, tmp_path):
+def test_the_status_route_answers_with_what_collecting_pictures_is_doing_for_a_fresh_install(pack_toml, tmp_path):
     h = Handler()
     h.state = tmp_path / "state"  # ty: ignore[unresolved-attribute]  # the handler's state directory
     route._get_status(h)
     [(code, reply)] = h.sent
     assert code == 200
-    assert reply == {
-        "on": False, "sampling": [], "kept": 0, "waiting": 0, "parked": 0, "parked_cameras": {}, "running": False,
-        "step": None,
-        "last_step": None,
-        "cameras": {}, "places": {}, "frames": {},
-    }  # fmt: skip
+    assert reply == {"on": False, "sampling": [], "kept": 0, "cameras": {}, "frames": {}}
 
 
 # ---- a camera's newest kept frame, as a small picture (#294)

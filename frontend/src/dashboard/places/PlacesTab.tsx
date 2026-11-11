@@ -209,7 +209,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                                   Example
                                 </Badge>
                               )}
-                              {!p.example && <LearningBadge status={learning} place={p.id} />}
+                              {!p.example && <LearningBadge status={learning} />}
                             </span>
                           }
                           description={`${d ? `${sceneSummary(d)} · ` : p.scene || p.planError ? '' : 'No plan yet · '}${lastVisit(p)}`}
