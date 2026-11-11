@@ -473,12 +473,22 @@ def _camera_controls(row: dict[str, Any]) -> dict[str, Any]:
 _links: list[Any] = []
 
 
-def _link() -> Any:
-    """The dashboard's broker link for camera status, made on first use."""
+def _link() -> Any | None:
+    """The dashboard's broker link for camera status, made on first use; None when this install has no broker to link
+    to (no socket file, or no socket path this process can read), as voice_turn._link gives it. Nothing is kept in
+    that case, so the first request after the broker comes up links to it. A page must answer either way: Readers of
+    camera status read None as no camera being on."""
     if not _links:
         from liberational import continuum_link
 
-        _links.append(continuum_link.BrokerLink(client_name="dashboard-cameras", timeout=5.0))
+        try:
+            socket = continuum_link.socket_path()
+        except Exception as e:  # no broker socket this process can name: the page still answers
+            LOG.warning("camera status: no broker to link to: %r", e)
+            return None
+        if not socket.exists():
+            return None
+        _links.append(continuum_link.BrokerLink(socket, client_name="dashboard-cameras", timeout=5.0))
     return _links[0]
 
 
