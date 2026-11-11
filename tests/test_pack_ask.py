@@ -1423,7 +1423,6 @@ def test_the_partial_file_holds_the_answer_so_far(tmp_path):
 
 
 def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(tmp_path, monkeypatch):
-    monkeypatch.setattr(p, "STATE", tmp_path)
     started, release = threading.Event(), threading.Event()
     seen: dict[str, object] = {}
 
@@ -1438,7 +1437,8 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
 
     monkeypatch.setattr(p, "_ask_result", fake_result)
     monkeypatch.setattr(p, "_history_start", lambda *a, **k: None)
-    manager = p.JobManager()
+    # Its own state directory, not the module's: the module global is never patched here.
+    manager = p.JobManager(state=tmp_path)
     manager.runner = fake_result
     job = manager.submit("what does Dana want")
     assert started.wait(5)
@@ -1446,8 +1446,8 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
     assert running is not None and running["partial"] == "Dana wants tom"
     release.set()
     manager.queue.join()
-    assert seen["partial"] == p.partial_path(job["id"])
-    assert not p.partial_path(job["id"]).exists()
+    assert seen["partial"] == p.partial_path(job["id"], tmp_path)
+    assert not p.partial_path(job["id"], tmp_path).exists()
     finished = manager.get(job["id"])
     assert finished is not None and "partial" not in finished
 
