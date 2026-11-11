@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from camera_fake import camera, register_camera
-from liberational import segment_log, vision_log
+from liberational import segment_log
 from liberational.see.caption_worker import CaptionWorker
 from liberational.see.captions import CaptionPipeline
 from liberational.see.frames import Camera
@@ -23,13 +23,6 @@ class VLM:
 
     def caption(self, img: np.ndarray, memory) -> str:
         return "a grey wall"
-
-
-async def committed(client: continuum_py.Client, stream: str) -> list[tuple[dict, continuum_py.PayloadHeader]]:
-    records = await vision_log.read_range(client, stream, *SPAN)
-    raw = await client.query(stream, int(SPAN[0] * 1e9), int(SPAN[1] * 1e9))
-    headers = [continuum_py.decode_header(it["header"]) for it in raw["items"]]
-    return list(zip(records, headers, strict=True))
 
 
 def run_worker[T](

@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from liberational import vision_log
+from liberational import segment_log, vision_log
 from liberational.see.captions import CaptionPipeline
 from liberational.vision import objects
 
@@ -26,11 +26,43 @@ class VLM:
         return self.answers.pop(0) if self.answers else "a room"
 
 
+# The keys the caption worker's records carry: what `segment_log.caption_row` and `camera_objects_row` read. A key
+# outside them would be dropped by the store, so every record is checked against its stream's.
+CAPTION_KEYS = {
+    "ts_start",
+    "cam",
+    "frame_seq",
+    "yaw_deg",
+    "caption",
+    "faces",
+    "objects",
+    "source",
+    "synthetic",
+    "gated",
+    "observation",
+    "change",
+    "brightness",
+    "ms",
+    "unchanged",
+    "since",
+    "deferred",
+}
+OBJECTS_KEYS = {"ts_start", "cam", "frame_seq", "objects", "source", "observation"}
+
+
 def feed(p: CaptionPipeline, frame: np.ndarray, ts: float, seq: int = 0):
     out = p.feed(frame, ts, seq)
-    for stream, record in ((vision_log.CAPTIONS, out.caption), (vision_log.OBJECTS, out.objects)):
+    for stream, record, keys in (
+        (segment_log.CAPTIONS, out.caption, CAPTION_KEYS),
+        (segment_log.CAMERA_OBJECTS, out.objects, OBJECTS_KEYS),
+    ):
         if record is not None:
-            vision_log.encode(stream, 1, record)  # every record fits its stream
+            assert set(record) <= keys, f"every record fits its stream: {sorted(set(record) - keys)}"
+            # And the store's row builder takes it (the writer gives it the row's id and end).
+            row = {**record, "id": segment_log.new_id(), "ts_end": record.get("ts_end", record["ts_start"])}
+            assert set(segment_log.STREAMS[stream].to_row(row)) == {
+                name for name, _ in segment_log.STREAMS[stream].schema
+            }
     return out
 
 

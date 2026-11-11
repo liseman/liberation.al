@@ -1,334 +1,35 @@
-"""The vision log on Continuum: captions, detections, matches, poses, crossings, motion, and visits as broker
-payloads, read back as dicts.
+"""The vision log's synchronous reader: the segment store's captions, and pictures through the broker.
 
-Each is a stream of small JSON payloads stored inline in the catalog (a pose or a
-detection is far under the 64 KiB inline cap). The header carries the time (UTC nanoseconds, half open), the producer,
-and the provenance (the frames it came from, as parents); the JSON body carries the rest. Face embeddings aren't in
-the body: they go to the vector worker, keyed by the detection's payload id.
+Captions are `camera.caption` rows in the segment store (`segment_log.CAPTIONS`), which `see/caption_worker.py`
+writes: the caption, its observation, and the grounded objects that came with it. The broker holds what a caption
+points at instead: the camera's frames, one picture decoded at a time (`frame`), the exact capture and geometry of a
+frame's picture (`frame_evidence`), and a stretch of frames decoded at a rate (`clip`). Pictures decode on a link of
+their own, so an H.264 decode never queues every other read behind it.
 
-Each stream is one per kind, not one per camera, with the camera in the body (`cam`), as `speech_log` keeps the
-device: a reader asks for "captions over this hour" more often than for one camera's, and a camera's are filtered
-from the same query.
-
-Readers get dicts with `ts_start` and `ts_end` (seconds, from the header), `id` (the payload's id), and the stream's
-body keys. `VisionLog` is the synchronous face for threaded code; async code uses `read_range` and `follow` with
-its own client.
+Readers get dicts with `ts_start` and `ts_end` (seconds), `id`, and the record's own keys. `VisionLog` is the
+synchronous face for threaded code: one broker client on a background event loop (`BrokerLink`).
 """
 
 import collections
 import contextlib
-import json
 import threading
 import time
-import uuid
-from collections.abc import AsyncGenerator, Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import continuum_py
-from continuum_py import Client, DomainLayer, Item, PayloadHeader, Producer, read
+from continuum_py import Client, PayloadHeader, read
 
-from liberational import continuum_link, logs
+from liberational import continuum_link
 from liberational.continuum import from_ns, to_ns
 from liberational.continuum_link import BrokerLink
 
 CAPTIONS = "camera.caption"
 OBJECTS = "camera.objects"
-PET_SIGHTINGS = "pet.sighting"
 ZONE_VISITS = "zone.visit"
 ZONE_COVERAGE = "zone.coverage"
-
-
-@dataclass(frozen=True)
-class StreamDef:
-    """A vision stream: its layer, and which body keys its payloads carry."""
-
-    name: str
-    layer: DomainLayer
-    keys: tuple[str, ...]
-
-
-STREAMS = {
-    d.name: d
-    for d in (
-        # A scene.json entry (camera_history's row): the VLM's observation of one view.
-        StreamDef(
-            CAPTIONS,
-            "Layer1Raw",
-            (
-                "cam",
-                "frame_seq",
-                "yaw_deg",
-                "caption",
-                "faces",
-                "objects",
-                "source",
-                "synthetic",
-                "gated",
-                "observation",
-                "change",
-                "brightness",
-                "ms",
-                "unchanged",
-                "since",
-                "deferred",
-            ),
-        ),
-        StreamDef(OBJECTS, "Layer1Raw", ("cam", "frame_seq", "objects", "source", "observation")),
-        # The owner's label for one animal sighting (people/pet_recognition.py): a named pet's id, "other",
-        # or cleared (`active` false), parented to the embeddings it was judged from. The newest per track wins.
-        StreamDef(
-            PET_SIGHTINGS,
-            "Layer2Decision",
-            ("cam", "track_id", "species", "label", "active", "source", "sighting_start"),
-        ),
-        # A subject's visit to a zone, and where visits could have been seen (see/zones.py, see/zones_worker.py).
-        StreamDef(
-            ZONE_VISITS,
-            "Layer3Interpretation",
-            (
-                "cam",
-                "zone",
-                "zone_name",
-                "definition",
-                "subject_kind",
-                "track_id",
-                "label",
-                "dwell_s",
-                "frames",
-                "entry_seen",
-                "exit_seen",
-                "ended",
-                "candidate",
-                "interpretation",
-            ),
-        ),
-        StreamDef(ZONE_COVERAGE, "Layer3Interpretation", ("cam", "subject_kind", "definition", "zones", "frames")),
-    )
-}
-
-
-async def register(client: Client, stream: str) -> int:
-    """Registers a vision stream (or finds it, when it's registered already) and returns its id."""
-    d = STREAMS[stream]
-    registered = await continuum_link.until_not_busy(
-        lambda: client.register_stream(
-            d.name, kind="derived", format="Text", shape_name=d.name, layer=d.layer, slab_class=0
-        )
-    )
-    return registered["stream_id"]
-
-
-def encode(
-    stream: str,
-    stream_id: int,
-    record: dict[str, Any],
-    *,
-    payload_id: str | None = None,
-    producer: Producer | None = None,
-    parents: Sequence[str] = (),
-    subjects: Sequence[str] = (),
-    span_ns: tuple[int, int] | None = None,
-    seq: int = 0,
-    keep_null: Sequence[str] = (),
-) -> tuple[bytes, bytes]:
-    """A record as a payload: its header and its inline JSON body. `record` has `ts_start` (seconds), optionally
-    `ts_end` (a frame's record is a point in time), and the stream's body keys; keys it lacks are left out, None
-    values too (except those in `keep_null`, written as null), and any others are refused so nothing is silently
-    dropped. `span_ns` gives the header's span exactly
-    (a frame's capture time, say), which float seconds can't always hold to the nanosecond. `seq` tells apart records
-    that start in the same nanosecond on one stream (the catalog keys a stream's payloads by start and seq).
-    Evaluated-empty animal rows omit empty class-id and withheld diagnostics, retaining every required sample field."""
-    d = STREAMS[stream]
-    extra = set(record) - set(d.keys) - {"ts_start", "ts_end", "id"}
-    if extra:
-        msg = f"{stream} records don't carry {sorted(extra)}"
-        raise ValueError(msg)
-    if span_ns is not None:
-        start_ns, end_ns = span_ns[0], max(span_ns)
-    else:
-        start_ns = to_ns(float(record["ts_start"]))
-        end_ns = max(start_ns, to_ns(float(record.get("ts_end", record["ts_start"]))))
-    header: PayloadHeader = {
-        "id": payload_id or str(uuid.uuid7()),
-        "stream_id": stream_id,
-        "start_ns": start_ns,
-        "end_ns": end_ns,
-        "layer": d.layer,
-        "format": "Text",
-        "shape_name": d.name,
-        "parents": list(parents),
-        "subjects": list(subjects),
-        "seq": seq,
-    }
-    if producer is not None:
-        header["producer"] = producer
-    body = {k: record[k] for k in d.keys if record.get(k) is not None or (k in keep_null and k in record)}
-    return continuum_py.encode_header(header), json.dumps(body, separators=(",", ":")).encode()
-
-
-def decode(item: Item) -> tuple[str, dict[str, Any]] | None:
-    """A payload as (its stream, its record), or None for one that isn't a vision stream's or has no inline body."""
-    locator = item["locator"]
-    if locator is None or locator["kind"] != "Inline" or "bytes" not in locator:
-        return None
-    header = continuum_py.decode_header(item["header"])
-    stream = header["shape_name"]
-    if stream not in STREAMS:
-        return None
-    _count_decoded(1)
-    record: dict[str, Any] = json.loads(locator["bytes"])
-    record["ts_start"] = from_ns(header["start_ns"])
-    record["ts_end"] = from_ns(header["end_ns"])
-    record["id"] = header["id"]
-    return stream, record
-
-
-async def records_of(
-    client: Client, stream: str, item: Item, start_ns: int = 0, end_ns: int = 2**63 - 1, *, keep_ns: bool = False
-) -> list[dict[str, Any]]:
-    """The records a query or subscription `item` on `stream` holds, wherever its bytes are (`continuum_py.read`):
-    one for an inline payload, or a flushed chunk's records overlapping [start_ns, end_ns). Each has `ts_start`,
-    `ts_end`, and `id` from its own payload. None of them for a payload purged since, or one that isn't a record."""
-    if stream not in STREAMS:
-        return []
-    found = await read.records(client, stream, item, root=continuum_link.data_root(), start_ns=start_ns, end_ns=end_ns)
-    return _decode_records(found or [], keep_ns=keep_ns)
-
-
-LOG = logs.get("vision-log")
-DECODE_SUMMARY_S = 60.0  # how often a process logs who had the vision log decode records for it
-_decoded: collections.Counter[str] = collections.Counter()
-_decoded_lock = threading.Lock()
-_decoded_since = time.monotonic()
-
-
-def _decode_records(found: Sequence[read.Record], *, keep_ns: bool = False) -> list[dict[str, Any]]:
-    """Decode records only after a caller has applied any raw-record budget."""
-    out = []
-    for rec in found:
-        record = _decode_record(rec.data, rec.payload_id, rec.start_ns, rec.end_ns, keep_ns=keep_ns)
-        if record is not None:
-            out.append(record)
-    return out
-
-
-def _count_decoded(n: int) -> None:
-    """Count records decoded for whoever asked (continuum_link.CALLER), and once a minute log the biggest readers:
-    decoding runs on the link's loop for every caller, so its cost shows only as that one thread's."""
-    global _decoded_since
-    if not n:
-        return
-    with _decoded_lock:
-        _decoded[continuum_link.CALLER.get()] += n
-        elapsed = time.monotonic() - _decoded_since
-        if elapsed < DECODE_SUMMARY_S:
-            return
-        top, total = _decoded.most_common(6), sum(_decoded.values())
-        _decoded.clear()
-        _decoded_since = time.monotonic()
-    readers = "; ".join(f"{who} {count}" for who, count in top)
-    LOG.info("vision log decoded %d records in %.0f s: %s", total, elapsed, readers)
-
-
-def _decode_record(
-    data: bytes, payload_id: str, start_ns: int, end_ns: int, *, keep_ns: bool = False
-) -> dict[str, Any] | None:
-    """One JSON object, with identity and time from its header rather than its body."""
-    _count_decoded(1)
-    try:
-        record = json.loads(data)
-    except ValueError:
-        return None
-    if not isinstance(record, dict):
-        return None
-    record.update(ts_start=from_ns(start_ns), ts_end=from_ns(end_ns), id=payload_id)
-    if keep_ns:
-        record.update(_start_ns=start_ns, _end_ns=end_ns)
-    return record
-
-
-async def read_range(
-    client: Client, stream: str, start: float, end: float, *, keep_ns: bool = False
-) -> list[dict[str, Any]]:
-    """Every record on `stream` whose span overlaps [start, end) (seconds), in time order, inline or flushed."""
-    lo, hi = to_ns(start), to_ns(end)
-    # Older SDKs retain the full-item path during the reader-first rollout. New SDKs project inline identity,
-    # span, and bytes directly from their validated Rust headers, in the same order as the full query.
-    compact = getattr(client, "query_inline_records", None)
-    items: Sequence[tuple[str, int, int, bytes] | Item]
-    if compact is None:
-        items = (await client.query(stream, lo, hi))["items"]
-    else:
-        items = await compact(stream, lo, hi)
-    if stream not in STREAMS:
-        return []
-    records = []
-    for item in items:
-        if isinstance(item, tuple):
-            payload_id, first, last, data = item
-            record = _decode_record(data, payload_id, first, last, keep_ns=keep_ns)
-            if record is not None:
-                records.append(record)
-            continue
-        locator = item["locator"]
-        if locator is not None and locator["kind"] == "Inline":
-            # Inline bytes are already in the reply. Avoid the generic reader's two full header projections
-            # and per-item coroutine/Record wrappers for dense detector history. Other locators still need
-            # its lease checks, chunk identity, and stale-location retry.
-            header = continuum_py.decode_header(item["header"])
-            record = _decode_record(
-                bytes(locator["bytes"]), header["id"], header["start_ns"], header["end_ns"], keep_ns=keep_ns
-            )
-            if record is not None:
-                records.append(record)
-        else:
-            records.extend(await records_of(client, stream, item, lo, hi, keep_ns=keep_ns))
-    records.sort(key=lambda r: (r["ts_start"], r["id"]))
-    return records
-
-
-async def follow(
-    client: Client,
-    streams: Sequence[str],
-    *,
-    start: Literal["Live", "Time", "Saved"] = "Live",
-    since: float = 0.0,
-    durable_name: str | None = None,
-    wait_for_streams_s: float = 0.0,
-) -> AsyncGenerator[tuple[str, dict[str, Any]]]:
-    """(stream, record) as each is committed: from now, from `since`, or after a durable name's saved position. Each
-    record has its `position`. Following under a durable name, a record's position is acknowledged when the caller
-    asks for the next one, so a record the caller never finished with comes again next time (at least once).
-    `wait_for_streams_s` optionally waits for producer registration at startup; live subscription failures still raise.
-    Each record is read through `client`, so it can't be a Backpressure reader, and a caller slow enough to leave
-    4,096 events waiting gets the connection closed under the SDK's default policy: use a connection of
-    its own and connect again after a close."""
-
-    # Pinned, so each event carries its locator, which `records_of` reads like a query item's.
-    async def subscribe() -> continuum_py.Subscription:
-        return await client.subscribe(
-            list(streams), start=start, start_ns=to_ns(since), durable_name=durable_name, pinned=True
-        )
-
-    sub = (
-        await continuum_link.until_streams_ready(subscribe, wait_for_streams_s)
-        if wait_for_streams_s > 0
-        else await subscribe()
-    )
-    async with sub:
-        async for event in sub:
-            if event["type"] != "Event" or "item" not in event:
-                continue
-            stream = continuum_py.decode_header(event["item"]["header"])["shape_name"]
-            # A flushed chunk can straddle `since`: only its records from then on.
-            from_ns = to_ns(since) if start == "Time" else 0
-            for record in await records_of(client, stream, event["item"], from_ns):
-                record["position"] = event["position"]
-                yield stream, record
-            if durable_name is not None:
-                sub.ack(event["position"])
 
 
 def scene_entries(captions: Iterable[dict[str, Any]], limit: int = 30) -> list[dict[str, Any]]:
@@ -385,36 +86,6 @@ class VisionLog:
         self._scene_lock = threading.Lock()
         self._scene: tuple[float, int, list[dict[str, Any]]] | None = None  # (when read, limit, entries)
         self.state = state  # whose segment store holds the captions (`scene`, `latest`, `captions`); None: the pack's
-        self._registered: dict[str, Client] = {}
-
-    def range(self, stream: str, start: float, end: float) -> list[dict[str, Any]]:
-        """An interactive read, retaining the link's normal ten-second deadline."""
-        return self._range(stream, start, end, self.link.timeout)
-
-    def _range(
-        self, stream: str, start: float, end: float, timeout: float, *, window_s: float | None = None
-    ) -> list[dict[str, Any]]:
-        """Every record on `stream` overlapping [start, end) (seconds), in time order. The stream is registered
-        first, once per client (registering again is harmless): on a fresh broker a stream its worker hasn't written
-        yet isn't there, and asking about it would fail every read until it is (as `speech_log` does)."""
-
-        async def go(c: Client) -> list[dict[str, Any]]:
-            if self._registered.get(stream) is not c:
-                await register(c, stream)
-                self._registered[stream] = c
-            if window_s is None:
-                return await read_range(c, stream, start, end)
-            # Bound catalog item batches for dense detector history rather than materializing the whole day.
-            records: dict[str, dict[str, Any]] = {}
-            at = start
-            while at < end:
-                stop = min(at + window_s, end)
-                for record in await read_range(c, stream, at, stop):
-                    records[record["id"]] = record
-                at = stop
-            return sorted(records.values(), key=lambda record: (record["ts_start"], record["id"]))
-
-        return self.link.call(go, timeout=timeout)
 
     #: How long one read of the scene serves every caller.
     SCENE_TTL_S = 5.0
@@ -857,10 +528,7 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
             if locator is None:
                 continue
             if locator["kind"] == "Chunk":
-                get_chunk = getattr(client, "get_chunk", None)
-                if get_chunk is None:
-                    continue
-                before = await get_chunk(header["id"])
+                before = await client.get_chunk(header["id"])
                 if not any(_same_file(known, locator) for known in before["locations"]):
                     continue
                 matches = [start for start, cut in before["frames"] if not cut and abs(start - target) <= 1000]
@@ -887,7 +555,7 @@ async def frame_evidence_at(client: Client, cam: str, ts: float) -> FrameEvidenc
                 at_ns = actual
                 height, width = image.shape[:2]
                 flip = bool((header.get("capture") or {}).get("flip"))
-                after = await get_chunk(header["id"])
+                after = await client.get_chunk(header["id"])
                 if not _only_grew(before, after):
                     continue
                 metadata = {
