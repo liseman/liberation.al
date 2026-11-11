@@ -17,6 +17,8 @@ import { CameraMarks } from './CameraMarks';
 import { CamerasTab } from './CamerasTab';
 import { framing } from './fit';
 import { installGridFade } from './gridFade';
+import { Marks } from './Marks';
+import { MarksTab } from './MarksTab';
 import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from './protocol';
 import { installSelectionClear } from './selectionClear';
 import { useSpotsUi } from './spotsUi';
@@ -73,6 +75,7 @@ const TABS = [
     : [
         { id: 'build', label: 'Build', icon: tabIcon('wall'), component: BuildTab },
         { id: 'cameras', label: 'Cameras', icon: tabIcon('topview'), component: CamerasTab },
+        { id: 'marks', label: 'Marks', icon: tabIcon('item'), component: MarksTab },
       ]),
 ];
 
@@ -146,7 +149,12 @@ function App() {
         layoutVersion="v2"
         projectId="place-plan"
         sidebarTabs={TABS}
-        floorplanSceneSlot={<CameraMarks locked={look} />}
+        floorplanSceneSlot={
+          <>
+            <CameraMarks locked={look} />
+            <Marks locked={look} />
+          </>
+        }
         isVersionPreviewMode={look}
         onLoad={async () => {
           const scene = await opened;
