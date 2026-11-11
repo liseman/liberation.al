@@ -1,9 +1,7 @@
-"""The People tab's reads: the list of people, a person's card and summary, the Inbox's unnamed list, and why a
-line or a face has its name (moved out of the server, #61).
+"""The People tab's reads: the list of people, the Inbox's unnamed list, and why a line or a face has its name
+(moved out of the server, #61). A person's summary and card are in people_cards.py.
 
 GET /people                 everyone, with the cards most likely opened next read ahead
-GET /people/<name>          a person's summary
-GET /people/<name>/card     a person's contact card
 GET /people/references      a person's reference media, and GET /people/reference-media/<id> one file
 GET /inbox/unnamed          the faces, voices, and lines waiting for a name
 GET /identity/why           why a line or a recorded face has its name

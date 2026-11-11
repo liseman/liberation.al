@@ -1,11 +1,8 @@
-"""The People tab's writes: adding, renaming, describing, and deleting a person, claiming a face or a voice,
-corrections and their undo, and reference media (moved out of the server, #61).
+"""The People tab's writes: adding, renaming, describing, and deleting a person, and claiming a face or a voice
+(moved out of the server, #61). Corrections and their undo are in people_corrections.py; reference media in
+people_references.py.
 
 POST /people/add, /people/rename, /people/me, /people/claim, /people/delete, /people/describe
-POST /people/assign, /people/assign-many, /people/correct, /people/undo, /people/photo
-POST /people/search, /people/<name>/lookup
-POST /people/reference-upload, /people/reference-url, /people/reference-attach, /people/reference-remove
-POST /faces/not, /faces/unknown/reject, /inbox/skip
 
 `TEACHING_ROUTES` are the writes a remote viewer may make only with remote teaching on; the server checks it before
 a body is read.

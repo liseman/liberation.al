@@ -143,8 +143,7 @@ GET  /review/summary?start=&end=  what happened over that stretch, as timeline b
 GET  /places                 Known › Places' places (dashboard/places.py): {places: [{id, name, named, plan (a scene),
                             plan_source, machine_newer, revision, last_visit}]}; a page load with text/html gets the app
 POST /places/plan            {place, plan}: the owner's plan (a scene) as taught state, or "" to withdraw it; a teaching write, so it follows dashboard.remote_teaching; {ok, plan, plan_source}
-GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn}), and
-                            `previous`, the one Revert plan puts back (or null)
+GET  /places/plan/history?place=  the place's owner plans, oldest first ({id, at, rooms, source, withdrawn})
 POST /places/plan/restore    {place, record}: make that earlier owner plan hold again, as a new record (Revert plan);
                             a teaching write like POST /places/plan; {ok, plan, plan_source}
 GET  /places/scene?place=     the Places 3D view's scene: the newest revision with a map, its floor, plan
