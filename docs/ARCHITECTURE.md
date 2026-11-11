@@ -223,16 +223,16 @@ missing coverage never proves absence.
 
 ## Ingest
 
-`pack-ingest` and the dashboard's Ingest tab import photos, video, and audio from uploads, links, and sources. Each
+`pack-ingest` and the Ingest tab under Known import photos, video, and audio from uploads, links, and sources. Each
 item is deduplicated, converted, and registered with the broker at its original time. `pack-ingest-analyze` runs
 captions and speech over it. [INGEST.md](INGEST.md) has the boundaries.
 
 ## Dashboard
 
 `pack-dashboard` (`dashboard/server.py`, port 8765) serves the React app and a JSON API, one module per area, with
-routes registered in `dashboard/routes.py`. Tabs: Live, Review, Journal, Known (People, Pets, Objects, Activities,
-Devices, and Places), Calls, Inbox, Reports, and Ingest, plus the Settings drawer. Video comes from the gateway and is
-decoded in the browser with WebCodecs. Writes are allowed only from the machine itself; remote viewers need the
+routes registered in `dashboard/routes.py`. Tabs: Live, Review, Known (People, Pets, Objects, Activities, Devices,
+Places, and Ingest), Calls, Inbox, Journal, and Statistics, plus the Settings drawer. Video comes from the gateway and
+is decoded in the browser with WebCodecs. Writes are allowed only from the machine itself; remote viewers need the
 password and get read-only service status.
 
 [DASHBOARD.md](DASHBOARD.md) covers the server, the frontend layout, and Settings.

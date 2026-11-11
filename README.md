@@ -38,9 +38,9 @@ pets are drawn on the plan where the cameras saw them.
   <img alt="The plan editor on the demo house: tools for rooms, walls, doors, and windows beside the plan, with Versions, Discard changes, and Save plan above it" src="docs/images/demo-plan-editor.png">
 </picture>
 
-**Reports** chart who was around and when, conversations, and activity.
+**Statistics** charts who was around and when, conversations, and activity.
 
-<img alt="Reports: a daily clock of who was around, hour by hour, with stretches nothing was recorded hatched" src="docs/images/demo-reports.png">
+<img alt="Statistics: a daily clock of who was around, hour by hour, with stretches nothing was recorded hatched" src="docs/images/demo-statistics.png">
 
 The dashboard also has **Live** (the cameras now, with who is in view), **Review** (a day's video and transcript),
 **Ask** (questions answered from the record), and a **3D view** of what one camera sees. Those need cameras, so the
