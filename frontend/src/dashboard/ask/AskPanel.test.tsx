@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { AskPanel, fitWindow, savedSpot } from './AskPanel';
 
-const KEY = 'liberational.ask-window.live';
+const KEY = 'liberational.ask-window';
 const screenSize = (width: number, height: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
   Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
@@ -41,10 +41,10 @@ describe('fitWindow', () => {
 function Window({ onClose = () => {} }: { onClose?: () => void }) {
   return (
     <>
-      <button type="button" data-ask-trigger="live">
+      <button type="button" data-ask-trigger>
         Ask
       </button>
-      <AskPanel opened onClose={onClose} title="Ask" kind="live">
+      <AskPanel opened onClose={onClose} title="Ask">
         <textarea aria-label="Question" />
       </AskPanel>
     </>
@@ -67,7 +67,7 @@ it('drags by its header, stays on screen, and is where it was left next time', (
   fireEvent.pointerMove(header, { clientX: 700, clientY: 220, pointerId: 1 });
   fireEvent.pointerUp(header, { clientX: 400, clientY: 320, pointerId: 1 });
   expect(screen.getByRole('dialog')).toHaveStyle({ left: '384px', top: '308px' });
-  expect(savedSpot('live')).toEqual({ left: 384, top: 308 });
+  expect(savedSpot()).toEqual({ left: 384, top: 308 });
   unmount();
   renderPage(<Window />);
   expect(screen.getByRole('dialog')).toHaveStyle({ left: '384px', top: '308px' });

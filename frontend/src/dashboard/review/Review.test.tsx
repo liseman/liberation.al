@@ -7,9 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { newQueryClient, Providers } from '../../shared/Providers';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
-import { ReviewAskTrigger, useReviewAsk } from '../AskBar';
+import { AskBar } from '../AskBar';
+import { useAsk, useAskPage } from '../ask/openAsk';
 import { jobServer } from '../ask/testing';
 import { dayWords, hm, hms, isoDay } from '../lib/format';
+import { useRoute } from '../router';
 import { reviewKey, stillComputing, working } from './api';
 import { ReviewEngine } from './engine';
 import { daySegments } from './gatewaySegments';
@@ -183,7 +185,7 @@ function open(hash = `#day=${DAY}&t=${at(36011)}`) {
   history.replaceState(null, '', `/review${hash}`);
   return renderPage(
     <>
-      <ReviewAskTrigger />
+      <AskBar tab="review" setup={false} />
       <Review />
     </>,
   );
@@ -222,7 +224,9 @@ const playheadAt = async (ts: number) =>
 
 beforeEach(() => {
   server.use(http.get('/ambient', () => HttpResponse.json({ devices: {} })));
-  useReviewAsk.setState({ open: false });
+  useAsk.setState({ open: false, request: null });
+  useAskPage.setState({ day: null, seek: null, mark: null });
+  useRoute.setState({ tab: 'review' });
   citedMarks.current = [];
   server.use(http.get('/activities', () => HttpResponse.json({ items: [], truncated: false })));
   hold = Promise.resolve();
@@ -448,8 +452,8 @@ describe('moving through the day', () => {
     expect(screen.queryByText(/Recorded highlights:|Recorded so far:/)).not.toBeInTheDocument();
     expect(calls.summary ?? 0).toBe(0);
     expect(screen.getByRole('heading', { level: 1, name: 'Review' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Ask about this day' })).toHaveAttribute('aria-haspopup', 'dialog');
-    expect(screen.queryByRole('textbox', { name: /^Ask about / })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(screen.queryByRole('textbox', { name: 'Your question' })).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Review details' })).toBeInTheDocument();
   });
 
@@ -687,9 +691,9 @@ describe('a person', () => {
 
 describe('ask', () => {
   const askBox = async () => {
-    if (!screen.queryByRole('dialog', { name: /^Ask about / }))
-      await userEvent.click(screen.getByRole('button', { name: 'Ask about this day' }));
-    return screen.findByRole('textbox', { name: /^Ask about / });
+    if (!screen.queryByRole('dialog', { name: 'Ask' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    return screen.findByRole('textbox', { name: 'Your question' });
   };
   const ANSWER = {
     status: 'completed',
@@ -707,14 +711,14 @@ describe('ask', () => {
     },
   };
 
-  it('asks about the day that is showing, in the same Ask as the main panel', async () => {
+  it('asks about the day that is showing, with the day as a hint in the one Ask', async () => {
     serve();
     const jobs = jobServer();
     open();
     const box = await askBox();
     await userEvent.type(box, 'What did the dog do?{Enter}');
-    await waitFor(() => expect(jobs.posts).toEqual([expect.objectContaining({ day: DAY, scope: 'history' })]));
-    expect(screen.getByRole('button', { name: 'Research' })).toBeInTheDocument();
+    await waitFor(() => expect(jobs.posts).toEqual([{ question: 'What did the dog do?', day: DAY }]));
+    expect(screen.getByRole('switch', { name: /^Deep research/ })).toBeInTheDocument();
   });
 
   it('answers with the moments it cites as time chips that play from there, and asks if it was right', async () => {
@@ -745,7 +749,7 @@ describe('ask', () => {
     history.replaceState(null, '', `/review#day=${DAY}&t=${at(36011)}`);
     render(
       <Providers client={newQueryClient()}>
-        <ReviewAskTrigger />
+        <AskBar tab="review" setup={false} />
         <Review />
       </Providers>,
     ); // not Mantine's test mode, which never hides a tab with <Activity>
@@ -773,13 +777,13 @@ describe('ask', () => {
     open();
     await playheadAt(at(36011));
     await userEvent.click(screen.getByRole('tab', { name: 'Summary' }));
-    const trigger = screen.getByRole('button', { name: 'Ask about this day' });
+    const trigger = screen.getByRole('button', { name: 'Ask' });
     await userEvent.click(trigger);
-    await userEvent.type(await screen.findByRole('textbox', { name: /^Ask about / }), 'A draft about this day');
+    await userEvent.type(await screen.findByRole('textbox', { name: 'Your question' }), 'A draft about this day');
     await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Ask about / })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask' })).not.toBeInTheDocument());
     await userEvent.click(trigger);
-    expect(await screen.findByRole('textbox', { name: /^Ask about / })).toHaveValue('A draft about this day');
+    expect(await screen.findByRole('textbox', { name: 'Your question' })).toHaveValue('A draft about this day');
     await userEvent.keyboard('{Escape}');
     expect(screen.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true');
     await playheadAt(at(36011));
@@ -792,17 +796,17 @@ describe('ask', () => {
     history.replaceState(null, '', `/review#day=${DAY}&t=${at(36011)}`);
     render(
       <Providers client={newQueryClient()}>
-        <ReviewAskTrigger />
+        <AskBar tab="review" setup={false} />
         <Review />
       </Providers>,
     );
     await userEvent.type(await askBox(), 'What did the dog do?{Enter}');
     await waitFor(() => expect(jobs.posts).toHaveLength(1));
     await userEvent.keyboard('{Escape}');
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Ask about / })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Ask' })).not.toBeInTheDocument());
     const polled = jobs.polls.length;
     await waitFor(() => expect(jobs.polls.length).toBeGreaterThan(polled));
-    await userEvent.click(screen.getByRole('button', { name: 'Ask about this day' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
     expect(await screen.findByText('What did the dog do?')).toBeInTheDocument();
     expect(jobs.posts).toHaveLength(1);
   });
@@ -1648,8 +1652,8 @@ it('keeps Space playback available beside Ask while leaving Space in its input a
   serve();
   open();
   await dayLoaded();
-  await userEvent.click(screen.getByRole('button', { name: 'Ask about this day' }));
-  const panel = await screen.findByRole('dialog', { name: /^Ask about / });
+  await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+  const panel = await screen.findByRole('dialog', { name: 'Ask' });
   expect(panel).toHaveAttribute('aria-modal', 'false');
   const input = within(panel).getByRole('textbox');
   await waitFor(() => expect(input).toHaveFocus());
@@ -1666,11 +1670,11 @@ describe('Space from a focused control', () => {
     serve();
     open();
     await dayLoaded();
-    const ask = screen.getByRole('button', { name: 'Ask about this day' });
+    const ask = screen.getByRole('button', { name: 'Ask' });
     ask.focus();
     await userEvent.keyboard(' ');
     expect(await screen.findByRole('button', { name: 'Pause' })).toBeInTheDocument();
-    expect(screen.queryByRole('dialog', { name: /^Ask about / })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Ask' })).toBeNull();
     expect(ask).toHaveFocus();
   });
 

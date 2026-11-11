@@ -8,7 +8,6 @@ import { IconChevronLeft } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { messageOf } from '../../shared/http';
-import { useReviewAsk } from '../AskBar';
 import { openAsk } from '../ask/openAsk';
 import { Paged } from '../ask/Paged';
 import { Evidence, Result } from '../ask/Result';
@@ -18,7 +17,7 @@ import { dayWords, isoDay, momentWords } from '../lib/format';
 import { CountSkeleton } from '../lib/loading';
 import { PageEmpty, PageError, PageFrame, PageLoading } from '../lib/page';
 import { reviewURL } from '../review/url';
-import { href, linkClick, navigate } from '../router';
+import { linkClick } from '../router';
 import { type Job, jobQuery, markRead, type Report, removeJob, researchQuery, startResearch } from './api';
 import classes from './inbox.module.css';
 
@@ -240,7 +239,7 @@ function ReportView({
               variant="default"
               onClick={() =>
                 openAsk({
-                  context: { kind: 'report', id, question: job.question, ...(job.day ? { day: job.day } : {}) },
+                  hint: { kind: 'report', id, question: job.question, ...(job.day ? { day: job.day } : {}) },
                 })
               }
             >
@@ -301,7 +300,7 @@ function ReportView({
       )}
       {job.status === 'failed' && (
         <PageError title="This research didn't finish" detail={job.error}>
-          Ask it again from Review to start over.
+          Ask again to start over.
         </PageError>
       )}
       {report && job.status === 'done' && (
@@ -319,12 +318,6 @@ function ReportView({
       )}
     </article>
   );
-}
-
-/** Review's Ask, opened: its Research button looks into a question in the background, and the report lands here. */
-function researchAQuestion() {
-  navigate(href('/review'));
-  useReviewAsk.getState().setOpen(true);
 }
 
 export function InboxTab() {
@@ -354,8 +347,8 @@ export function InboxTab() {
       }
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
       actions={
-        // Research starts from Review's Ask, which has the day's recordings to look through
-        <Button size="sm" onClick={researchAQuestion}>
+        // The one Ask, with Deep research on: the page stays put, and the report lands in the list here
+        <Button size="sm" onClick={() => openAsk({ deep: true })}>
           Research a question
         </Button>
       }
@@ -373,15 +366,8 @@ export function InboxTab() {
             />
           )}
           {q.data && !jobs.length && (
-            <PageEmpty
-              title="No research reports yet"
-              action={
-                <Button size="xs" variant="default" component="a" href={href('/review')} onClick={linkClick}>
-                  Open Review
-                </Button>
-              }
-            >
-              Ask a question in Review and press Research. The report lands here when it's done.
+            <PageEmpty title="No research reports yet">
+              Ask a question with Deep research on. The report lands here when it's done.
             </PageEmpty>
           )}
           <ul className={classes.items}>

@@ -1,7 +1,8 @@
 """Research: an Ask question taken slowly, as a background job whose report lands in the Inbox.
 
-Ask answers at once from the live setup. Research takes the same question with more search rounds, a longer answer
-timeout, and no deadline, and runs one job at a time in `pack-research` at idle CPU and IO priority. Each finished job
+Ask answers at once from the live setup. Deep research (Ask's toggle, `deep` on POST /pack-ask/jobs) takes the same
+question with more search rounds, a longer search, a longer answer timeout, and research's model (reach() says which),
+over the same sources and window, and runs one job at a time in `pack-research` at idle CPU and IO priority. Each finished job
 is a report in the dashboard's Inbox: the answer with its citations, the question, how long it took, and what it
 looked at (the searches and the sources behind the answer), read or unread.
 
@@ -107,6 +108,43 @@ def settings() -> dict[str, Any]:
             "model": cfg.get("recall.model") or cfg.get("models.ollama.llm"),
         },
     }
+
+
+def reach(deep: bool, day: str | None = None) -> dict[str, Any]:
+    """What a question's answer looks through, quick (Ask's own) or deep (research): the search rounds at most, the
+    seconds those rounds may take, the sources they can read, the model that writes the answer, and the day it is
+    about (None: the time the question names, all retained history when it names none). Both of Ask's replies carry
+    it, and Ask shows it beside its Deep research toggle, so neither path claims more than it searches."""
+    from liberational.memory import ask, recall
+
+    try:
+        quick_model = ask.local_settings()[0]
+    except OSError, ValueError:
+        quick_model = ""
+    if deep:
+        rounds, search_s, model = int(cfg.get("research.max_rounds")), LOOP_BUDGET_S, cfg.get("research.model")
+    else:
+        rounds = int(cfg.get("recall.max_rounds")) if cfg.get("recall.enabled") else 0
+        search_s, model = recall.LOOP_BUDGET_S, ""
+    return {
+        "deep": deep,
+        "rounds": max(rounds, 0),
+        "search_s": search_s,
+        "sources": recall.tools(),
+        "model": str(model or quick_model),
+        "day": day,
+    }
+
+
+def typical_s(jobs: list[dict[str, Any]], recent: int = 20) -> float | None:
+    """How long research usually takes here: the median time of the newest `recent` done reports (`jobs` newest
+    first, as Store.jobs gives them), or None before any."""
+    done = [j for j in jobs if j.get("status") == "done" and j.get("took_s") is not None][:recent]
+    took = sorted(float(j["took_s"]) for j in done)
+    if not took:
+        return None
+    middle = len(took) // 2
+    return took[middle] if len(took) % 2 else (took[middle - 1] + took[middle]) / 2
 
 
 # Instant Ask leaves a marker from when a question is queued until it is answered; research waits on it.

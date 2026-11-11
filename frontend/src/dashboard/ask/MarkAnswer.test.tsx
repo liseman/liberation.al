@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
@@ -7,12 +7,20 @@ import { server } from '../../test/server';
 import { EngineContext } from '../review/context';
 import type { ReviewEngine, ReviewUi } from '../review/engine';
 import { citedRecords } from './MarkAnswer';
+import { openAsk } from './openAsk';
 import { PackAsk } from './PackAsk';
 import { fakeTimers, jobServer, renderAsk, wait } from './testing';
 
 const DAY = '2026-10-20';
 const ASKED = 1792540800.25;
 const Q = 'What did Dana say about the garden?';
+
+/** Ask opened on Review's day, as Review's top bar opens it. */
+const onDay = () => act(() => openAsk({ hint: { kind: 'day', day: DAY, label: DAY, today: false } }));
+function renderOnDay(): void {
+  renderAsk();
+  onDay();
+}
 
 let user: ReturnType<typeof fakeTimers>;
 let marks: unknown[];
@@ -42,7 +50,7 @@ async function answered(result: Record<string, unknown>, job: Record<string, unk
     result: { status: 'ok', scope: 'history', evidence: [], ...result },
     ...job,
   });
-  await user.type(screen.getByRole('textbox', { name: /what would you like/i }), Q);
+  await user.type(screen.getByRole('textbox', { name: 'Your question' }), Q);
   await user.keyboard('{Enter}');
   await wait(1000); // the first poll falls due; its reply arrives later
   // The Ask button comes back in the same render as the answer, so the answer (and its marks) are on the page.
@@ -92,7 +100,7 @@ describe('citedRecords', () => {
 
 describe('marking a Review answer', () => {
   it('saves a right answer with the records it cited', async () => {
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({
       answer: 'Dana said to plant tomatoes [T1].',
       evidence: [
@@ -116,7 +124,7 @@ describe('marking a Review answer', () => {
   });
 
   it('dates the label from when the answer started, not when it was queued', async () => {
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({ answer: 'Nothing was said.' }, { started_at: ASKED + 90 });
     await user.click(button(/^no, correct it$/i));
     await user.type(screen.getByRole('textbox', { name: /a right answer says/i }), 'Dana');
@@ -126,7 +134,7 @@ describe('marking a Review answer', () => {
   });
 
   it('saves Yes at once, with no form, when the answer cited nothing', async () => {
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({ answer: 'Dana was last seen at 3 pm.' });
     await user.click(button(/^yes$/i));
     await waitFor(() => expect(marks).toHaveLength(1));
@@ -137,7 +145,7 @@ describe('marking a Review answer', () => {
   });
 
   it("saves a wrong answer's correction and never its citations", async () => {
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({
       answer: 'Dana said to plant tulips [T1].',
       evidence: [{ id: 'T1', ts: 1792530005, source: 'transcript' }],
@@ -166,9 +174,10 @@ describe('marking a Review answer', () => {
     const engine = { ui } as unknown as ReviewEngine;
     renderPage(
       <EngineContext value={engine}>
-        <PackAsk day={DAY} />
+        <PackAsk />
       </EngineContext>,
     );
+    onDay();
     await answered({ answer: 'Nobody spoke.' });
     await user.click(button(/^no, correct it$/i));
     const box = screen.getByRole('checkbox', { name: /where review is now/i });
@@ -181,7 +190,7 @@ describe('marking a Review answer', () => {
 
   it("shows the server's refusal and keeps the correction open", async () => {
     server.use(http.post('/measurement/mark', () => HttpResponse.json({ ok: false, error: 'nope' }, { status: 403 })));
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({ answer: 'Nobody spoke.' });
     await user.click(button(/^no, correct it$/i));
     await user.type(screen.getByRole('textbox', { name: /a right answer says/i }), 'Dana');
@@ -191,26 +200,11 @@ describe('marking a Review answer', () => {
   });
 
   it('offers no mark on a failed answer or one that is not about recordings', async () => {
-    renderAsk({ day: DAY });
+    renderOnDay();
     await answered({ answer: 'Question processing failed.', status: 'error' }, { status: 'failed' });
     expect(mark()).toBeNull();
     await answered({ answer: 'Paris.', is_history: false });
     expect(screen.getByText('Paris.')).toBeInTheDocument();
-    expect(mark()).toBeNull();
-  });
-});
-
-describe('a general question', () => {
-  it('offers no mark, since the measurement set only asks about recordings', async () => {
-    renderAsk({ showModes: true });
-    const jobs = jobServer();
-    jobs.replies.push({ status: 'completed', question: Q, created_at: ASKED, result: { status: 'ok', answer: 'Hi.' } });
-    await user.type(screen.getByRole('textbox'), Q);
-    await user.click(screen.getByRole('radio', { name: 'Friends' })); // friends is general; local searches
-    await user.click(screen.getByRole('button', { name: 'Ask' }));
-    await waitFor(() => expect(jobs.posts).toHaveLength(1));
-    await wait(1000);
-    expect(screen.getByText('Hi.')).toBeInTheDocument();
     expect(mark()).toBeNull();
   });
 });

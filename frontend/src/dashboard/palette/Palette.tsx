@@ -1,6 +1,6 @@
 // The command palette: Ctrl+K (Cmd+K on a Mac), or the Go to button in the top bar, opens Mantine's Spotlight
 // to jump anywhere: a page, a Settings section, a person's or a pet's card by name, a day in Review ("yesterday",
-// "nov 3"), or a common next step (what waits to be named, clips to check). Everything here only navigates. People and
+// "nov 3"), a common next step (what waits to be named, clips to check), or Ask. Everything else only navigates. People and
 // pets are read while it's open. It loads after the page (lazily), so the first page's own reads come first.
 //
 // Built from Spotlight's parts rather than its all-in-one component, so that:
@@ -14,6 +14,7 @@ import { Spotlight, useSpotlight } from '@mantine/spotlight';
 import { IconSearch } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { openAsk, openAskHere } from '../ask/openAsk';
 import { isoDay } from '../lib/format';
 import { getPeople, PEOPLE_KEY } from '../people/api';
 import { getPets, PETS_KEY, SIGHTINGS_HASH } from '../people/petLinks';
@@ -71,6 +72,14 @@ export function paletteActions(
     {
       group: 'Next steps',
       actions: [
+        // The one Ask, as the top bar opens it (on Review, with its day as a hint)
+        { id: 'do:ask', label: 'Ask', description: 'A question about your recordings', go: () => openAskHere() },
+        {
+          id: 'do:research',
+          label: 'Research a question',
+          description: 'Ask with Deep research on; the report lands in the Inbox',
+          go: () => openAsk({ deep: true }),
+        },
         {
           id: 'do:whos-this',
           label: "Who's this?",

@@ -56,27 +56,8 @@
   outline-offset: 3px;
 }
 
-.heading {
-  margin: 0;
-  padding: 14px 16px;
-  font-size: 15px;
-  line-height: 1.4;
-  border-bottom: 1px solid var(--mantine-color-default-border);
-}
 .body {
   padding: 16px;
-}
-.label {
-  margin-bottom: 8px;
-  font-weight: 600;
-}
-.help {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.action {
-  min-height: 44px;
 }
 .muted {
   color: var(--mantine-color-dimmed);
@@ -87,7 +68,7 @@
   color: var(--mantine-color-dimmed);
   font-size: 13px;
 }
-/* Nothing to say at rest (Live): no empty line between the controls and the answer. */
+/* Nothing to say at rest: no empty line between the controls and the answer. */
 .status:empty {
   display: none;
 }
@@ -279,12 +260,8 @@
   .body {
     padding: 12px;
   }
-  .action {
-    flex: 1 1 100%;
-    width: 100%;
-  }
 }
-/* bare: inside a dialog that already names it (Live's Ask), with no heading or card. */
+/* bare: inside Ask's window, which already names it, with no heading or card. */
 .bare {
   margin: 0;
   background: transparent;
@@ -298,7 +275,7 @@
   margin: 12px 0 0;
 }
 
-/* The compact nonmodal panel keeps answers independently scrollable above its input and mode controls. */
+/* In Ask's window the answers scroll on their own under the question box and its controls. */
 .compact {
   display: flex;
   flex-direction: column;
@@ -324,23 +301,11 @@
   overscroll-behavior: contain;
   margin-bottom: 8px;
 }
-.compact .help {
-  font-size: 11px;
-  line-height: 1.3;
-  margin-top: 4px;
-}
-.compact .action {
-  flex: 1 1 88px;
-  width: auto;
-  min-height: 34px;
-  padding-inline: 6px;
-  font-size: 12px;
-}
 .compact .body > p {
   margin-top: 6px;
 }
 
-/* Live: the question box first, its label for screen readers only, then the scope choice and Ask on one row. */
+/* The question box first, its label for screen readers only, then Deep research and Ask on one row. */
 .quietLabel {
   position: absolute;
   width: 1px;
@@ -349,12 +314,20 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.askRow {
-  align-items: center;
+.deep {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 10px;
 }
-.scope {
+.deepSwitch {
+  flex: 1;
   min-width: 0;
-  flex: 0 1 auto;
+}
+.deepHelp {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .scopeHelp {
   margin-top: 6px;
@@ -366,6 +339,18 @@
   margin-left: auto;
 }
 
+/* Research sent, and the offer under a quick answer that fell short: a quiet box on the Ask's surface. */
+.sent,
+.offer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--lib-bg2);
+}
+
 /* The answer as the model writes it: plain text until the finished result, with its citations, replaces it. */
 .partial {
   white-space: pre-wrap;
@@ -373,7 +358,7 @@
   color: var(--lib-dim);
 }
 
-/* Review's Ask: the moments an answer cites, as time chips that play from there, and the questions to start from. */
+/* Ask on Review's day: the moments an answer cites, as time chips that play from there, and the questions to start from. */
 .moments,
 .suggest {
   list-style: none;
@@ -394,7 +379,7 @@
   background: var(--lib-bg2);
 }
 
-/* The research report a question follows up on (openAsk): one plain line over the box, on the Ask's own surface
+/* The hint a question starts from (openAsk: a report to follow up on, or Review's day): one plain line over the box, on the Ask's own surface
    (no band of its own), closed with its x. */
 .context {
   display: flex;

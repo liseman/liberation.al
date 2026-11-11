@@ -37,6 +37,7 @@ from typing import Any, Protocol
 from liberational import config as cfg
 from liberational import json_state, logs, ollama
 from liberational.config import workdir
+from liberational.memory import research
 from liberational.vision import views
 
 LOG = logs.get("ask")
@@ -1485,12 +1486,38 @@ def handle_http(handler: DashboardHandler) -> bool:
         options: dict[str, Any] = {"day": day} if day else {}
         if scope != "history":
             options["scope"] = scope
+        deep = body.get("deep", False)
+        if not isinstance(deep, bool):
+            raise ValueError("deep is true or false.")
+        if deep:
+            _deep_http(handler, body, day, scope)
+            return True
         if body.get("followup") is not None:
             options["followup"] = followup_report(body["followup"])
-        handler._json(JOBS.submit(body.get("question"), body.get("mode"), **options), 202)
+        ack = JOBS.submit(body.get("question"), body.get("mode"), **options)
+        handler._json({**ack, "deep": False, "reach": research.reach(False, day)}, 202)
     except (ValueError, TypeError) as exc:
         handler._json({"error": str(exc)}, 400)
     return True
+
+
+def _deep_http(handler: DashboardHandler, body: Mapping[str, Any], day: str | None, scope: str) -> None:
+    """POST /pack-ask/jobs with deep: the question queued as research (memory/research.py), its report for the Inbox.
+    Research reads your recordings only, as a question of its own (no follow-up on a report)."""
+    if body.get("mode", "local") != "local" or scope != "history":
+        raise ValueError("Deep research looks through your recordings (My recordings).")
+    if body.get("followup") is not None:
+        raise ValueError("Deep research starts from the question alone, not a follow-up on a report.")
+    if (why := research.unavailable()) is not None:
+        handler._json({"error": why}, 409)
+        return
+    try:
+        job = research.Store().submit(body.get("question"), day)
+    except OSError:
+        LOG.warning("research jobs are unavailable", exc_info=True)
+        handler._json({"error": "Research jobs are unavailable right now."}, 503)
+        return
+    handler._json({**job, "deep": True, "reach": research.reach(True, day)}, 202)
 
 
 def main() -> None:

@@ -44,7 +44,7 @@ async function askForCrossings(pathBValue: Record<string, unknown>) {
       crossings: { path_b: pathBValue },
     },
   });
-  renderAsk({ day: '2026-10-20' });
+  renderAsk();
   await user.type(question(), 'how many times did someone walk by');
   await user.keyboard('{Enter}');
   await waitFor(() => expect(status()).toHaveTextContent('Ask · queued'));

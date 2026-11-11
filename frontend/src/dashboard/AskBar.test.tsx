@@ -1,10 +1,12 @@
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
-import { expect, it, vi } from 'vitest';
+import { useEffect, useState } from 'react';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../test/render';
 import { AskBar } from './AskBar';
-import { openAsk } from './ask/openAsk';
+import { openAsk, openAskHere, useAsk, useAskPage } from './ask/openAsk';
+import { paletteActions } from './palette/Palette';
+import type { TabId } from './router';
 
 const chunk = vi.hoisted(() => {
   let finish!: () => void;
@@ -13,9 +15,23 @@ const chunk = vi.hoisted(() => {
   });
   return { ready, finish };
 });
+/** How many times the Ask box has mounted, and the requests it was handed. */
+const box = vi.hoisted(() => ({ mounts: 0 }));
 vi.mock('./ask/PackAsk', async () => {
   await chunk.ready;
-  return { PackAsk: () => <textarea aria-label="Question" /> };
+  return {
+    PackAsk: () => {
+      useEffect(() => {
+        box.mounts += 1;
+      }, []);
+      return <textarea aria-label="Question" />;
+    },
+  };
+});
+
+beforeEach(() => {
+  useAsk.setState({ open: false, request: null });
+  useAskPage.setState({ day: null, seek: null, mark: null });
 });
 
 it('keeps the first-load spinner inside the same floating shell while the Ask body downloads', async () => {
@@ -65,7 +81,62 @@ it('keeps the Ask trigger mounted but inaccessible while Settings covers the pag
 it('opens the Ask panel when another page calls openAsk', async () => {
   renderPage(<AskBar tab="inbox" setup={false} />);
   expect(screen.queryByRole('dialog', { name: 'Ask' })).not.toBeInTheDocument();
-  act(() => openAsk({ context: { kind: 'report', id: 'r1', question: 'Who came by?' } }));
+  act(() => openAsk({ hint: { kind: 'report', id: 'r1', question: 'Who came by?' } }));
   expect(await screen.findByRole('dialog', { name: 'Ask' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Ask' })).toHaveAttribute('aria-expanded', 'true');
+});
+
+/** The shell's top bar, on a tab a test can change. */
+const shown: { set?: (tab: TabId) => void } = {};
+function Shell() {
+  const [tab, setTab] = useState<TabId>('live');
+  shown.set = setTab;
+  return <AskBar tab={tab} setup={false} />;
+}
+
+it('is the same one Ask from every way in: the top bar, "/", the palette, Review, and the Inbox', async () => {
+  vi.stubGlobal('NAMES', { assistant: 'Bob', owner: 'Alice', cams: ['cam0'], hotkeys: true });
+  const before = box.mounts;
+  renderPage(<Shell />);
+  useAskPage.setState({ day: { day: '2026-10-20', label: 'Tue 20 Oct', today: false } });
+  const ways: [string, () => void][] = [
+    ['the top bar', () => screen.getByRole('button', { name: 'Ask' }).click()],
+    ['the / key', () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))],
+    [
+      'the palette',
+      () =>
+        paletteActions('', [], [])[0]
+          ?.actions.find(a => a.id === 'do:ask')
+          ?.go(),
+    ],
+    ["the Inbox's Research a question", () => openAsk({ deep: true })],
+    ['a report follow-up', () => openAsk({ hint: { kind: 'report', id: 'r1', question: 'Who?' } })],
+  ];
+  await act(async () => chunk.finish());
+  for (const [, open] of ways) {
+    act(() => useAsk.setState({ open: false }));
+    act(open);
+    expect(await screen.findAllByRole('dialog', { name: 'Ask' })).toHaveLength(1);
+    expect(await screen.findByLabelText('Question')).toBeVisible();
+  }
+  // Review's top bar opens the same Ask, with its day as a hint
+  act(() => shown.set?.('review'));
+  act(() => useAsk.setState({ open: false, request: null }));
+  act(() => screen.getByRole('button', { name: 'Ask' }).click());
+  expect(useAsk.getState().request?.hint).toEqual({
+    kind: 'day',
+    day: '2026-10-20',
+    label: 'Tue 20 Oct',
+    today: false,
+  });
+  expect(screen.getAllByRole('dialog', { name: 'Ask' })).toHaveLength(1);
+  // One box the whole time: opening it another way never mounts a second or another kind
+  expect(box.mounts - before).toBe(1);
+  vi.unstubAllGlobals();
+});
+
+it('opens with no hint off Review, so a day from before is not carried along', () => {
+  useAskPage.setState({ day: { day: '2026-10-20', label: 'Tue 20 Oct', today: false } });
+  openAskHere('inbox');
+  expect(useAsk.getState().request?.hint).toBeNull();
 });
