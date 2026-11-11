@@ -399,6 +399,20 @@ voice commands, and `pack-ask-friends` are removed.
 2. **Leave or delete `friends_performance.json`** in the state directory. It is no longer read.
 3. **Restart every config-reading service**, as in "Every upgrade".
 
+### The journal is written in the third person
+
+Journal entries at every level are written in the third person and the past tense, with the owner named by
+`owner.name`. Entries stored before this narrate as "I". To correct them:
+
+1. **See what it would do**: `uv run --no-sync pack-journal --rewrite-third-person --dry-run`. It counts the entries
+   to correct, estimates the time and the added storage, and changes nothing.
+2. **Run it**: `uv run --no-sync pack-journal --rewrite-third-person`. Add `--days N` to correct only entries of the
+   last N days.
+
+Each corrected entry is added beside its original and supersedes it; the original and its evidence are kept. The
+command can be stopped and run again: it skips what is already corrected. It exits with an error when a correction
+fails, and leaves those originals as they are.
+
 ## Model changes
 
 Embeddings from different models cannot be compared, even at the same size. After one of these changes, the vectors

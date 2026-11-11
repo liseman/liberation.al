@@ -91,12 +91,19 @@ ratings (`activity.named`, `activity.feedback`).
 
 ## The journal
 
-`pack-journal` (`memory/journal.py`) writes a first-person entry for every 30 seconds of speech, replies, and
-captions, then rolls entries up through longer windows (`journal.levels`). Each entry keeps references to
-the source records the model selected, so a summary line can be traced to evidence. A speaker is stored as a token
-and becomes a name only when read, so renaming someone rewrites nothing.
-`memory/facts.py` derives person facts from finished hours. `memory/embedding.py` embeds each entry through Ollama;
-a vector from other weights than the index's is dropped.
+`pack-journal` (`memory/journal.py`) writes an entry for every 30 seconds of speech, replies, and captions, then
+rolls entries up through longer windows (`journal.levels`).
+
+Every level is written in the third person and the past tense, as an account of the household from its fixed cameras
+and microphones. People go by the names the pack knows them by, the owner by `owner.name`, and someone unnamed stays
+"someone": a name is never guessed. Speech is reported indirectly where a quote would bring in first-person words. A
+guard checks each entry: one that narrates as "I" or "we" is sent back once to be rewritten, and is rejected if it
+comes back the same way.
+
+Each entry keeps references to the source records the model selected, so a summary line can be traced to evidence. A
+speaker is stored as a token and becomes a name only when read, so renaming someone rewrites nothing. `memory/facts.py`
+derives person facts from finished hours. `memory/embedding.py` embeds each entry through Ollama; a vector from other
+weights than the index's is dropped.
 
 `memory/journal_pages.py` writes day, week, and month pages on top of the hours: third-person Markdown with fixed
 sections. The model writes the prose; code writes People present, Counts, and Evidence, because a model never counts.
@@ -106,6 +113,11 @@ unloads Ollama's models, and restores both when done.
 
 `memory/review_summary.py` rewrites entries as the shorter lines Review's Summary tab shows (`review.summary`), with
 their evidence. `pack-journal --day YYYY-MM-DD` rebuilds a day.
+
+An entry is never changed in place. A correction is a new entry that supersedes the original, with the same evidence,
+and readers follow the corrections, so only the newest version of an entry shows.
+`pack-journal --rewrite-third-person` corrects stored entries that narrate in the first person this way
+([the upgrade step](../MIGRATING.md#the-journal-is-written-in-the-third-person)).
 
 Background model calls yield to a voice turn through `voice_turn.wait_quiet()`, for at most
 `voice.background_max_wait_s`.
