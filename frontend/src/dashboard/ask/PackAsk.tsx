@@ -1,129 +1,79 @@
-// The Ask widget, ported from static/lib/ask.js. With a day (Review) it asks about that day's recordings, with a
-// single local Ask. Without one, local searches the recordings for the time the question names, and friends and
-// everyone are general questions for the LLMs; Live opts into the scope choice (showModes), shown as one
-// segmented control under the question box with a single Ask button.
+// The one Ask's box: a question about your recordings, answered quickly right there with its evidence, or, with Deep
+// research on, looked into slowly in the background with its report delivered to the Inbox. It lives in Ask's floating
+// window (Ask.tsx) and is the same wherever Ask was opened from: a page can only hand it a starting question, Deep
+// research switched on, or a hint (the day Review shows, or a report to follow up on), which shows as a chip over the
+// box and goes when the person closes it.
+//
+// Deep research is off again after each question it sends: it takes minutes of the GPU, so a question is quick unless
+// the person asks for more that time. The Mantine conventions have nothing on it either way; the Inbox's "Research a
+// question" switches it on for the one question that follows. Its limits (rounds, time, model) are settings, not words
+// here: the toggle says one plain line, the same on or off, so the box doesn't jump when it flips.
 import {
+  Anchor,
+  Badge,
   Button,
   CloseButton,
   Group,
   Paper,
-  SegmentedControl,
+  Switch,
   Text,
   Textarea,
-  Title,
-  Tooltip,
   UnstyledButton,
 } from '@mantine/core';
+import { IconCircleCheck } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from 'react';
 import { messageOf } from '../../shared/http';
 import { researchQuery, startResearch } from '../inbox/api';
 import { PageError } from '../lib/page';
-import { href, linkClick } from '../router';
+import { href, linkClick, useRoute } from '../router';
 import classes from './ask.module.css';
-import { Stamp } from './bits';
 import { isRec } from './format';
 import { History } from './History';
-import { isMode, MODE_NAMES, MODES, type Mode, storageKey, useAskJob } from './job';
+import { useAskJob } from './job';
 import { MarkAnswer } from './MarkAnswer';
 import { citedMoments } from './moments';
-import { type AskContext, useAskOpener } from './openAsk';
+import { type AskHint, useAsk, useAskPage } from './openAsk';
 import { Result } from './Result';
 
-const SCOPES = (Object.keys(MODES) as Mode[]).map(m => ({ value: m, label: MODE_NAMES[m] }));
-
-function help(day: string | null): string {
-  return day
-    ? 'Enter asks · Shift+Enter adds a line.'
-    : 'Searches your recordings for the time the question names. Enter asks · Shift+Enter adds a line.';
-}
-
-/** Research: the question taken slowly in the background, its report in the Inbox. */
-function ResearchButton({ question, day, busy }: { question: string; day: string; busy: boolean }) {
-  const client = useQueryClient();
-  const jobs = useQuery(researchQuery());
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  const reason = jobs.data && !jobs.data.available ? jobs.data.reason : null;
-  const reasonId = useId();
-  const start = async () => {
-    try {
-      await startResearch(client, question.trim(), day);
-      setNote({ ok: true, text: 'Research started. The report will be in the Inbox.' });
-    } catch (e) {
-      setNote({ ok: false, text: messageOf(e) });
-    }
-  };
-  return (
-    <>
-      <Tooltip
-        label={reason ?? 'Look into this in the background, more thoroughly; the report goes to the Inbox.'}
-        events={{ hover: true, focus: true, touch: false }}
-      >
-        <span>
-          <Button
-            variant="default"
-            radius="xl"
-            disabled={busy || !question.trim() || !!reason}
-            onClick={() => void start()}
-            className={classes.action}
-            aria-describedby={reason ? reasonId : undefined}
-          >
-            Research
-          </Button>
-        </span>
-      </Tooltip>
-      {/* A disabled button can't take focus, so its reason is on the page, not only in the hover tooltip. */}
-      {reason && (
-        <Text id={reasonId} size="xs" c="dimmed">
-          {reason}
-        </Text>
-      )}
-      {note && (
-        <Text size="sm" role={note.ok ? 'status' : 'alert'} c={note.ok ? undefined : 'red'}>
-          {note.text}{' '}
-          {note.ok && (
-            <a href={href('/inbox')} onClick={linkClick}>
-              Open the Inbox
-            </a>
-          )}
-        </Text>
-      )}
-    </>
-  );
-}
-
-/** A finished answer to a question about recordings, which the measurement set can ask again. */
-const markable = (r: unknown): boolean =>
-  isRec(r) &&
-  typeof r.answer === 'string' &&
-  (r.status === 'ok' || r.status === 'partial') &&
-  r.is_history !== false &&
-  r.scope !== 'general';
-
-/** What Review adds to its Ask: the day as the box names it ("today", "Tue 27 Oct"), whether that is today (for the
- *  suggested questions), playing a cited moment, and marking the newest answer's moments on the timeline. */
-interface ReviewHooks {
-  dayLabel?: string;
-  today?: boolean;
-  onSeek?: (t: number) => void;
-  onMarks?: (times: number[]) => void;
-}
-
-/** A few questions to start from, for a day that's today or another day. */
+/** A few questions to start from, for a day that's today or another day (Review's day as the hint). */
 export function suggestions(today: boolean): string[] {
   return today
     ? ['Who has been here today?', 'What did we talk about today?', 'What happened this morning?']
     : ['Who was here that day?', 'What did we talk about?', 'What happened in the morning?'];
 }
 
-/** Live's starters: questions about your own recordings, so a starter always asks My recordings. */
-export const LIVE_STARTERS = [
-  'What was I doing this afternoon?',
-  'Who came by today?',
-  'What did we talk about today?',
-];
+/** Questions to start from without a day. */
+export const STARTERS = ['What was I doing this afternoon?', 'Who came by today?', 'What did we talk about today?'];
 
-/** The moments an answer cites, as time chips that play from there (Review). */
+/** A finished answer to a question about recordings, which the measurement set can ask again. */
+const markable = (r: unknown): boolean =>
+  isRec(r) && typeof r.answer === 'string' && (r.status === 'ok' || r.status === 'partial') && r.is_history !== false;
+
+/** How a quick answer falls short, or null when it stands: Ask then offers deep research. `none` is no answer at
+ *  all (an error, or the server's `found` false: nothing in the recordings), which shows only the offer; `thin` keeps
+ *  the answer above it. A recorded count is an answer even without an evidence list, so `found` decides, not the list. */
+export function thin(result: unknown): { kind: 'none' | 'thin'; why: string } | null {
+  if (!isRec(result) || result.is_history === false) return null;
+  if (result.status === 'error') return { kind: 'none', why: "Ask couldn't answer this quickly." };
+  if (result.found === false) return { kind: 'none', why: 'Nothing in your recordings answered this quickly.' };
+  if (result.status === 'partial')
+    return { kind: 'thin', why: 'This quick answer rests on only part of the evidence.' };
+  return null;
+}
+
+export const DEEP_HELP = 'Takes longer and looks deeper. The report arrives in the Inbox.';
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** When research is usually ready: the median of this machine's recent reports, else the usual half hour. */
+export function readyWords(typical: number | null | undefined): string {
+  return typical
+    ? `Usually ready in about ${plural(Math.max(1, Math.round(typical / 60)), 'minute')}.`
+    : 'Usually ready within half an hour.';
+}
+
+/** The moments an answer cites, as time chips that play from there (Ask opened on Review's day). */
 function Moments({ result, onSeek }: { result: unknown; onSeek: (t: number) => void }) {
   const chips = citedMoments(result);
   if (!chips.length) return null;
@@ -145,282 +95,262 @@ function Moments({ result, onSeek }: { result: unknown; onSeek: (t: number) => v
   );
 }
 
-function AskCard({
-  day,
-  showModes,
-  bare,
-  compact,
-  dayLabel,
-  today,
-  onSeek,
-  onMarks,
-}: {
-  day: string | null;
-  showModes: boolean;
-  bare: boolean;
-  compact: boolean;
-} & ReviewHooks) {
-  const ask = useAskJob(day, showModes);
-  // Live's scope choice: what Enter and Ask send. It starts on My recordings (or the scope of a job picked back up),
-  // so a question only leaves this machine after Friends or Everyone is chosen.
-  const [pick, setPick] = useState<Mode>(ask.mode);
-  const id = useId(); // Review and the Live panel can both be in the page (a hidden tab stays mounted)
-  // A research report this Ask follows up on (openAsk, from the Inbox): shown as a chip over the box, and sent with
-  // each question until it's closed. A follow-up asks My recordings, since a report is about your own recordings.
-  const [context, setContext] = useState<AskContext | null>(null);
-  const requested = useAskOpener(s => s.request);
-  const { change, input } = ask;
-  useEffect(() => {
-    if (!showModes || !requested) return;
-    const taken = useAskOpener.getState().take();
-    if (!taken) return;
-    setContext(taken.context ?? null);
-    if (taken.context) setPick('local');
-    change(taken.draft ?? '');
-    requestAnimationFrame(() => input.current?.focus());
-  }, [showModes, requested, change, input]);
-  const submit = (m: Mode) =>
-    context ? ask.submit('local', { followup: { report: context.id }, day: context.day }) : ask.submit(m);
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      void submit(showModes ? pick : 'local');
-    }
-  };
-  // Review marks the newest answer's moments on the timeline (or a saved answer's, once one is opened from History),
-  // and none once the day changes (this unmounts with it).
-  const [savedTimes, setSavedTimes] = useState<number[] | null>(null);
-  const times = useMemo(
-    () => (onMarks ? (savedTimes ?? citedMoments(ask.result).map(c => c.t)) : []),
-    [onMarks, ask.result, savedTimes],
-  );
-  useEffect(() => onMarks?.(times), [onMarks, times]);
-  useEffect(() => () => onMarks?.([]), [onMarks]);
-  const send = (question: string) => {
-    if (showModes) setPick('local');
-    ask.change(question);
-    void ask.submit('local');
-  };
-  const nothingYet = !ask.result && !ask.busy && !ask.question.trim();
-  // A few questions to start from, under the box: Review's are about the day it shows, Live's about
-  // your own recordings. They go once there's a question or an answer, and there are none while following up on a
-  // report, where the next question is the owner's own.
-  const starters = day ? (onSeek ? suggestions(!!today) : null) : showModes && !context ? LIVE_STARTERS : null;
-  const answer = (
-    <>
-      {starters && nothingYet && (
-        <ul className={classes.suggest} aria-label="Suggested questions">
-          {starters.map(q => (
-            <li key={q}>
-              <Button variant="default" size="compact-sm" onClick={() => send(q)}>
-                {q}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {ask.busy && ask.partial && (
-        <div className={classes.partial} role="status" aria-label="Answer so far">
-          {ask.partial}
-        </div>
-      )}
-      <Result result={ask.result} history={ask.scope === 'history'} />
-      {onSeek && !ask.busy && <Moments result={ask.result} onSeek={onSeek} />}
-      {ask.scope === 'history' && !ask.busy && ask.asked && markable(ask.result) && (
-        <MarkAnswer key={ask.asked.at} result={ask.result} asked={ask.asked} />
-      )}
-    </>
-  );
-  const history = (
-    <History
-      key={day ?? 'general'}
-      day={day}
-      refresh={!ask.busy ? ask.result : null}
-      onSeek={onSeek}
-      onMoments={onMarks ? setSavedTimes : undefined}
-    />
-  );
-  // Every Ask puts the answer right under the box, then the past questions.
-  const output = (
-    <div className={classes.output}>
-      {answer}
-      {history}
-    </div>
-  );
-  // Live's scope choice and Ask sit between the box and the sentence that says what the scope shares, which is the
-  // box's description, so a screen reader hears it with the question.
-  const scopeRow = (
-    <Group gap="xs" mt="sm" wrap="nowrap" aria-busy={ask.busy} className={classes.askRow}>
-      <SegmentedControl
-        size="xs"
-        aria-label="Who to ask"
-        data={SCOPES}
-        value={pick}
-        onChange={v => isMode(v) && setPick(v)}
-        disabled={ask.busy || !!context}
-        className={classes.scope}
-      />
-      <Button
-        radius="xl"
-        data-mode={pick}
-        disabled={ask.busy}
-        onClick={() => void submit(pick)}
-        className={classes.askButton}
-      >
-        Ask
-      </Button>
-    </Group>
-  );
-  const title = day ? 'Ask about video & conversations' : 'Ask';
+/** The hint over the box, as a chip with its own remove cross. */
+function HintChip({ hint, onClose }: { hint: AskHint; onClose: () => void }) {
+  const [text, close] =
+    hint.kind === 'report'
+      ? [`Following up: ${hint.question}`, 'Stop following up on this report']
+      : [hint.label, `Stop asking about ${hint.label}`];
   return (
-    <Paper
-      component="section"
-      id={`${id}ask`}
-      className={`${classes.root}${bare ? ` ${classes.bare}` : ''}${compact ? ` ${classes.compact}` : ''}`}
-      withBorder={!bare}
-      radius="lg"
-      aria-label={day ? 'Ask about recordings' : 'Ask'}
-    >
-      {!bare && (
-        <Title order={2} className={classes.heading}>
-          {title}
-        </Title>
-      )}
-      <div className={classes.body}>
-        <Textarea
-          id={`${id}question`}
-          data-ask-question={day ? 'review' : 'general'}
-          autoFocus={bare && compact}
-          ref={ask.input}
-          rows={compact ? 2 : 3}
-          resize={compact ? 'none' : 'vertical'}
-          label={
-            dayLabel ? `Ask about ${dayLabel}` : day ? 'What would you like to know?' : 'What would you like to ask?'
-          }
-          inputContainer={
-            showModes
-              ? box => (
-                  <>
-                    {context && (
-                      <div className={classes.context}>
-                        <Text span size="sm" className={classes.contextText}>
-                          <Text span size="sm" c="dimmed">
-                            Following up on:{' '}
-                          </Text>
-                          {context.question}
-                        </Text>
-                        <CloseButton
-                          size="sm"
-                          aria-label="Stop following up on this report"
-                          onClick={() => {
-                            setContext(null);
-                            input.current?.focus();
-                          }}
-                        />
-                      </div>
-                    )}
-                    {box}
-                    {scopeRow}
-                  </>
-                )
-              : undefined
-          }
-          description={
-            showModes ? (
-              MODES[pick]
-            ) : compact ? (
-              'Enter asks, which searches your recordings.'
-            ) : (
-              <>
-                {day && (
-                  <>
-                    <span>
-                      Searches recordings and raw transcripts for {day}. An explicit time such as "this week" overrides
-                      the selected day.
-                    </span>{' '}
-                  </>
-                )}
-                {help(day)}
-              </>
-            )
-          }
-          inputWrapperOrder={['label', 'input', 'description']}
-          placeholder={
-            dayLabel
-              ? `Ask about ${dayLabel}`
-              : day
-                ? 'What happened in the kitchen this morning? How long were lights on? What did we plan for this week?'
-                : 'Ask about your recordings, or anyone you share with'
-          }
-          value={ask.question}
-          onChange={e => ask.change(e.currentTarget.value)}
-          onKeyDown={onKeyDown}
-          classNames={{
-            input: classes.input,
-            label: showModes ? classes.quietLabel : classes.label,
-            description: showModes ? classes.scopeHelp : classes.help,
-          }}
-        />
-        {!showModes && (
-          <Group gap="xs" mt="sm" aria-busy={ask.busy}>
-            <Button
-              variant="default"
-              radius="xl"
-              data-mode="local"
-              disabled={ask.busy}
-              onClick={() => void ask.submit('local')}
-              className={classes.action}
-            >
-              Ask
-            </Button>
-            {day && <ResearchButton question={ask.question} day={day} busy={ask.busy} />}
-          </Group>
-        )}
-        <p className={classes.status} role="status" aria-live="polite">
-          {ask.status.text}
-          {!!ask.status.finished && (
-            <>
-              {' · '}
-              <Stamp value={ask.status.finished} />
-            </>
-          )}
-        </p>
-        <Text component="span" className={`${classes.muted} ${classes.elapsed}`}>
-          {ask.elapsed}
-        </Text>
-        {ask.error && <PageError title={ask.error}>{null}</PageError>}
-        {output}
-      </div>
-    </Paper>
+    <div className={classes.context} data-ask-hint={hint.kind}>
+      {/* Mantine's Pill hides its remove button from the keyboard (it is meant for a pills input, removed with
+          Backspace), so this is a Badge with a labelled CloseButton inside it. */}
+      <Badge
+        size="lg"
+        variant="light"
+        color="gray"
+        tt="none"
+        fw={500}
+        className={classes.hint}
+        title={text}
+        rightSection={<CloseButton size="xs" aria-label={close} onClick={onClose} />}
+      >
+        {text}
+      </Badge>
+    </div>
   );
 }
 
-/**
- * Ask a question and follow its answer. A day (YYYY-MM-DD) makes it a question about that day's recordings; without
- * one it searches the recordings for the time the question names, and showModes adds Live's scope choice: My
- * recordings, Friends, or Everyone. bare drops the heading and the card's border, for a panel that already names it.
- */
-export function PackAsk({
-  day = null,
-  showModes = false,
-  bare = false,
-  compact = false,
-  ...review
-}: {
-  day?: string | null;
-  showModes?: boolean;
-  bare?: boolean;
-  compact?: boolean;
-} & ReviewHooks) {
-  // Each saved-job key is its own widget: another day starts clean and never adopts this day's job.
+/** Research sent: accepted at once, where it lands, and roughly how long it takes. */
+interface Sent {
+  question: string;
+  typical: number | null;
+}
+
+export function PackAsk() {
+  const ask = useAskJob();
+  const client = useQueryClient();
+  const research = useQuery(researchQuery());
+  const id = useId();
+  const [hint, setHint] = useState<AskHint | null>(null);
+  const [deep, setDeep] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<Sent | null>(null);
+  const [deepError, setDeepError] = useState('');
+  // The question the shown answer is for, so the offer under a thin answer researches that one, not a new draft.
+  const [answered, setAnswered] = useState<{ question: string; day?: string } | null>(null);
+
+  // A page opened Ask with something to start from: take it once.
+  const requested = useAsk(s => s.request);
+  const { change, input } = ask;
+  useEffect(() => {
+    if (!requested) return;
+    const taken = useAsk.getState().take();
+    if (!taken) return;
+    if (taken.hint !== undefined || taken.draft !== undefined || taken.deep !== undefined) {
+      setHint(taken.hint ?? null);
+      setDeep(!!taken.deep);
+      setSent(null);
+      setDeepError('');
+    }
+    if (taken.draft !== undefined) change(taken.draft);
+    requestAnimationFrame(() => input.current?.focus());
+  }, [requested, change, input]);
+
+  // Review's day as a hint: its moments play in place and are marked on its timeline while Review shows that day.
+  const page = useAskPage();
+  const onReview = useRoute(s => s.tab === 'review');
+  const seek = onReview && hint?.kind === 'day' && page.day?.day === hint.day ? page.seek : null;
+  const times = useMemo(() => (seek ? citedMoments(ask.result).map(c => c.t) : []), [seek, ask.result]);
+  const mark = page.mark;
+  useEffect(() => mark?.(times), [mark, times]);
+
+  const day = hint?.day;
+  const reason = research.data && !research.data.available ? research.data.reason : null;
+  const followup = hint?.kind === 'report';
+
+  const sendDeep = async (question: string, asDay: string | undefined) => {
+    const q = question.trim();
+    if (!q) {
+      setDeepError('Please enter a question first.');
+      input.current?.focus();
+      return;
+    }
+    setSending(true);
+    setDeepError('');
+    try {
+      await startResearch(client, q, asDay ?? null);
+      setSent({ question: q, typical: research.data?.typical_s ?? null });
+      setDeep(false);
+      ask.clear();
+      setAnswered(null);
+      if (q === ask.question.trim()) change('');
+    } catch (e) {
+      setDeepError(messageOf(e));
+    } finally {
+      setSending(false);
+    }
+  };
+  const submit = (question: string = ask.question) => {
+    if (deep) {
+      void sendDeep(question, day);
+      return;
+    }
+    setSent(null);
+    setDeepError('');
+    setAnswered({ question: question.trim(), ...(day ? { day } : {}) });
+    void ask.submit({ ...(day ? { day } : {}), ...(hint?.kind === 'report' ? { followup: { report: hint.id } } : {}) });
+  };
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      submit();
+    }
+  };
+  const start = (question: string) => {
+    change(question);
+    submit(question);
+  };
+
+  const busy = ask.busy || sending;
+  const nothingYet = !ask.result && !ask.busy && !ask.question.trim() && !sent;
+  const starters = followup ? null : hint?.kind === 'day' ? suggestions(hint.today) : STARTERS;
+  const short = !ask.busy && answered ? thin(ask.result) : null;
+
+  const deepRow = (
+    <div className={classes.deep} aria-busy={busy}>
+      <Switch
+        label="Deep research"
+        className={classes.deepSwitch}
+        checked={deep}
+        onChange={e => setDeep(e.currentTarget.checked)}
+        disabled={busy || !!reason || followup}
+        description={reason ?? (followup ? 'A follow-up on a report gets a quick answer.' : DEEP_HELP)}
+        classNames={{ description: classes.deepHelp }}
+      />
+      <Button
+        radius="xl"
+        onClick={() => submit()}
+        disabled={busy}
+        loading={sending}
+        className={classes.askButton}
+        data-deep={deep || undefined}
+      >
+        {deep ? 'Research' : 'Ask'}
+      </Button>
+    </div>
+  );
+
   return (
-    <AskCard
-      key={storageKey(day, showModes)}
-      day={day || null}
-      showModes={showModes}
-      bare={bare}
-      compact={compact}
-      {...review}
-    />
+    <Paper component="section" className={`${classes.root} ${classes.bare} ${classes.compact}`} aria-label="Ask">
+      <div className={classes.body}>
+        <Textarea
+          id={`${id}question`}
+          data-ask-question
+          autoFocus
+          ref={ask.input}
+          rows={2}
+          resize="none"
+          enterKeyHint="send"
+          label="Your question"
+          inputContainer={box => (
+            <>
+              {hint && (
+                <HintChip
+                  hint={hint}
+                  onClose={() => {
+                    setHint(null);
+                    input.current?.focus();
+                  }}
+                />
+              )}
+              {box}
+              {deepRow}
+            </>
+          )}
+          description={
+            hint?.kind === 'day'
+              ? `Searches your recordings from ${hint.label}, unless the question names another time. Nothing leaves this machine.`
+              : 'Searches your recordings for the time the question names. Nothing leaves this machine.'
+          }
+          inputWrapperOrder={['label', 'input', 'description']}
+          placeholder={hint?.kind === 'day' ? `Ask about ${hint.label}` : 'Ask about your recordings'}
+          value={ask.question}
+          onChange={e => change(e.currentTarget.value)}
+          onKeyDown={onKeyDown}
+          classNames={{ input: classes.input, label: classes.quietLabel, description: classes.scopeHelp }}
+        />
+        {/* Progress while an answer is coming, in plain words; nothing at rest or once it's there */}
+        <p className={classes.status} role="status" aria-live="polite">
+          {ask.busy ? `Looking through your recordings${ask.elapsed ? ` · ${ask.elapsed}` : ''}` : ''}
+        </p>
+        {ask.error && <PageError title={ask.error}>{null}</PageError>}
+        {deepError && <PageError title={deepError}>{null}</PageError>}
+        <div className={classes.output}>
+          {sent && (
+            <div className={classes.sent} role="status" data-ask-sent>
+              <Group gap={6} wrap="nowrap">
+                <IconCircleCheck size={18} color="var(--lib-ok)" aria-hidden />
+                <Text size="sm" fw={600}>
+                  Research started
+                </Text>
+              </Group>
+              <Text size="sm">
+                “{sent.question}” is being looked into. The report will be in the{' '}
+                <Anchor href={href('/inbox')} onClick={linkClick} inherit>
+                  Inbox
+                </Anchor>
+                . {readyWords(sent.typical)}
+              </Text>
+            </div>
+          )}
+          {starters && nothingYet && (
+            <ul className={classes.suggest} aria-label="Suggested questions">
+              {starters.map(q => (
+                <li key={q}>
+                  <Button variant="default" size="compact-sm" onClick={() => start(q)}>
+                    {q}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {ask.busy && ask.partial && (
+            <div className={classes.partial} role="status" aria-label="Answer so far">
+              {ask.partial}
+            </div>
+          )}
+          {short && answered && (
+            <Paper className={classes.offer} data-ask-offer>
+              <Text size="sm">{short.why}</Text>
+              <Button
+                size="xs"
+                variant="default"
+                disabled={!!reason || sending}
+                onClick={() => void sendDeep(answered.question, answered.day)}
+              >
+                Try Deep research
+              </Button>
+              {reason && (
+                <Text size="xs" c="dimmed">
+                  {reason}
+                </Text>
+              )}
+            </Paper>
+          )}
+          {/* No answer at all: only the line and the offer above, not the same words again or a rating */}
+          {short?.kind !== 'none' && (
+            <>
+              <Result result={ask.result} history />
+              {seek && !ask.busy && <Moments result={ask.result} onSeek={seek} />}
+              {!ask.busy && ask.asked && markable(ask.result) && (
+                <MarkAnswer key={ask.asked.at} result={ask.result} asked={ask.asked} />
+              )}
+            </>
+          )}
+          <History refresh={!ask.busy ? ask.result : null} onSeek={seek ?? undefined} />
+        </div>
+      </div>
+    </Paper>
   );
 }

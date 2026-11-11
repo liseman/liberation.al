@@ -167,7 +167,7 @@ POST /places/scene/spot/undo
 POST /playback/start
 POST /playback/stop
 POST /reports/api/...
-POST /research/jobs, /research/jobs/<id>, /research/jobs/<id>/read, /research/jobs/<id>/delete
+POST /research/jobs/<id>/read, /research/jobs/<id>/delete
 POST /services
 POST /speakers/label
 POST /speakers/refine

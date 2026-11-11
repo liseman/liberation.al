@@ -196,7 +196,7 @@ def test_the_owners_in_person_camera_question_about_the_past_is_asks_too(history
     readings["what did the cameras see at 3pm"] = question.Reading(history=False, source="cameras", clock="3pm")
     with patch.object(voice, "camera_query", autospec=True, side_effect=AssertionError("current view read")):
         assert voice.owner_answer("what did the cameras see at 3pm", "session") == "camera result"
-    history_worker.assert_called_once_with("what did the cameras see at 3pm", mode="local")
+    history_worker.assert_called_once_with("what did the cameras see at 3pm")
 
 
 # ---- clock times: what a camera showed at 3pm, never what it shows now ----

@@ -8,149 +8,51 @@ import { citeLinks, Result } from './Result';
 const show = (result: unknown, history = false) => renderPage(<Result result={result} history={history} />);
 const cards = () => screen.queryAllByRole('article');
 
-describe('model answers', () => {
-  it('gives each model a visible card with its status, timing, and readable prose', () => {
+describe('the answer', () => {
+  it('reads as prose, with markup kept inert and warnings as a list', () => {
     show({
       status: 'partial',
-      answer: 'Combined independent conclusion.',
+      answer:
+        'First **bold** paragraph.\n\nSecond *gentle* paragraph.\n\n- Detail one\n- Detail two\n\n<script>alert(1)</script> [unsafe](javascript:alert(1))',
       warnings: ['Camera two unavailable', 'Transcript has gaps'],
-      coverage: { partial: true, available: 8, included: 5 },
-      panel: {
-        participants: [
-          {
-            model: 'provider/Alpha',
-            status: 'ok',
-            backend: 'ollama',
-            elapsed_seconds: 1.25,
-            answer:
-              'First **bold** paragraph.\n\nSecond *gentle* paragraph.\n\n- Detail one\n- Detail two\n\n<script>alert(1)</script> [unsafe](javascript:alert(1))',
-          },
-          {
-            model: 'provider/Beta',
-            status: 'error',
-            backend: 'cloud',
-            elapsed_seconds: 12.34,
-            error: { message: 'Provider timed out' },
-          },
-        ],
-        unavailable: [{ model: 'provider/Gamma', reason: 'Credentials unavailable' }],
-        discovery_errors: [{ provider: 'Delta', error: 'Discovery endpoint offline' }],
-      },
     });
-    const [alpha, beta] = cards() as [HTMLElement, HTMLElement];
-    expect(cards()).toHaveLength(2);
-    expect(within(alpha).getByRole('heading', { name: 'provider/Alpha' })).toBeInTheDocument();
-    expect(alpha).toHaveTextContent('Answered');
-    expect(alpha).toHaveTextContent('Local model · 1.25s');
-    expect(within(alpha).getByText('bold').tagName).toBe('STRONG');
-    expect(within(alpha).getByText('gentle').tagName).toBe('EM');
-    expect(
-      within(alpha)
-        .getAllByRole('listitem')
-        .map(li => li.textContent),
-    ).toEqual(['Detail one', 'Detail two']);
-    expect(within(alpha).getByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
-    expect(within(alpha).getByText('unsafe').tagName).toBe('SPAN');
-    expect(alpha).not.toHaveTextContent('Combined independent conclusion');
-    expect(beta).toHaveTextContent('Failed');
-    expect(beta).toHaveTextContent('Cloud model · 12.3s');
-    expect(beta).toHaveTextContent('Provider timed out');
-    expect(screen.getByText('1 of 2 models returned an answer.')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Combined answer' })).toBeInTheDocument();
-    expect(screen.getByText('provider/Gamma - Credentials unavailable')).toBeInTheDocument();
-    expect(screen.getByText('Discovery endpoint offline')).toBeInTheDocument();
+    const answer = screen.getByRole('heading', { name: 'Answer' }).closest('section') as HTMLElement;
+    expect(within(answer).getByText('bold').tagName).toBe('STRONG');
+    expect(within(answer).getByText('gentle').tagName).toBe('EM');
+    expect(within(answer).getByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument();
+    expect(within(answer).getByText('unsafe').tagName).toBe('SPAN');
     expect(screen.getByText('Camera two unavailable').tagName).toBe('LI');
-    expect(screen.queryByText(/coverage/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(document.querySelector('script')).toBeNull();
-  });
-
-  it('still gets one card per model from a legacy bare list', () => {
-    show({
-      answer: 'Legacy combined',
-      panel: [{ model: 'Legacy friend', status: 'ok', answer: 'Legacy individual', elapsed_seconds: 0 }],
-    });
-    expect(cards()).toHaveLength(1);
-    expect(cards()[0]).toHaveTextContent('Legacy individual');
-    expect(cards()[0]).toHaveTextContent('0.00s');
-  });
-
-  it('keeps the individual answers when the combining step failed', () => {
-    show({
-      status: 'synthesis_failed',
-      answer: 'Synthesis failed; individual answers remain available.',
-      panel: {
-        participants: [{ model: 'Survivor', status: 'ok', answer: 'Preserved individual answer' }],
-        referee: { model: 'Referee', status: 'error', error: { message: 'Synthesis timed out' } },
-      },
-    });
-    expect(cards()[0]).toHaveTextContent('Preserved individual answer');
-    expect(screen.getByText('Summary unavailable')).toBeInTheDocument();
-    expect(screen.getByText('Combined answer could not be completed: Synthesis timed out')).toBeInTheDocument();
-  });
-
-  it('names the referee that combined the answers', () => {
-    show({ answer: 'x', panel: { participants: [], referee: { name: 'Judge', status: 'ok', elapsed_seconds: 3 } } });
-    expect(screen.getByText('Combined by Judge · 3.00s')).toBeInTheDocument();
-    expect(screen.getByText('No individual model answers were returned.')).toBeInTheDocument();
-  });
-
-  it('shows a model without an answer or a reason as returning nothing', () => {
-    show({ panel: { participants: [{ model: 'Quiet', finish_reason: 'length' }] } });
-    expect(cards()[0]).toHaveTextContent('Unavailable');
-    expect(cards()[0]).toHaveTextContent('No answer was returned.');
-    expect(cards()[0]).toHaveTextContent('This response reached its length limit.');
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('bounds a long answer and expands it once, in place', async () => {
     const long = `${'A long answer paragraph. '.repeat(1800)}END_SENTINEL`;
-    show({ answer: 'Brief', panel: { participants: [{ model: 'Verbose', status: 'ok', answer: long }] } });
-    const card = cards()[0] as HTMLElement;
-    expect(card).not.toHaveTextContent('END_SENTINEL');
-    expect((card.textContent ?? '').length).toBeLessThan(20000);
-    const more = within(card).getByText('Read full answer (45,012 characters)');
+    show({ answer: long });
+    const answer = screen.getByRole('heading', { name: 'Answer' }).closest('section') as HTMLElement;
+    expect(answer).not.toHaveTextContent('END_SENTINEL');
+    expect((answer.textContent ?? '').length).toBeLessThan(20000);
+    const more = within(answer).getByText('Read full answer (45,012 characters)');
     await userEvent.click(more);
-    expect(card).toHaveTextContent('END_SENTINEL');
-    const expanded = card.textContent;
-    await userEvent.click(more);
-    expect(card.textContent).toBe(expanded);
+    expect(answer).toHaveTextContent('END_SENTINEL');
   });
 
   it.each([
     ['nothing optional', {}],
-    ['nulls', { panel: null, warnings: null, coverage: null, evidence: null }],
-    ['prose in place of lists', { panel: { participants: null }, warnings: { message: 'w' }, coverage: 'c' }],
-    [
-      'wrong types',
-      { panel: { participants: 'malformed', unavailable: 42, discovery_errors: {} }, warnings: 42, coverage: 42 },
-    ],
-    [
-      'junk entries',
-      {
-        panel: {
-          participants: [null, 42, {}, { model: 'Odd', answer: null, error: { message: 'No answer available' } }],
-        },
-        evidence: [null, 42],
-        warnings: [null, { message: 'Structured warning' }],
-      },
-    ],
+    ['nulls', { warnings: null, coverage: null, evidence: null }],
+    ['prose in place of lists', { warnings: { message: 'w' }, coverage: 'c' }],
+    ['wrong types', { warnings: 42, coverage: 42 }],
+    ['junk entries', { evidence: [null, 42], warnings: [null, { message: 'Structured warning' }] }],
   ])('stays readable with %s', (_, optional) => {
     show({ answer: 'Still readable', ...optional }, true);
     expect(screen.getByText('Still readable')).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent(/\[object Object\]|"participants"|"message"/);
+    expect(document.body).not.toHaveTextContent(/\[object Object\]|"message"/);
   });
 
-  it('renders structured warnings and odd panel entries as sentences', () => {
-    show({
-      answer: 'x',
-      panel: {
-        participants: [null, 42, {}, { model: 'Odd', answer: null, error: { message: 'No answer available' } }],
-      },
-      warnings: [null, { message: 'Structured warning' }],
-    });
-    expect(cards()).toHaveLength(2);
-    expect(cards()[1]).toHaveTextContent('No answer available');
+  it('renders structured warnings as sentences', () => {
+    show({ answer: 'x', warnings: [null, { message: 'Structured warning' }] });
     expect(screen.getByText('Structured warning').tagName).toBe('LI');
+    expect(cards()).toHaveLength(0);
   });
 });
 

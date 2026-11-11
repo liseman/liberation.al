@@ -1,13 +1,12 @@
-"""Read-only general LLM questions or recorded-history questions, with bounded async jobs.
+"""Ask: read-only questions about the household's recordings, answered by the local model from the evidence it
+finds, with bounded async jobs. Every Ask (the dashboard's, the voice loop's, and the CLI's) is this one kind of
+question; nothing is sent to an outside model. Deep research (memory/research.py) takes the same question slowly.
 
-Live uses scope="general": no transcript, recording, or history retrieval. Review and
-legacy voice/CLI callers use scope="history" for evidence-grounded personal events.
-
-In local mode with history scope, recall.enabled (with recall.max_rounds above 0) turns on the search-or-answer loop (memory/recall.py)
+recall.enabled (with recall.max_rounds above 0) turns on the search-or-answer loop (memory/recall.py)
 for a question history_qa parsed but couldn't answer on its own (no recorded answer, or only "no matching
 evidence"): the loop gathers more evidence a round at a time, and the answer comes from that through the same
 local answer path, with the rounds in the result. If the loop itself fails, the answer comes from the single pass.
-The voice service asks spoken history questions in local mode, so they run the loop too.
+The voice service asks spoken history questions here, so they run the loop too.
 
 History prompts carry structured evidence directly, without escaping it inside another JSON string. Stable
 instructions and evidence precede the changing question clock so the model server can reuse matching prefixes.
@@ -37,13 +36,12 @@ from typing import Any, Protocol
 from liberational import config as cfg
 from liberational import json_state, logs, ollama
 from liberational.config import workdir
+from liberational.memory import research
 from liberational.vision import views
 
 LOG = logs.get("ask")
 STATE = cfg.path("paths.state")
-MODES = ("local", "friends", "everyone")
-SCOPES = ("general", "history")
-DEADLINES = {"local": 180, "friends": 360, "everyone": 1200}
+DEADLINE_S = 180  # a question's worker; deadline() makes room for a thinking answer
 MAX_QUESTION = 1200
 MAX_EARLIER = 6000  # a followed-up report's answer, in characters, as the model reads it
 WORKER_INPUT = 32768  # the worker's JSON from its parent: the question, its options, and a followed-up report
@@ -62,8 +60,7 @@ SYSTEM = (
     "Legacy_unknown captions and Same labels cannot corroborate details they do not explicitly describe. "
     "Respect observation freshness metadata; never extend a fresh observation to an earlier or later time. "
     "Only list action items when asked, and only supported distinct items with citations. If evidence is limited, "
-    "say the answer is partial. General questions may use general knowledge, but do not pretend "
-    "to access live web or tools. Start with the specific answer in one short sentence (at most 25 words), "
+    "say the answer is partial. Do not pretend to access live web or tools. Start with the specific answer in one short sentence (at most 25 words), "
     "not a preamble, method, heading, or caveat. Put necessary explanation and citations after a blank line. "
     "For quantities, lead with digits and the unit when supported: distinguish observed counts, estimates, "
     "and lower bounds in that same sentence. When the evidence supports a count but coverage is partial or the "
@@ -85,13 +82,6 @@ SYSTEM = (
     "against it, but it is a record like the rest and cites nothing; cite only the evidence."
 )
 
-GENERAL_SYSTEM = (
-    "You are {name}, a helpful general-purpose assistant. Answer the user's question directly. "
-    "Help with explanations, ideas, writing, coding, analysis, and other questions using your knowledge. "
-    "State uncertainty when relevant. Do not claim access to live web, tools, or private records. "
-    "Local date/time: {now}."
-)
-
 
 class DashboardHandler(Protocol):
     """What the /pack-ask routes use of the dashboard's request handler (dashboard/server.py's H)."""
@@ -110,9 +100,7 @@ class DashboardHandler(Protocol):
     def _json(self, o: Any, code: int = 200, /) -> None: ...
 
 
-def validate(question: object, mode: object) -> str:
-    if mode not in MODES:
-        raise ValueError("Choose local, friends, or everyone.")
+def validate(question: object) -> str:
     if not isinstance(question, str) or not question.strip() or len(question) > MAX_QUESTION:
         raise ValueError(f"Question must be 1 to {MAX_QUESTION} characters.")
     return question.strip()
@@ -125,14 +113,6 @@ def validate_day(day: object) -> str | None:
         raise ValueError("day must be YYYY-MM-DD")
     dt.date.fromisoformat(day)
     return day
-
-
-def validate_scope(scope: object, day: str | None = None) -> str:
-    if not isinstance(scope, str) or scope not in SCOPES:
-        raise ValueError("scope must be general or history")
-    if scope == "general" and day is not None:
-        raise ValueError("General questions do not take a selected day; use history scope for recordings.")
-    return scope
 
 
 def local_settings(config_path: str | Path | None = None) -> tuple[str, int]:
@@ -217,15 +197,15 @@ def ollama_url() -> str:
     return cfg._normalize_ollama(own) if own else cfg.ollama_url()
 
 
-def deadline(mode: str) -> int:
-    """Seconds an Ask job in mode gets (DEADLINES). With ask.think on, a local job gets the search rounds' budget, a
-    whole thinking answer call, and a margin for collect and starting the worker, so the thinking allowance is there
-    after the rounds (a retried answer may still run out)."""
-    if mode == "local" and bool(cfg.get("ask.think")):
+def deadline() -> int:
+    """Seconds an Ask job gets (DEADLINE_S). With ask.think on, it gets the search rounds' budget, a whole thinking
+    answer call, and a margin for collect and starting the worker, so the thinking allowance is there after the
+    rounds (a retried answer may still run out)."""
+    if bool(cfg.get("ask.think")):
         from liberational.memory import recall
 
-        return max(DEADLINES["local"], int(recall.LOOP_BUDGET_S) + THINK_TIMEOUT_S + 20)
-    return DEADLINES[mode]
+        return max(DEADLINE_S, int(recall.LOOP_BUDGET_S) + THINK_TIMEOUT_S + 20)
+    return DEADLINE_S
 
 
 def own_settings() -> bool:
@@ -291,7 +271,7 @@ def searched_window(query: Mapping[str, Any]) -> tuple[float, float] | None:
 
 def local_answer(
     question: str,
-    context: str | None,
+    context: str,
     now: float | dt.datetime | None = None,
     *,
     window: tuple[float, float] | None = None,
@@ -300,11 +280,11 @@ def local_answer(
     on_short: Callable[[str], None] | None = None,
     earlier: Mapping[str, Any] | None = None,
 ) -> tuple[str, str]:
-    """A None context is general Q&A; a string is supplied historical evidence. now is the time the prompt gives
-    the model (the current time when None), so a run with a fixed now reads "today" the way collect did. window,
-    for history, is the question's searched (start, end) in epoch seconds, given to the model beside now.
+    """The answer to a question from the evidence in context (JSON). now is the time the prompt gives the model (the
+    current time when None), so a run with a fixed now reads "today" the way collect did. window is the question's
+    searched (start, end) in epoch seconds, given to the model beside now.
 
-    A historical answer that breaks the answer format (render_answer refuses it, say for a lead of two sentences) is
+    An answer that breaks the answer format (render_answer refuses it, say for a lead of two sentences) is
     asked for once more, with the model's reply and why it was refused, and fails if the second breaks it too.
 
     With ask.think on, the model reasons before it answers (a thinking model only); Ollama returns that apart from
@@ -327,48 +307,42 @@ def local_answer(
         # layer (attention and KV) to GPU, with the bounded prefill batch used by this memory profile. Never send
         # these options to the shared conversational model: changing its load would interrupt voice replies.
         options.update(num_gpu=999, num_batch=128)
-    system = GENERAL_SYSTEM if context is None else SYSTEM
     local_now = moment(now).isoformat()
-    if context is None:
-        user_content = question
-    else:
-        # Keep structured evidence structured, rather than escaping a JSON document inside a JSON string.
-        # Changing time and question fields follow it so repeated evidence can reuse the server's prefix.
-        try:
-            evidence = json.loads(context)
-        except ValueError:
-            evidence = context
-        if not isinstance(evidence, dict | list):
-            evidence = context
-        # The question's searched window, so the model reads "the last 30 minutes" from its bounds rather than
-        # working it out from now.
-        bounds = (
-            {
-                "window": {
-                    "start": moment(window[0]).isoformat("T", "seconds"),
-                    "end": moment(window[1]).isoformat("T", "seconds"),
-                }
+    # Keep structured evidence structured, rather than escaping a JSON document inside a JSON string.
+    # Changing time and question fields follow it so repeated evidence can reuse the server's prefix.
+    try:
+        evidence = json.loads(context)
+    except ValueError:
+        evidence = context
+    if not isinstance(evidence, dict | list):
+        evidence = context
+    # The question's searched window, so the model reads "the last 30 minutes" from its bounds rather than
+    # working it out from now.
+    bounds = (
+        {
+            "window": {
+                "start": moment(window[0]).isoformat("T", "seconds"),
+                "end": moment(window[1]).isoformat("T", "seconds"),
             }
-            if window
-            else {}
-        )
-        # A follow-up on a research report reads the report's question and answer first: the context the new question
-        # leans on ("and who else was there?"). Its citations are the report's, so only `evidence` is cited.
-        before = (
-            {"earlier_report": {"question": earlier.get("question"), "answer": earlier.get("answer")}}
-            if earlier
-            else {}
-        )
-        user_content = json.dumps(
-            {**before, "evidence": evidence, **bounds, "now": local_now, "question": question},
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        }
+        if window
+        else {}
+    )
+    # A follow-up on a research report reads the report's question and answer first: the context the new question
+    # leans on ("and who else was there?"). Its citations are the report's, so only `evidence` is cited.
+    before = (
+        {"earlier_report": {"question": earlier.get("question"), "answer": earlier.get("answer")}} if earlier else {}
+    )
+    user_content = json.dumps(
+        {**before, "evidence": evidence, **bounds, "now": local_now, "question": question},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     committed: str | None = None
 
     def short_ready(raw: str) -> None:
         nonlocal committed
-        if on_short is not None and context is not None and committed is None and (short := completed_short(raw)):
+        if on_short is not None and committed is None and (short := completed_short(raw)):
             committed = short
             on_short(short)
 
@@ -382,7 +356,7 @@ def local_answer(
         "messages": [
             {
                 "role": "system",
-                "content": system.format(name=cfg.assistant_name(), now=local_now),
+                "content": SYSTEM.format(name=cfg.assistant_name()),
             },
             {"role": "user", "content": user_content},
         ],
@@ -423,8 +397,6 @@ def local_answer(
         return text
 
     answer = chat()
-    if context is None:
-        return answer, "ollama/" + model
     try:
         return rendered(answer), "ollama/" + model
     except ValueError as e:
@@ -502,16 +474,14 @@ def _json_string(raw: str, key: str) -> str:
         return ""
 
 
-def partial_answer(raw: str, history: bool = True) -> str:
-    """What to show of an answer the model is still writing. A history answer is a JSON object (SYSTEM): its short
-    answer, then its explanation, as far as they've come. A general answer is plain text."""
-    if not history:
-        return raw
+def partial_answer(raw: str) -> str:
+    """What to show of an answer the model is still writing: a JSON object (SYSTEM), so its short answer, then its
+    explanation, as far as they've come."""
     short, more = _json_string(raw, "short_answer"), _json_string(raw, "explanation")
     return short + ("\n\n" + more if more else "")
 
 
-def partial_writer(path: Path | None, history: bool) -> Callable[[str], None] | None:
+def partial_writer(path: Path | None) -> Callable[[str], None] | None:
     """An on_text that keeps `path` holding the answer so far (written whole, then renamed into place), or None."""
     if path is None:
         return None
@@ -520,7 +490,7 @@ def partial_writer(path: Path | None, history: bool) -> Callable[[str], None] | 
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".tmp")
-            tmp.write_text(partial_answer(raw, history)[:MAX_PARTIAL])
+            tmp.write_text(partial_answer(raw)[:MAX_PARTIAL])
             tmp.replace(path)
         except OSError:
             pass  # the answer still arrives whole at the end
@@ -689,61 +659,41 @@ def followup_report(followup: object, state_dir: str | Path | None = None) -> di
 
 def execute(
     question: str,
-    mode: str = "local",
     state_dir: str | Path | None = None,
     now: float | dt.datetime | None = None,
     day: object = None,
-    scope: object = "history",
     partial: Path | None = None,
     on_short: Callable[[Mapping[str, Any]], None] | None = None,
     followup: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Answer one question. `partial` holds the model's answer as it's written; `on_short` receives a completed,
-    validated history lead with known coverage flags, before its explanation completes. `followup` is a research
-    report this question follows up on (followup_report): the model reads its question and answer first."""
-    question = validate(question, mode)
-    day = validate_day(day)
-    scope = validate_scope(scope, day)
-    history: dict[str, Any] = {}
-    recall_rounds = False
-    if scope == "history":
-        from liberational.memory import history_qa
-        from liberational.people import forgotten
+    validated lead with known coverage flags, before its explanation completes. `followup` is a research report this
+    question follows up on (followup_report): the model reads its question and answer first."""
+    from liberational.memory import history_qa
+    from liberational.people import forgotten
 
-        if forgotten.named(question, history_qa.people_named(question), state_dir or STATE):
-            # A person deleted in People: the line, with no evidence and no model call (people/forgotten.py)
-            return {
-                "status": "ok",
-                "mode": mode,
-                "scope": scope,
-                "answer": forgotten.LINE,
-                "model": "forgotten-person",
-                "evidence": [],
-                "coverage": {},
-                "warnings": [],
-                "is_history": False,
-                "query": {},
-                "paths": ["forgotten"],  # a new answer path (assistant.forgotten_reply), for the dashboard's "New" tag
-            }
-        history = history_qa.collect(question, state_dir=state_dir or STATE, now=now, **({"day": day} if day else {}))
-        recall_rounds = (
-            mode == "local"
-            and bool(history.get("query"))
-            and bool(cfg.get("recall.enabled"))
-            and int(cfg.get("recall.max_rounds")) > 0
-        )
+    question = validate(question)
+    day = validate_day(day)
+    if forgotten.named(question, history_qa.people_named(question), state_dir or STATE):
+        # A person deleted in People: the line, with no evidence and no model call (people/forgotten.py)
+        return {
+            "status": "ok",
+            "answer": forgotten.LINE,
+            "model": "forgotten-person",
+            "evidence": [],
+            "coverage": {},
+            "warnings": [],
+            "is_history": False,
+            "query": {},
+            "paths": ["forgotten"],  # a new answer path (assistant.forgotten_reply), for the dashboard's "New" tag
+        }
+    history = history_qa.collect(question, state_dir=state_dir or STATE, now=now, **({"day": day} if day else {}))
+    recall_rounds = (
+        bool(history.get("query")) and bool(cfg.get("recall.enabled")) and int(cfg.get("recall.max_rounds")) > 0
+    )
     warnings = list(history.get("warnings") or [])
-    # Recorded count and direction answers do not need either the panel or a local model.
-    final = any(p in history.get("paths", []) for p in ("presence", "events", "directions"))
-    if mode != "local" and not final and not cfg.agent_configured():
-        warnings.append(
-            "No agent is set up, so the local model answered instead (see agent in the Liberational settings)."
-        )
-        mode = "local"
     result: dict[str, Any] = {
         "status": "ok",
-        "mode": mode,
-        "scope": scope,
         "answer": "",
         "evidence": history.get("evidence") or [],
         "coverage": history.get("coverage") or {},
@@ -764,14 +714,14 @@ def execute(
     deterministic = history.get("answer") if history.get("is_history") else None
     if recall_rounds and deterministic == history_qa.NO_EVIDENCE:
         deterministic = None  # the rounds can still search the journal and other ranges
-    if deterministic and (mode == "local" or final) and not followup:
-        result.update(answer=deterministic, model="local-history-evidence")
+    if deterministic and not followup:
+        # `found`: whether the recordings held anything for it, so Ask can offer deep research instead of an answer
+        # that says it found nothing. A recorded count is found even with no evidence list.
+        result.update(
+            answer=deterministic, model="local-history-evidence", found=deterministic != history_qa.NO_EVIDENCE
+        )
         return result
-    context, truncated = (
-        evidence_context(history, evidence_budget() if mode == "local" else 2400)
-        if scope == "history"
-        else (None, False)
-    )
+    context, truncated = evidence_context(history, evidence_budget())
     if recall_rounds:
         from liberational.memory import recall
 
@@ -792,124 +742,86 @@ def execute(
             "The model received only part of the selected evidence due to its input budget. This answer is partial; see all retrieved sources below."
         )
         result["status"] = "partial"
-    if mode == "local":
-        try:
-            stream = partial_writer(partial, scope == "history")
-            extra: dict[str, Any] = {"on_text": stream} if stream is not None else {}
-            if on_short is not None and scope == "history":
+    try:
+        stream = partial_writer(partial)
+        extra: dict[str, Any] = {"on_text": stream} if stream is not None else {}
+        if on_short is not None:
 
-                def short_ready(short: str) -> None:
-                    on_short(
-                        {
-                            "answer": short,
-                            "status": result["status"],
-                            "coverage": {
-                                "partial": bool(result["coverage"].get("partial")),
-                                "truncated": bool(result["coverage"].get("truncated")),
-                            },
-                        }
-                    )
+            def short_ready(short: str) -> None:
+                on_short(
+                    {
+                        "answer": short,
+                        "status": result["status"],
+                        "coverage": {
+                            "partial": bool(result["coverage"].get("partial")),
+                            "truncated": bool(result["coverage"].get("truncated")),
+                        },
+                    }
+                )
 
-                extra["on_short"] = short_ready
-            if scope == "history" and (bounds := searched_window(result["query"])):
-                extra["window"] = bounds
-            if followup and scope == "history":
-                extra["earlier"] = followup
-            answer, model = (
-                local_answer(question, context, **extra)
-                if now is None
-                else local_answer(question, context, now=now, **extra)
-            )
-            result.update(answer=answer, model=model)
-        except Exception as exc:
-            result.update(
-                status="error",
-                answer=(
-                    "The local model could not complete the answer."
-                    + (" Retrieved evidence is shown below." if scope == "history" else "")
-                ),
-                error=type(exc).__name__,
-            )
-        return result
-    from liberational.assistant import ask_friends
-
-    panel = ask_friends.ask(question, context=context or "", subset="all" if mode == "everyone" else "pair")
-    result["panel"] = panel
-    panel_status = panel.get("status", "error")
-    result["status"] = (
-        "partial" if (truncated or result["coverage"].get("partial")) and panel_status == "ok" else panel_status
-    )
-    result["answer"] = str(panel.get("answer") or "The friends panel returned no answer.")
-    if deterministic:
-        result["answer"] = deterministic
-        result["panel_answer"] = str(panel.get("answer") or "")
-    if panel.get("status") != "ok":
-        warnings.append(
-            "The selected panel did not complete cleanly; model failures and unavailable participants are included below."
+            extra["on_short"] = short_ready
+        if bounds := searched_window(result["query"]):
+            extra["window"] = bounds
+        if followup:
+            extra["earlier"] = followup
+        answer, model = (
+            local_answer(question, context, **extra)
+            if now is None
+            else local_answer(question, context, now=now, **extra)
+        )
+        result.update(answer=answer, model=model, found=bool(result["evidence"]))
+    except Exception as exc:
+        result.update(
+            status="error",
+            answer="The local model could not complete the answer. Retrieved evidence is shown below.",
+            error=type(exc).__name__,
         )
     return result
 
 
 def _ask_result(
     question: str,
-    mode: str = "local",
     state_dir: str | Path | None = None,
     day: object = None,
-    scope: object = "history",
     partial: Path | None = None,
     on_short: Callable[[Mapping[str, Any]], None] | None = None,
     followup: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    question = validate(question, mode)
+    from liberational.memory import question as reader
+
+    question = validate(question)
     day = validate_day(day)
-    scope = validate_scope(scope, day)
-    payload: dict[str, Any] = {
-        "question": question,
-        "mode": mode,
-        "state_dir": str(state_dir or STATE),
-        "day": day,
-        "scope": scope,
-    }
+    payload: dict[str, Any] = {"question": question, "state_dir": str(state_dir or STATE), "day": day}
     if partial is not None:
         payload["partial"] = str(partial)
     if followup:
         payload["followup"] = dict(followup)
-    if scope == "history":
-        from liberational.memory import question as reader
-
-        # A caller that already read the question (the voice loop's routing) hands the reading to the worker, so
-        # the worker doesn't ask the model for it again.
-        if (reading := reader.kept(question)) is not None:
-            payload["reading"] = reading.as_dict()
-    from liberational.memory import research
-
+    # A caller that already read the question (the voice loop's routing) hands the reading to the worker, so the
+    # worker doesn't ask the model for it again.
+    if (reading := reader.kept(question)) is not None:
+        payload["reading"] = reading.as_dict()
     try:
         # Research waits while this runs, so an instant question never queues behind a research call for long.
         with research.instant(Path(state_dir or STATE)):
-            if on_short is not None and mode == "local" and scope == "history":
-                stdout = _spoken_worker(payload, deadline(mode), on_short)
+            if on_short is not None:
+                stdout = _spoken_worker(payload, deadline(), on_short)
             else:
                 proc = subprocess.run(
                     [sys.executable, "-m", "liberational.memory.ask", "--worker"],
                     input=json.dumps(payload),
                     text=True,
                     capture_output=True,
-                    timeout=deadline(mode),
+                    timeout=deadline(),
                     cwd=str(workdir()),
                 )
                 stdout = proc.stdout
     except subprocess.TimeoutExpired:
         return {
             "status": "timeout",
-            "mode": mode,
-            "scope": scope,
-            "answer": (
-                "The question exceeded its time limit. No completed answer is available; "
-                + ("try a narrower interval." if scope == "history" else "try a shorter question.")
-            ),
+            "answer": "The question exceeded its time limit. No completed answer is available; try a narrower interval.",
             "evidence": [],
             "coverage": {},
-            "warnings": ["The full requested panel may not have completed."],
+            "warnings": ["The search may not have completed."],
         }
     try:
         result = json.loads(stdout)
@@ -919,8 +831,6 @@ def _ask_result(
     except ValueError, TypeError:
         return {
             "status": "error",
-            "mode": mode,
-            "scope": scope,
             "answer": "Question processing failed. No verified answer was returned.",
             "evidence": [],
             "coverage": {},
@@ -1015,9 +925,7 @@ def _spoken_worker(payload: Mapping[str, Any], timeout: float, on_short: Callabl
 
 def _history_start(
     question: str,
-    mode: str,
     day: str | None,
-    scope: str,
     surface: str,
     state: str | Path | None = None,
     *,
@@ -1033,8 +941,8 @@ def _history_start(
             exchange_id=exchange_id,
             surface=surface,
             day=day,
-            scope=scope,
-            mode=mode,
+            scope="history",
+            mode="local",
             call_id=call_id,
             created_at=created_at,
         )
@@ -1076,26 +984,21 @@ def _history_finish(
 
 def ask(
     question: str,
-    mode: str = "local",
     state_dir: str | Path | None = None,
     day: object = None,
-    scope: object = "history",
     *,
     surface: str | None = None,
     call_id: str | None = None,
     on_short: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Answer once and retain a local exchange for voice/CLI callers. Jobs own their separate durable lifecycle."""
-    question = validate(question, mode)
+    question = validate(question)
     selected_day = validate_day(day)
-    selected_scope = validate_scope(scope, selected_day)
-    origin = surface or ("review" if selected_day else "live" if selected_scope == "general" else "voice")
+    origin = surface or ("review" if selected_day else "voice")
     started = time.time()
-    ident = _history_start(
-        question, mode, selected_day, selected_scope, origin, state_dir, call_id=call_id, created_at=started
-    )
+    ident = _history_start(question, selected_day, origin, state_dir, call_id=call_id, created_at=started)
     try:
-        resolved = _pronoun(question, state_dir, origin, started) if selected_scope == "history" else None
+        resolved = _pronoun(question, state_dir, origin, started)
         asked = resolved.question if resolved else question
         extra: dict[str, Any] = {}
         if on_short is not None:
@@ -1104,7 +1007,7 @@ def ask(
                 on_short(_with_note(part, resolved))
 
             extra["on_short"] = short_ready
-        result = _with_note(_ask_result(asked, mode, state_dir, selected_day, selected_scope, **extra), resolved)
+        result = _with_note(_ask_result(asked, state_dir, selected_day, **extra), resolved)
     except Exception:
         _history_finish(
             ident,
@@ -1179,19 +1082,14 @@ class JobManager:
     def submit(
         self,
         question: object,
-        mode: str,
         day: object = None,
-        scope: object = "history",
         *,
         surface: str | None = None,
         call_id: str | None = None,
         followup: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        question = validate(question, mode)
+        question = validate(question)
         day = validate_day(day)
-        scope = validate_scope(scope, day)
-        if followup and (mode != "local" or scope != "history"):
-            raise ValueError("A follow-up on a report asks your recordings (My recordings).")
         with self.lock:
             if self.queue.full():
                 raise ValueError("Question queue is full; wait for an existing question.")
@@ -1209,13 +1107,11 @@ class JobManager:
                 del self.jobs[candidates[0]]
             jid = uuid.uuid7().hex
             origin = surface or ("review" if day else "live")
-            saved = _history_start(question, mode, day, scope, origin, exchange_id=jid, call_id=call_id, created_at=now)
+            saved = _history_start(question, day, origin, exchange_id=jid, call_id=call_id, created_at=now)
             job = {
                 "id": jid,
                 "question": question,
-                "mode": mode,
                 "day": day,
-                "scope": scope,
                 "surface": origin,
                 "call_id": call_id,
                 "history_saved": saved is not None,
@@ -1269,23 +1165,17 @@ class JobManager:
                     if job is None:
                         continue
                     job.update(status="running", started_at=time.time())
-                    question, mode = job["question"], job["mode"]
+                    question = job["question"]
                 try:
                     options: dict[str, Any] = {"day": job["day"]} if job.get("day") else {}
-                    if job["scope"] != "history":
-                        options["scope"] = job["scope"]
-                    if self.streams and mode == "local":
+                    if self.streams:
                         options["partial"] = partial_path(jid)
                     if jid in self.followups:
                         options["followup"] = self.followups.pop(jid)
                     try:
-                        resolved = (
-                            _pronoun(question, None, job["surface"], job["created_at"])
-                            if job["scope"] == "history"
-                            else None
-                        )
+                        resolved = _pronoun(question, None, job["surface"], job["created_at"])
                         asked = resolved.question if resolved else question
-                        result = _with_note(self.runner(asked, mode, **options), resolved)
+                        result = _with_note(self.runner(asked, **options), resolved)
                     finally:
                         if self.streams:
                             partial_path(jid).unlink(missing_ok=True)
@@ -1481,23 +1371,42 @@ def handle_http(handler: DashboardHandler) -> bool:
         if not isinstance(body, dict):
             raise ValueError("Expected a JSON object.")
         day = validate_day(body.get("day"))
-        scope = validate_scope(body.get("scope", "history"), day)
         options: dict[str, Any] = {"day": day} if day else {}
-        if scope != "history":
-            options["scope"] = scope
+        deep = body.get("deep", False)
+        if not isinstance(deep, bool):
+            raise ValueError("deep is true or false.")
+        if deep:
+            _deep_http(handler, body, day)
+            return True
         if body.get("followup") is not None:
             options["followup"] = followup_report(body["followup"])
-        handler._json(JOBS.submit(body.get("question"), body.get("mode"), **options), 202)
+        ack = JOBS.submit(body.get("question"), **options)
+        handler._json({**ack, "deep": False, "reach": research.reach(False, day)}, 202)
     except (ValueError, TypeError) as exc:
         handler._json({"error": str(exc)}, 400)
     return True
 
 
+def _deep_http(handler: DashboardHandler, body: Mapping[str, Any], day: str | None) -> None:
+    """POST /pack-ask/jobs with deep: the question queued as research (memory/research.py), its report for the Inbox.
+    Research starts from the question alone (no follow-up on a report)."""
+    if body.get("followup") is not None:
+        raise ValueError("Deep research starts from the question alone, not a follow-up on a report.")
+    if (why := research.unavailable()) is not None:
+        handler._json({"error": why}, 409)
+        return
+    try:
+        job = research.Store().submit(body.get("question"), day)
+    except OSError:
+        LOG.warning("research jobs are unavailable", exc_info=True)
+        handler._json({"error": "Research jobs are unavailable right now."}, 503)
+        return
+    handler._json({**job, "deep": True, "reach": research.reach(True, day)}, 202)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", action="store_true")
-    parser.add_argument("--mode", choices=MODES, default="local")
-    parser.add_argument("--scope", choices=SCOPES, default="history")
     parser.add_argument("--state-dir", default=str(STATE))
     args = parser.parse_args()
     try:
@@ -1515,16 +1424,9 @@ def main() -> None:
 
                 if (reading := reader.handed(data["reading"])) is not None:
                     reader.keep(str(data["question"]), reading)
-            result = execute(
-                data["question"],
-                data["mode"],
-                data.get("state_dir"),
-                day=data.get("day"),
-                scope=data.get("scope", "history"),
-                **extra,
-            )
+            result = execute(data["question"], data.get("state_dir"), day=data.get("day"), **extra)
         else:
-            result = ask(sys.stdin.read(MAX_QUESTION + 1).strip(), args.mode, args.state_dir, scope=args.scope)
+            result = ask(sys.stdin.read(MAX_QUESTION + 1).strip(), args.state_dir)
     except Exception as exc:
         result = {
             "status": "error",

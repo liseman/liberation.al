@@ -33,7 +33,7 @@ identity, the timeline, or answers (docs/DOMAIN-MODEL.md) is measured against be
   has the local model read each question once (memory/question.py), so every run needs it, and each row keeps
   the reading it got under query.reading. Recorded-frame
   analysis is turned off for the run, because that path writes caches and can queue scans; --as-configured keeps it.
-  With --ask, each question goes through memory/ask.execute() in local mode instead, so the answer checks read the
+  With --ask, each question goes through memory/ask.execute() instead, so the answer checks read the
   words the user hears, the evidence checks read the evidence Ask answered from (the search rounds' finds included),
   and each question's latency, search rounds, and model are recorded. It also counts the expected evidence that was
   in the answering model's input (evidence_given: the items left after Ask's input budget), which tells a search
@@ -1030,7 +1030,7 @@ def _given(contexts: Sequence[str]) -> set[str] | None:
 
 
 def _ask(q: Question, state: str | pathlib.Path, row: dict[str, Any]) -> tuple[dict[str, Any], set[str] | None]:
-    """ask.execute() for one question in local mode, timed, with its search rounds and model added to row; and the
+    """ask.execute() for one question, timed, with its search rounds and model added to row; and the
     ids of the evidence the answering model was given (_given), None when the answer needed no model."""
     from liberational.memory import ask
 
@@ -1038,15 +1038,14 @@ def _ask(q: Question, state: str | pathlib.Path, row: dict[str, Any]) -> tuple[d
     answer = ask.local_answer
     trace: dict[str, Any] = {}
 
-    def recorded(question: str, context: str | None, *args: Any, **kwargs: Any) -> tuple[str, str]:
-        if context is not None:
-            contexts.append(context)
+    def recorded(question: str, context: str, *args: Any, **kwargs: Any) -> tuple[str, str]:
+        contexts.append(context)
         return answer(question, context, *args, **kwargs, trace=trace)
 
     began = time.perf_counter()
     try:
         with mock.patch.object(ask, "local_answer", recorded):
-            r = ask.execute(q.question, mode="local", state_dir=state, now=q.asked_at, day=q.day)
+            r = ask.execute(q.question, state_dir=state, now=q.asked_at, day=q.day)
     finally:
         row["latency_s"] = round(time.perf_counter() - began, 3)
     rounds = r.get("rounds")
@@ -1061,7 +1060,7 @@ def _ask(q: Question, state: str | pathlib.Path, row: dict[str, Any]) -> tuple[d
         why = f" ({r['error']})" if r.get("error") else ""
         row["failures"].append(f"execute() gave status {r.get('status')}{why}")
     # Ask's worker is stopped at its deadline, so an answer that took longer never reaches the user.
-    if row["latency_s"] > (limit := ask.deadline("local")):
+    if row["latency_s"] > (limit := ask.deadline()):
         row["failures"].append(
             f"execute() gave its answer after {row['latency_s']:.0f} s, past Ask's {limit} s deadline"
         )
@@ -1080,7 +1079,7 @@ def score_retrieval(
     """Ask each question at its own time, and check its answer and evidence.
 
     By default each question goes through history_qa.collect(). With use_ask, or with rounds (which sets
-    recall.max_rounds for the run), it goes through ask.execute() in local mode instead. vectors True or False sets
+    recall.max_rounds for the run), it goes through ask.execute() instead. vectors True or False sets
     semantic.enabled for the run, and journal True or False sets journal.enabled; the result then says which
     ("vectors", "journal"). Draft questions are scored like the rest and counted apart ("drafts")."""
     from liberational.memory import history_qa
@@ -1513,7 +1512,7 @@ def report(results: dict[str, dict[str, Any]], directory: str | pathlib.Path, st
         out += _sweep_lines(sw)
     if (r := results.get("retrieval")) is not None:
         how = "on" if r["recorded_frame_analysis"] else "off"
-        through = "ask.execute in local mode" if r.get("through") else "history_qa.collect"
+        through = "ask.execute" if r.get("through") else "history_qa.collect"
         out.append(
             f"Retrieval: {r['questions']} questions through {through} "
             f"(time zone {r['timezone']}, recorded frames {how}{_vectors(r)})"

@@ -384,6 +384,15 @@ The Ollama at `ollama.url` runs as the `ollama` service.
    curl -s http://127.0.0.1:11434/api/tags
    ```
 
+### Ask no longer asks outside models
+
+Ask answers only from your recordings. The Friends and Everyone choices, the "ask your friends" and "ask everyone"
+voice commands, and `pack-ask-friends` are removed.
+
+1. **Delete `friends_agent`** from `[agent]` in `pack.toml` if it is set. `pack-config --check` lists it.
+2. **Leave or delete `friends_performance.json`** in the state directory. It is no longer read.
+3. **Restart every config-reading service**, as in "Every upgrade".
+
 ## Model changes
 
 Embeddings from different models cannot be compared, even at the same size. After one of these changes, the vectors
