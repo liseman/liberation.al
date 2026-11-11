@@ -162,6 +162,7 @@ POST /pets/sightings/label
 POST /pets/sightings/not
 POST /places/plan
 POST /places/plan/restore
+POST /places/scene/spot
 POST /playback/start
 POST /playback/stop
 POST /reports/api/...
