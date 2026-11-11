@@ -70,6 +70,32 @@ def test_a_file_named_tar_that_isnt_an_archive_is_kept_as_it_is(tmp_path, monkey
         assert not (tmp_path / spec["path"]).exists()
 
 
+def test_missing_names_the_files_and_local_copies_this_platform_wants(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch_models, "platform_key", lambda: "linux-x86_64")
+    monkeypatch.setattr(fetch_models, "owner_file", lambda path: tmp_path / path)
+    monkeypatch.setattr(
+        fetch_models,
+        "load",
+        lambda: {
+            "models": {
+                "files": {
+                    "pose": {"path": "models/pose.onnx"},
+                    "elsewhere": {"path": "models/elsewhere.onnx", "only_on": ["darwin-arm64"]},
+                },
+                "hf": {
+                    "face": {"repo": "org/face", "path": "models/face"},
+                    "cached": {"repo": "org/cached"},
+                },
+            }
+        },
+    )
+    (tmp_path / "models" / "face").mkdir(parents=True)
+    (tmp_path / "models" / "face" / "config.json").write_text("{}")
+    assert fetch_models.missing() == ["file pose: models/pose.onnx"]
+    (tmp_path / "models" / "pose.onnx").write_bytes(b"weights")
+    assert fetch_models.missing() == []
+
+
 def test_huggingface_download_honors_declared_checkpoint_patterns(monkeypatch):
     huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
 

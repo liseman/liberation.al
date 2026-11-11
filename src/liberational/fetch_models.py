@@ -244,6 +244,25 @@ def gated_help(gated: Mapping[str, str]) -> str:
     return "\n".join(lines)
 
 
+def missing() -> list[str]:
+    """What this platform wants and isn't here, one line each for a person (`pack-setup --check`): a file, or a
+    Hugging Face copy under data/models. A repository downloaded into Hugging Face's own cache is fetched on first
+    use, so whether it's here can't be told."""
+    config, key = load(), platform_key()
+    models = config.get("models", {})
+    gone = [
+        f"file {name}: {e['path']}"
+        for name, e in models.get("files", {}).items()
+        if wanted(e, key) and not owner_file(e["path"]).exists()
+    ]
+    gone += [
+        f"{name}: {e['path']} ({e['repo']})"
+        for name, e in models.get("hf", {}).items()
+        if wanted(e, key) and "path" in e and not (owner_file(e["path"]) / "config.json").exists()
+    ]
+    return gone
+
+
 def fetch(ollama: bool = True, listing: bool = False) -> dict[str, str]:
     """Fetches everything declared that this platform wants and doesn't have (or, with `listing`, only prints what
     is declared and present). Returns the gated Hugging Face repositories it had to skip, name to repository."""

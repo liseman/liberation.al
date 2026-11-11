@@ -24,6 +24,10 @@ It ends by saying how to open the application. Run again, it installs and downlo
 status is 1 while something the application needs is still missing (a needed system package, the extras, Continuum,
 or a model), and 0 otherwise; Ollama alone doesn't fail it, since the application opens without it.
 
+A check names what is missing, so a bare machine's check fails: the extras whose module isn't in this environment
+(missing_extras), and the models that can be told apart (fetch_models.missing: a file, or a Hugging Face copy under
+data/models; a repository left in Hugging Face's own cache is fetched on first use).
+
 In a checkout, `mise run setup` is the path: it also builds what a checkout builds (whisper-server, the frontend)
 and syncs the extras from uv.lock. Here step 2 only says so; the other steps work the same.
 
@@ -50,6 +54,13 @@ DIST = "liberational-pack"
 # by hand) resolves the extras to the newest versions that fit.
 LOCK = cfg.RESOURCES / "constraints.txt"
 EVERYWHERE = ("faces", "segmentation", "deep-asr")
+# The module each extra brings: `--check` finds its spec (without importing it) to say which extra is missing.
+EXTRA_MODULES = {
+    "faces": ("insightface",),
+    "segmentation": ("timm", "torchvision"),
+    "deep-asr": ("librosa", "transformers"),
+    "voice-clone": ("faster_qwen3_tts",),
+}
 DAEMONS = ("continuum-broker", "continuum-capture", "continuum-tier-worker", "continuum-vector-worker")
 OPEN = "pack-app"
 
@@ -86,6 +97,16 @@ def _run(command: list[str]) -> int:
         return 127
 
 
+def missing_extras(chosen: list[str]) -> list[str]:
+    """The chosen extras whose modules aren't in this environment, as `extra (module, module)`."""
+    gone = []
+    for extra in chosen:
+        absent = [module for module in EXTRA_MODULES[extra] if importlib.util.find_spec(module) is None]
+        if absent:
+            gone.append(f"{extra} ({', '.join(absent)})")
+    return gone
+
+
 def system_step() -> bool:
     """Lists the missing system packages and how to install them. True when no needed one is missing."""
     print("System packages:")
@@ -98,8 +119,8 @@ def system_step() -> bool:
 
 
 def extras_step(check: bool, run: Run = _run) -> bool:
-    """Installs this machine's extras (or, with `check`, says which). True when they are in, or when there is
-    nothing for this command to do (a checkout)."""
+    """Installs this machine's extras (or, with `check`, says which are missing). True when they are in, or when
+    there is nothing for this command to do (a checkout)."""
     chosen = extras()
     print(f"Python extras for this machine: {', '.join(chosen)}")
     if cfg.CHECKOUT is not None:
@@ -108,8 +129,13 @@ def extras_step(check: bool, run: Run = _run) -> bool:
     tool = uv()
     command = extras_command(tool or "uv", chosen)
     if check:
-        print(f"  would run: {' '.join(command)}")
-        return True
+        gone = missing_extras(chosen)
+        if not gone:
+            print("  the extras are here")
+            return True
+        print(f"  missing: {', '.join(gone)}")
+        print(f"  install them with: {' '.join(command)}")
+        return False
     if tool is None:
         print(f"  uv isn't installed (https://docs.astral.sh/uv/). With it, run: {' '.join(command)}")
         return False
@@ -163,11 +189,21 @@ def ollama_step() -> bool:
 
 
 def models_step(check: bool, ollama: bool) -> bool:
-    """Fetches the models (or, with `check`, lists them). True when every one this machine wants is here: not when
-    a gated one was skipped, or when a download stopped (what arrived is kept, and the next run carries on)."""
+    """Fetches the models (or, with `check`, says which are missing). True when every one this machine wants is
+    here: not when a gated one was skipped, or when a download stopped (what arrived is kept, and the next run
+    carries on)."""
     print("Models:")
+    if check:
+        gone = fetch_models.missing()
+        if not gone:
+            print("  every model this machine wants is here")
+            return True
+        for line in gone:
+            print(f"  missing: {line}")
+        print("  fetch them with pack-setup, or with pack-models")
+        return False
     try:
-        gated = fetch_models.fetch(ollama=ollama, listing=check)
+        gated = fetch_models.fetch(ollama=ollama)
     except OSError as error:  # the network, or a full disk
         print(f"  stopped: {error}\n  What was downloaded is kept: run pack-setup again to carry on.")
         return False
