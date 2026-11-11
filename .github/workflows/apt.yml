@@ -147,9 +147,10 @@ jobs:
           # The versions already published stay listed: their .deb files are the release's other assets.
           if gh release view apt > /dev/null 2>&1; then
             gh release download apt --pattern Packages --dir "$RUNNER_TEMP/published" || true
+            gh release edit apt --notes-file packaging/apt-release-notes.md
           else
             gh release create apt --target "$GITHUB_SHA" --latest=false --title "apt repository" \
-              --notes "The files of the apt repository for Ubuntu and Debian. docs/RELEASES.md says how to use it; the releases themselves are the versioned ones."
+              --notes-file packaging/apt-release-notes.md
           fi
           uv run tools/apt_package.py index repo --key "$key" --keep "$RUNNER_TEMP/published/Packages"
           # The .deb files first and the signed index last, so apt never reads an index naming a file not yet there.

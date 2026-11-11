@@ -24,7 +24,9 @@ resets: this project resets machine-made data now and then, and a release has to
 
 import argparse
 import dataclasses
+import posixpath
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -109,16 +111,84 @@ def version(tag: str, pyproject: str) -> str:
     return declared
 
 
-def notes(wanted: str, releases: str) -> str:
+TOKEN = re.compile(
+    r"(?ms)"
+    r"(?P<block>"
+    r"^[ \t]{0,3}(?P<fence>`{3,}|~{3,})[^\n]*\n.*?(?:\n[ \t]{0,3}(?P=fence)[ \t]*(?:\n|\Z)|\Z)"
+    r"|(?:(?<=\n\n)|(?<=\A))(?: {4}|\t)[^\n]*(?:\n(?: {4}|\t)[^\n]*)*"
+    r")"
+    r"|(?P<link>\[(?P<label>(?:\\.|[^\]])+)\]\((?P<target><[^>]+>|[^)\s]+)(?:\s+(?P<title>\"[^\"]*\"|'[^']*'))?\))"
+    r"|(?P<code>`+[^`\n]+`+)"
+)
+
+
+def repository_url(root: Path = ROOT) -> str:
+    """The repository's web URL on GitHub, read from the git remote or packaging tools."""
+    try:
+        remote = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError, FileNotFoundError:
+        remote = ""
+    if remote:
+        remote = remote.removesuffix(".git")
+        if remote.startswith("git@github.com:"):
+            return "https://github.com/" + remote.removeprefix("git@github.com:")
+        if remote.startswith(("https://github.com/", "http://github.com/")):
+            return remote
+    apt_package = root / "tools" / "apt_package.py"
+    if apt_package.is_file():
+        match = re.search(r'^HOMEPAGE\s*=\s*["\']([^"\']+)["\']', apt_package.read_text(), flags=re.MULTILINE)
+        if match:
+            return match.group(1).rstrip("/")
+    return "https://github.com/liseman/liberation.al"
+
+
+def rewrite_target(target: str, version: str, repo: str) -> str:
+    """Rewrite one link target: relative links and same-file anchors are pinned to the release tag on GitHub."""
+    is_angle = target.startswith("<") and target.endswith(">")
+    raw = target[1:-1] if is_angle else target
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", raw) or raw.startswith("//"):
+        return target
+    tag = f"v{version.removeprefix('v')}"
+    path, sep, fragment = raw.partition("#")
+    frag_part = f"#{fragment}" if sep else ""
+    if not path:
+        resolved = "docs/RELEASES.md"
+    else:
+        resolved = posixpath.normpath(posixpath.join("docs", path))
+    new_url = f"{repo.rstrip('/')}/blob/{tag}/{resolved}{frag_part}"
+    return f"<{new_url}>" if is_angle else new_url
+
+
+def rewrite_relative_links(text: str, version: str, repo: str) -> str:
+    """Rewrite every relative Markdown link in `text` to an absolute URL pinned to the release tag on GitHub."""
+
+    def repl(m: re.Match[str]) -> str:
+        if m.group("block") or m.group("code"):
+            return m.group(0)
+        target = rewrite_target(m.group("target"), version, repo)
+        title = f" {m.group('title')}" if m.group("title") else ""
+        return f"[{m.group('label')}]({target}{title})"
+
+    return TOKEN.sub(repl, text)
+
+
+def notes(wanted: str, releases: str, repo: str | None = None) -> str:
     """The section of docs/RELEASES.md for one version: the text under its `## <version>` heading, which has to say
-    what an upgrade resets (a paragraph that uses the word, even to say "nothing")."""
+    what an upgrade resets (a paragraph that uses the word, even to say "nothing"). Relative Markdown links are
+    rewritten to absolute URLs pinned to the release tag on GitHub."""
     sections = re.split(r"^## +", releases, flags=re.MULTILINE)[1:]
     for section in sections:
         heading, _, body = section.partition("\n")
         if heading.strip().split()[0].removeprefix("v") == wanted:
             if RESETS not in body.lower():
                 raise ValueError(f"the notes for {wanted} don't say what an upgrade {RESETS}")
-            return body.strip() + "\n"
+            repo_url = repo or repository_url()
+            return rewrite_relative_links(body.strip(), wanted, repo_url) + "\n"
     raise ValueError(f"docs/RELEASES.md has no section for {wanted}: add `## {wanted}` with its notes")
 
 
@@ -132,7 +202,9 @@ def main() -> None:
         if name == "lock":
             command.add_argument("platform", choices=sorted(PLATFORMS))
         command.add_argument("out", type=Path)
-    commands.add_parser("notes", help="a version's release notes").add_argument("version")
+    notes_cmd = commands.add_parser("notes", help="a version's release notes")
+    notes_cmd.add_argument("version")
+    notes_cmd.add_argument("--repo", default=None, help="the repository URL (defaults to git remote)")
     args = parser.parse_args()
     try:
         if args.command == "version":
@@ -142,7 +214,7 @@ def main() -> None:
         elif args.command == "lock":
             args.out.write_text(lock(args.exported.read_text(), args.platform))
         else:
-            sys.stdout.write(notes(args.version, NOTES.read_text()))
+            sys.stdout.write(notes(args.version, NOTES.read_text(), repo=args.repo))
     except ValueError as error:
         raise SystemExit(str(error)) from error
 
