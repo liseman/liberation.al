@@ -75,7 +75,7 @@ gitignored.
 | Review | A day's timeline, transcript, summary, and recorded video, with filters by person, thing, event, and camera |
 | Known | People, Pets, Objects, Activities, Devices, and Places: everything the owner names and corrects. Its last tab, Ingest, has imported media and its sources |
 | Calls | The call form, recordings, and transcripts |
-| Inbox | Research reports, which come from Ask with Deep research on |
+| Inbox | Research reports, which come from Ask with Deep research on. It opens the newest unread report once and keeps it open while it is marked read; it does not follow the unread reports |
 | Journal | Month, week, day, and hour entries with their evidence |
 | Statistics | D3 charts over per-day aggregates cached in `state/reports.sqlite3` |
 | Debug | Service logs, filtered by level |

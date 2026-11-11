@@ -256,8 +256,8 @@ unless asked.
 
 `spatial/footprints.py` records raw foot points as each fixed camera saw them (`position.sample`). The placer
 (`spatial/positions.py`) puts each on the floor through its camera's pose and writes `position.placed` and
-`position.path`: who or what, place, room, coordinates, time, confidence, and source. A camera's pose comes from one
-of two things:
+`position.path`: who or what, place, room, coordinates, time, confidence, source, and whether an animal's point is
+approximate. A camera's pose comes from one of two things:
 
 - **The owner's spot on the plan** (`spatial/spots.py`). A camera's spot, set in the plan editor and kept in the
   plan's scene, says where the camera is, how high, and which way it faces. With the camera's focal and lens that is a
@@ -268,7 +268,11 @@ of two things:
   and as tall at the far end of the room as at the near end, and only one tilt makes them so. Nobody's height is
   assumed, and people sitting don't count. The fit is checked against the spot's height (people must come out a
   person's height) and kept in `state/places/aims.json`. A changed spot height, field of view, or lens has the tilt
-  fitted again.
+  fitted again. The picture's straight edges are scored against the plan's wall directions and the vertical as well,
+  and with them the focal is fitted. Where they are usable (eight or more edges agreeing across 35% of the frame's
+  width), the aim takes the edges' tilt and focal only when the walkers agree within 2.5 degrees and the people come
+  out a person's height; otherwise the walkers' tilt stands. The aim records the edges' count, their tilt, the fitted
+  focal, and whether they confirmed the walkers, and the dry run says so.
 - **A registration in a revision** (a revision's `cameras`), for a camera with no spot.
 
 A camera with neither places nobody, and no position is guessed: the placer and the Places page say what each camera
@@ -277,9 +281,12 @@ lacks.
 The owner measured the spot, so it outranks a registration. A refinement of a spot within 0.3 m and 5 degrees that is
 stored in `state/places/refined.json` is still read (an owner's change to the spot drops it); nothing writes new ones.
 
-A foot point the camera's spot could not see by the plan, because a solid wall stands between them, gets no
-position: the subject was up on furniture, not on the floor where the ray lands. The placer logs how many it left
-out for each camera, people and animals apart.
+A foot point the camera's spot could not see by the plan, because a solid wall stands between them, is an animal up
+on furniture rather than on the floor where the ray lands. The placer puts it at the furniture, 0.3 m back from where
+the sight line leaves the room, and marks the point `approximate`. A person's foot point behind a wall is pose
+error and gets no position, and an animal's gets none when there is no spot, no plan to read, or a line the spot
+cannot see from its start. The placer logs how many it left out for each camera, people and animals apart. The
+Places page draws an approximate point like any other.
 
 When a spot or a registration moves where a camera puts people by more than 0.25 m, the placer places that place's
 samples again into a new generation, so a path is always in one frame. `memory/places.py:places_for_span` tells the

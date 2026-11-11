@@ -144,12 +144,16 @@ the nearest-example rule stands.
 A sighting recognition names stays on the pet's card and is not offered for naming. One that waits carries its
 reason. Each pet's card reports how well it is learned: over the labeled sightings of the last `pets.learning_days`
 days that recognition was not taught from, the share named correctly, the dates those sightings span, how many
-examples are usable, and how many labels are stranded with no example in the current embedding space. It is an
-estimate on sightings the owner checked, not a record of what was named automatically.
+examples are usable, and how many labels are stranded with no example in the current embedding space. It also says
+how many of the pet's taught sightings keep no saved picture, which is what a change of embedding model would need
+to rebuild their examples. It is an estimate on sightings the owner checked, not a record of what was named
+automatically.
 
 Unlabeled sightings are offered for labeling for `pets.label_days`. A label keeps its embedding and its photo
 (`pet.reference`, `pet.photo`), so it survives a reset, and `tools/restore_pet_references.py` can embed references
-again after a model change, for every label whose photo is still kept. It cannot bring back a photo that is gone.
+again after a model change, for every label whose photo is still kept. It cannot bring back a photo that is gone. A
+picture saved after the first naming is kept by naming the sighting again, not only when its first example is made.
+A label whose picture cannot be read keeps its label and example, and a later naming keeps the next picture.
 
 A pet's training images are the sightings labeled as it, listed on its card with the least like the rest first. An
 example with no kept photo is listed without one. Removing some clears their labels, marks them not that pet, and

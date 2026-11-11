@@ -65,6 +65,10 @@ name is read through the registry, so a rename, a merge, or a delete changes eve
 
 - A voiceprint is named only from references the owner confirmed: a single line they labeled, or windows of a
   recording they enrolled. Ordinary embeddings are observations and never teach.
+- A line opens a new unnamed voice only when it recurs: it must sound like an earlier line that opened nothing, at
+  the same 0.45 cosine that joins an unnamed voice, within an hour. A one-off line, such as a show playing near a
+  microphone, stays unattributed (no speaker at all), so it never joins the unnamed list. Labeling such a line by
+  hand still opens or teaches a voice as before.
 - Naming a voice cluster confirms at most three of its lines. Labeling one line confirms that line.
 - Automatic naming needs three distinct confirmations, a nearest-reference cosine of at least 0.5, and margins over
   other people, the person's negatives, and the nearest unnamed voice. A wrong name costs more than a missed one, so
