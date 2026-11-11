@@ -67,7 +67,12 @@ arrives in the Inbox.
 
 <img alt="Ask open over Live: the question Who came by yesterday?, and its answer that Dana stopped by with groceries and came back for dinner" src="docs/images/demo-ask.png">
 
-The dashboard also has **Review**: a day's video, timeline, and transcript.
+<img alt="The Inbox: four researched questions, with the report on whether Rex got a walk before the rain open, its answer, and the three moments it cites" src="docs/images/demo-inbox.png">
+
+**Review** is one day, replayed: the recordings from every camera, a timeline to move through, filters by camera,
+person, and event, and the transcript beside it. Pick a line and the video goes there.
+
+<img alt="Review on the demo household's day: the kitchen camera's recording at 12:25 with Alice and Dana, the day's timeline, filters by camera, person, and event, and the transcript with that line picked" src="docs/images/demo-review.png">
 
 ## What you need
 

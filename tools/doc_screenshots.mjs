@@ -118,6 +118,21 @@ const SHOTS = [
     },
   },
   {
+    name: 'demo-review',
+    steps: async page => {
+      await open(page, '/review');
+      await page.waitForTimeout(12000); // the day's timeline, filters, and transcript
+      await click(page, page.getByText('Six tomato plants'), 6000); // a line of the transcript, and its recording
+    },
+  },
+  {
+    name: 'demo-inbox',
+    steps: async page => {
+      await open(page, '/inbox');
+      await click(page, page.getByText('Did Rex get a walk before the rain?').first(), SETTLE_MS);
+    },
+  },
+  {
     name: 'demo-activities',
     steps: async page => {
       await open(page, '/activities');

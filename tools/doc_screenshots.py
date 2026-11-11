@@ -41,11 +41,19 @@ def free_port() -> int:
         return int(probe.getsockname()[1])
 
 
-def wait_ready(demo: subprocess.Popen[bytes], log: pathlib.Path) -> None:
-    """Wait for the demo's address line. Raises with the log's tail if the demo stops or takes too long."""
+def listening(port: int) -> bool:
+    """Whether something accepts connections on `port` of this machine."""
+    with socket.socket() as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def wait_ready(demo: subprocess.Popen[bytes], log: pathlib.Path, port: int) -> None:
+    """Wait for the demo's address line and for its dashboard to answer on `port`: the line is printed just before
+    the dashboard starts. Raises with the log's tail if the demo stops or takes too long."""
     deadline = time.monotonic() + START_S
     while time.monotonic() < deadline:
-        if READY in log.read_text(errors="replace"):
+        if READY in log.read_text(errors="replace") and listening(port):
             return
         if demo.poll() is not None:
             break
@@ -77,7 +85,7 @@ def take(names: Sequence[str], out: pathlib.Path, frontend: pathlib.Path) -> int
                 stderr=subprocess.STDOUT,
             )
         try:
-            wait_ready(demo, log)
+            wait_ready(demo, log, port)
             shots = subprocess.run(
                 ["node", str(SCRIPT), f"http://localhost:{port}", str(out), str(frontend), *names], check=False
             )
