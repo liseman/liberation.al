@@ -148,7 +148,6 @@ it("opens the editor's page in a frame, gives it the scene once it is up, and pa
   renderPage(
     <PlanFrame
       scene={EXAMPLE_SCENE}
-      view="2d"
       scheme="dark"
       cameras={[{ id: 'cam0', name: 'Hall camera' }]}
       onChange={changed}
@@ -169,8 +168,8 @@ it("opens the editor's page in a frame, gives it the scene once it is up, and pa
 
 it('ignores a message that is not from its own frame, or from another origin', () => {
   const changed = vi.fn();
-  renderPage(<PlanFrame scene={EXAMPLE_SCENE} view="3d" scheme="light" onChange={changed} />);
-  const frame = screen.getByTitle('The plan in 3D') as HTMLIFrameElement;
+  renderPage(<PlanFrame scene={EXAMPLE_SCENE} scheme="light" onChange={changed} />);
+  const frame = screen.getByTitle('Plan editor') as HTMLIFrameElement;
   const post = vi.spyOn(frame.contentWindow as Window, 'postMessage').mockImplementation(() => {});
   const other = render(<iframe title="another frame" />).container.querySelector('iframe') as HTMLIFrameElement;
   act(() => {
@@ -312,7 +311,7 @@ it("saves what was drawn as the place's plan, in the frame it was opened in, and
     }),
   );
   const saved = vi.fn();
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" onSaved={saved} />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" onSaved={saved} />);
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   const save = screen.getByRole('button', { name: 'Save plan' }) as HTMLButtonElement;
   expect(save.disabled).toBe(true); // nothing drawn yet
@@ -336,7 +335,7 @@ it("starts an empty plan when the place has none, or when its stored plan can't 
       return HttpResponse.json({ ok: true, plan: '{}', plan_source: 'owner' });
     }),
   );
-  renderPage(<PlaceEditor place={{ ...HOME, scene: null }} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={{ ...HOME, scene: null }} scheme="light" />);
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   expect(screen.getByText(/The stored plan can't be opened, so this starts a new one.*old format/)).toBeTruthy();
   const post = vi.spyOn(frame.contentWindow as Window, 'postMessage').mockImplementation(() => {});
@@ -351,7 +350,7 @@ it("starts an empty plan when the place has none, or when its stored plan can't 
 
 it('opens the stored plan again on Discard, and refuses to save a plan with no room', async () => {
   serveScene();
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   const roomless = buildScene({
     height: 2.4,
@@ -370,7 +369,7 @@ it('opens the stored plan again on Discard, and refuses to save a plan with no r
 it("says why when a plan can't be loaded or saved", async () => {
   server.use(http.get('/places/plan/history', () => HttpResponse.json({ place: 'p1', versions: [], previous: null })));
   server.use(http.get('/places/plan/scene', () => HttpResponse.json({ error: 'the store is busy' }, { status: 503 })));
-  const first = renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  const first = renderPage(<PlaceEditor place={HOME} scheme="light" />);
   expect(await screen.findByText(/the store is busy/, undefined, { timeout: 8000 })).toBeTruthy();
   expect(screen.queryByTitle('Plan editor')).toBeNull(); // a failed read is not a place with no plan
   first.unmount();
@@ -380,7 +379,7 @@ it("says why when a plan can't be loaded or saved", async () => {
       HttpResponse.json({ ok: false, error: 'the plan has no room in it' }, { status: 400 }),
     ),
   );
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   fromFrame(frame, { type: 'plan-editor:changed', scene: EXAMPLE_SCENE });
   fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
@@ -389,15 +388,15 @@ it("says why when a plan can't be loaded or saved", async () => {
 });
 
 it('opens an example without asking the server, and offers nothing to save', () => {
-  renderPage(<PlaceEditor place={FLAT} view="3d" scheme="dark" />);
-  expect(screen.getByTitle('The plan in 3D')).toBeTruthy();
+  renderPage(<PlaceEditor place={FLAT} scheme="dark" />);
+  expect(screen.getByTitle('Plan editor')).toBeTruthy();
   expect(screen.getByText('An example flat. Nothing drawn here is saved.')).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull();
 });
 
 it("lists the plan's versions newest first, with what changed and which is current", async () => {
   serveScene({}, VERSIONS);
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Versions' }));
   const list = await screen.findByRole('list');
   const rows = [...list.querySelectorAll('button')];
@@ -419,7 +418,7 @@ it("gives a version's age in the dashboard's words, with whole hours whole, and 
     '2 min ago',
   ]);
   serveScene({}, VERSIONS);
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Versions' }));
   const rows = [...(await screen.findByRole('list')).querySelectorAll('button')];
   expect(rows.map(r => r.getAttribute('aria-label'))).toEqual([
@@ -431,11 +430,11 @@ it("gives a version's age in the dashboard's words, with whole hours whole, and 
 
 it('says there is no version yet for a plan never saved, and shows none for an example', async () => {
   serveScene();
-  const first = renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  const first = renderPage(<PlaceEditor place={HOME} scheme="light" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Versions' }));
   expect(await screen.findByText('No saved version yet. Each save adds one here.')).toBeTruthy();
   first.unmount();
-  renderPage(<PlaceEditor place={FLAT} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={FLAT} scheme="light" />);
   expect(screen.queryByRole('button', { name: 'Versions' })).toBeNull();
 });
 
@@ -459,7 +458,7 @@ it('opens an earlier version to look at without changing anything, and restores 
       return HttpResponse.json({ ok: true, plan: '{}', plan_source: 'owner' });
     }),
   );
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   const current = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   expect(current.getAttribute('src')).not.toContain('look=1');
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));
@@ -488,7 +487,7 @@ it('opens an earlier version to look at without changing anything, and restores 
 
 it('goes back to the current plan from an earlier version, and asks before dropping unsaved changes', async () => {
   serveScene({}, VERSIONS);
-  renderPage(<PlaceEditor place={HOME} view="2d" scheme="light" />);
+  renderPage(<PlaceEditor place={HOME} scheme="light" />);
   const frame = (await screen.findByTitle('Plan editor')) as HTMLIFrameElement;
   fromFrame(frame, { type: 'plan-editor:changed', scene: EXAMPLE_SCENE });
   fireEvent.click(screen.getByRole('button', { name: 'Versions' }));

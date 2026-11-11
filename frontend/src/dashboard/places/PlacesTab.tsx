@@ -266,7 +266,6 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   <PlaceEditor
                     key={place.id}
                     place={place}
-                    view="2d"
                     scheme={scheme}
                     onUnsaved={setUnsaved}
                     onSaved={() => {
