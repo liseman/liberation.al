@@ -210,6 +210,108 @@ describe('finding an object', () => {
   });
 });
 
+describe('renaming and removing an object', () => {
+  it('renames one from its row and says what it is called now', async () => {
+    let list = [ssd];
+    const renamed: unknown[] = [];
+    server.use(
+      http.get('/objects/api/status', () => HttpResponse.json(status())),
+      http.get('/objects/api/objects', () => HttpResponse.json({ objects: list })),
+      http.post('/objects/api/rename', async ({ request }) => {
+        const body = (await request.json()) as { id: string; name: string };
+        renamed.push(body);
+        list = [{ ...ssd, name: body.name }];
+        return HttpResponse.json({ object: list[0] });
+      }),
+    );
+    renderPage(<ObjectMemoryPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename my SSD' }));
+    const box = screen.getByLabelText('New name for my SSD');
+    expect(box).toHaveValue('my SSD'); // its name now, to edit rather than retype
+    await userEvent.clear(box);
+    await userEvent.type(box, 'card holder{Enter}');
+    expect(await screen.findByText('Renamed to card holder.')).toBeInTheDocument();
+    expect(renamed).toEqual([{ id: 'o1', name: 'card holder' }]);
+    expect(await screen.findByRole('button', { name: 'Rename card holder' })).toBeInTheDocument();
+    expect(screen.queryByLabelText('New name for my SSD')).not.toBeInTheDocument();
+  });
+
+  it('drops a rename on Escape, and cannot save an empty name', async () => {
+    serve();
+    renderPage(<ObjectMemoryPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename my SSD' }));
+    const box = screen.getByLabelText('New name for my SSD');
+    await userEvent.clear(box);
+    expect(screen.getByRole('button', { name: 'Save name' })).toBeDisabled();
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'Rename my SSD' })).toBeInTheDocument();
+  });
+
+  it("keeps the box open with the store's reason when the name is taken", async () => {
+    serve();
+    server.use(
+      http.post('/objects/api/rename', () =>
+        HttpResponse.json({ error: 'name or alias already enrolled' }, { status: 400 }),
+      ),
+    );
+    renderPage(<ObjectMemoryPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Rename my SSD' }));
+    const box = screen.getByLabelText('New name for my SSD');
+    await userEvent.clear(box);
+    await userEvent.type(box, 'keys{Enter}');
+    expect(await screen.findByText('Could not rename it: name or alias already enrolled')).toBeInTheDocument();
+    expect(screen.getByLabelText('New name for my SSD')).toHaveValue('keys');
+  });
+
+  it('removes one after asking, and its Undo remembers it again', async () => {
+    let list = [ssd];
+    const forgotten: unknown[] = [];
+    const restored: unknown[] = [];
+    server.use(
+      http.get('/objects/api/status', () => HttpResponse.json(status())),
+      http.get('/objects/api/objects', () => HttpResponse.json({ objects: list })),
+      http.post('/objects/api/forget', async ({ request }) => {
+        forgotten.push(await request.json());
+        list = [];
+        return HttpResponse.json({ ok: true, id: 'o1' });
+      }),
+      http.post('/objects/api/restore', async ({ request }) => {
+        restored.push(await request.json());
+        list = [ssd];
+        return HttpResponse.json({ object: ssd });
+      }),
+    );
+    renderPage(<ObjectMemoryPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove my SSD' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Remove my SSD' });
+    expect(within(dialog).getByText(/recorded sightings stay/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    expect(await screen.findByText('Removed my SSD. Its recorded sightings stay.')).toBeInTheDocument();
+    expect(forgotten).toEqual([{ id: 'o1' }]);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove my SSD' })).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText('Remembered again.')).toBeInTheDocument();
+    expect(restored).toEqual([{ id: 'o1' }]);
+    expect(await screen.findByRole('button', { name: 'Remove my SSD' })).toBeInTheDocument();
+  });
+
+  it('leaves it alone when the removal is cancelled', async () => {
+    serve();
+    let forgotten = false;
+    server.use(
+      http.post('/objects/api/forget', () => {
+        forgotten = true;
+        return HttpResponse.json({ ok: true, id: 'o1' });
+      }),
+    );
+    renderPage(<ObjectMemoryPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove my SSD' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(forgotten).toBe(false);
+    expect(screen.getByRole('button', { name: 'Remove my SSD' })).toBeInTheDocument();
+  });
+});
+
 describe('remembering an object', () => {
   it('retains an imported frame while the configured camera list is still loading', async () => {
     let finishStatus!: () => void;
@@ -921,12 +1023,9 @@ describe('served through the dashboard', () => {
       http.get('/objects/api/objects', () => HttpResponse.json({ objects: [ssd] })),
     );
     renderPage(<ObjectMemoryPage />);
-    const item = (await screen.findByText('my SSD')).closest('div')?.parentElement as HTMLElement;
-    await waitFor(() =>
-      expect(within(item).getByRole('img', { name: 'Reference crop for my SSD' })).toHaveAttribute(
-        'src',
-        '/objects/evidence/tttt.jpg',
-      ),
+    expect(await screen.findByRole('img', { name: 'Reference crop for my SSD' })).toHaveAttribute(
+      'src',
+      '/objects/evidence/tttt.jpg',
     );
   });
 });
