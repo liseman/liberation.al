@@ -788,7 +788,7 @@ fn collect_time_indexed_ids_parallel(ti: &ReadTable, min_parallel: u64) -> Resul
             None => Ok(()),
         }
     })?;
-    let mut ids = Vec::new();
+    let mut ids = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
     for slot in results {
         if let Some(part) = slot.into_inner() {
             ids.extend(part);
@@ -1097,6 +1097,8 @@ pub(crate) fn snapshot_with_min_parallel(r: &R, min_parallel_payloads: u64) -> R
             if u64::try_from(narrowed.indexed_rows).ok() == Some(ti_len) {
                 narrowed
             } else {
+                // The skip could not account for the whole gap. Drop it before the id list and the second scan.
+                drop(narrowed);
                 let ids = collect_time_indexed_ids_parallel(&ti, min_parallel_payloads)?;
                 let present = run(Visibility::Present(ids.as_slice()))?;
                 debug_rows_match(present.indexed_rows, ti_len);

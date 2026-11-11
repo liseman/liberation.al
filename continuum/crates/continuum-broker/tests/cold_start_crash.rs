@@ -198,7 +198,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
             }
         ),
         2 => (
-            0usize..128,
+            any::<usize>(),
             prop::option::of(any::<bool>()),
             prop::option::of(1u32..=2),
             any::<bool>(),
@@ -224,13 +224,13 @@ fn op_strategy() -> impl Strategy<Value = Op> {
             |(chunk_pick, take, cut_mask, cold)| Op::ExtendChunk { chunk_pick, take, cut_mask, cold }
         ),
         1 => (0usize..32, any::<bool>()).prop_map(|(chunk_pick, cold)| Op::RewriteChunk { chunk_pick, cold }),
-        1 => (0usize..128, 0u8..=2).prop_map(|(payload_pick, tier)| Op::ClearLocation { payload_pick, tier }),
+        1 => (any::<usize>(), 0u8..=2).prop_map(|(payload_pick, tier)| Op::ClearLocation { payload_pick, tier }),
         2 => prop_oneof![
             (0u64..400, 10u64..160, any::<bool>())
                 .prop_map(|(start, len, all_streams)| Op::StartPurge(PurgeKind::Range { start, len, all_streams })),
             any::<bool>().prop_map(|which| Op::StartPurge(PurgeKind::Entity(which))),
-            proptest::collection::vec(0usize..128, 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::Ids(picks))),
-            proptest::collection::vec(0usize..128, 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::AgeOut(picks))),
+            proptest::collection::vec(any::<usize>(), 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::Ids(picks))),
+            proptest::collection::vec(any::<usize>(), 1..=3).prop_map(|picks| Op::StartPurge(PurgeKind::AgeOut(picks))),
         ],
         3 => (0usize..16, 1usize..=5, any::<bool>())
             .prop_map(|(purge_pick, budget, finish)| Op::StepPurge { purge_pick, budget, finish }),
@@ -820,10 +820,18 @@ fn purged_colliding_chunk_above_parallel_threshold_matches_paged_rebuild() {
         &catalog,
         Op::CommitChunk { rated: true, take: 4, cut_mask: 0b0001, collide_first_key: true, cold: false },
     );
-    let chunk_id = harness.chunks[0].id;
+    // A second live cut chunk still owns its own time key, so `stolen` is non-empty. Purging the colliding
+    // holder leaves an orphan the stolen-key skip cannot account for, and the scan must reject that pass.
+    harness.apply(
+        &catalog,
+        Op::CommitChunk { rated: false, take: 4, cut_mask: 0b0001, collide_first_key: false, cold: false },
+    );
+    assert_eq!(harness.chunks.len(), 2, "both cut chunks must commit");
+    let colliding_id = harness.chunks[0].id;
+    let live_id = harness.chunks[1].id;
     let purge_id = uid(0xf0, 1);
     catalog.mark_commit_clock(2_000).unwrap();
-    catalog.start_purge(PurgeSelector::Ids(vec![chunk_id]), "crash-prop", "{}", purge_id, 2_000).unwrap();
+    catalog.start_purge(PurgeSelector::Ids(vec![colliding_id]), "crash-prop", "{}", purge_id, 2_000).unwrap();
     while matches!(catalog.purge_step(purge_id, 64), Ok(PurgeProgress::Running { .. })) {}
     drop(catalog);
 
@@ -831,6 +839,14 @@ fn purged_colliding_chunk_above_parallel_threshold_matches_paged_rebuild() {
     let (snap, used_fallback) = check.availability_snapshot_for_test(4_096).unwrap();
     assert!(used_fallback, "purging the holder leaves the orphan payload, so the scan cannot prove a full index");
     assert!(snap.payloads > 4_096, "production load must take the parallel path, got {}", snap.payloads);
+    assert!(
+        snap.cut_chunks.iter().any(|chunk| chunk.id == live_id),
+        "the live cut chunk must keep stolen non-empty so the skip is attempted",
+    );
+    assert!(
+        snap.cut_chunks.iter().all(|chunk| chunk.id != colliding_id),
+        "the purged holder must be gone, so the skip cannot name the orphan",
+    );
     drop(check);
     assert_crash_parity(&path, 64);
 }
