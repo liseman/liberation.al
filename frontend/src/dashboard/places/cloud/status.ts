@@ -5,7 +5,7 @@
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
 import { dayWords, hm, isoDay } from '../../lib/format';
-import type { CameraView, CloudLevel, Scene, ScenePair, ScenePlaced, ViewWhy } from '../api';
+import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, ViewWhy } from '../api';
 
 const when = (at: number) =>
   new Date(at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -82,7 +82,9 @@ export function viewNote(scene: Scene, name?: string, now = new Date()): string 
   const facts = [view.points ? `${view.points.toLocaleString()} points` : null, view.at ? made(view.at, now) : null];
   const counted = facts.filter(Boolean).join(', ');
   const level = levelLine(view.level, view.tilt_deg, view.roll_deg);
-  return `What ${name ?? view.camera} sees on its own. ${counted ? `${counted}. ` : ''}${level ? `${level} ` : ''}${APPROXIMATE}`;
+  const fit = view.fit ? fitLine(view.fit) : null;
+  const sized = view.fit?.state === 'fitted' ? '' : APPROXIMATE;
+  return `What ${name ?? view.camera} sees on its own. ${[counted ? `${counted}.` : '', level, fit, sized].filter(Boolean).join(' ')}`;
 }
 
 /** How a cloud was stood upright, and the camera's tilt and roll by that; null when the scene doesn't say. */
@@ -136,7 +138,7 @@ export function squareLine(camera: ScenePlaced): string | null {
   switch (square.state) {
     case 'squared': {
       if (!camera.squared) return null;
-      const slid = Math.hypot(square.right_m, square.ahead_m);
+      const slid = camera.fitted ? 0 : Math.hypot(square.right_m, square.ahead_m); // a fit slides it instead
       const turned = Math.abs(square.turn_deg) >= 0.5;
       const moves = [
         turned ? `turned ${Math.abs(square.turn_deg).toFixed(1)}°` : null,
@@ -146,8 +148,8 @@ export function squareLine(camera: ScenePlaced): string | null {
         ? `Squared to your plan by its walls: ${moves.join(' and ')}.`
         : "Its walls already run along your plan's.";
       const held =
-        square.slide === 'beyond'
-          ? " Not slid onto the plan's walls: they are farther off than a slide goes, because its size is an estimate."
+        square.slide === 'beyond' && !camera.fitted
+          ? " Not slid onto the plan's walls: they are farther off than a slide goes."
           : '';
       return `${what}${held}`;
     }
@@ -159,6 +161,41 @@ export function squareLine(camera: ScenePlaced): string | null {
       return 'No wall of your plan near it to square it to: it faces the way its spot says.';
   }
 }
+
+const percent = (scale: number) => {
+  const by = Math.round(Math.abs(scale - 1) * 100);
+  return by ? `resized by ${by} percent (${scale < 1 ? 'smaller' : 'larger'})` : 'its size kept';
+};
+
+/** How a cloud was fitted to the rooms of the plan, or in plain words why it wasn't. A fitted line keeps how far its
+ *  walls stood from the plan's before, when that was more than a few centimetres or degrees. */
+export function fitLine(fit: SceneFit): string {
+  const slid = Math.hypot(fit.dx, fit.dy);
+  switch (fit.state) {
+    case 'fitted': {
+      const walls = fit.walls.length === 1 ? '1 wall' : `${fit.walls.length} walls`;
+      const moved = slid >= 0.01 ? `, moved ${metres(slid)}` : '';
+      const one = fit.walls.length === 1 ? ' One wall gives its size, not where it stands across it.' : '';
+      const off = Math.max(0, ...fit.walls.map(wall => Math.abs(wall.before_m)));
+      const ran = Math.max(0, ...fit.walls.map(wall => wall.off_deg));
+      const before = [
+        off >= 0.05 ? `stood up to ${metres(off)} from your plan's` : null,
+        ran >= 3 ? `ran up to ${degrees(ran)} off them` : null,
+      ].filter(Boolean);
+      const was = before.length ? ` Before, its walls ${before.join(' and ')}.` : '';
+      return `Fitted to the room: ${percent(fit.scale)}${moved}, matched to ${walls}.${one}${was}`;
+    }
+    case 'no_walls':
+      return 'Not fitted to the room: no wall in view.';
+    case 'no_match':
+      return "Not fitted to the room: the wall it sees isn't where a wall of your plan is. It may be an island, a half wall, or furniture that the plan doesn't draw.";
+    case 'beyond':
+      return `Not fitted to the room: its walls ask for it to be ${percent(fit.scale)} and moved ${metres(slid)}, more than a fit may do. Check where its spot is.`;
+  }
+}
+
+/** What a flat wall is, said once by the option that draws them. */
+export const FLAT_NOTE = "A flat wall is your plan's wall with what the camera saw painted on it.";
 
 /** The honest part, where it applies: walls of one cloud that are out with each other by `BEND_DEG` or more. */
 export function bendLine(camera: ScenePlaced): string | null {

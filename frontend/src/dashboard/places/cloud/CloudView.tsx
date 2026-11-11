@@ -41,7 +41,17 @@ import { outsideCounts } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { SceneLayers } from './SceneLayers';
 import { ABOVE, type Built, build, type Colour, type View } from './scene';
-import { LIVE, learningNote, loadingText, planNote, sceneEmpty, splatNote, viewNote, viewWhy } from './status';
+import {
+  FLAT_NOTE,
+  LIVE,
+  learningNote,
+  loadingText,
+  planNote,
+  sceneEmpty,
+  splatNote,
+  viewNote,
+  viewWhy,
+} from './status';
 
 type Draw = 'points' | 'splat';
 type Mode = 'one' | 'all';
@@ -205,7 +215,9 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
   // One camera's own cloud, or every camera's placed in the place (#445).
   const [mode, setMode] = useState<Mode>('one');
   const all = mode === 'all';
-  const scene = useQuery({ ...sceneQuery(place, all ? null : picked, all), enabled: webgl });
+  // Whether the floor and matched walls of clouds fitted to their rooms are drawn flat (#471).
+  const [flat, setFlat] = useState(true);
+  const scene = useQuery({ ...sceneQuery(place, all ? null : picked, all, flat), enabled: webgl });
   // While the other mode's scene is on its way, the one before it stays on screen; its controls wait for the new one.
   const read = scene.data && !!scene.data.combined === all ? scene.data : undefined;
   const views = read?.views ?? scene.data?.views ?? [];
@@ -461,6 +473,8 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
     setAttempt(n => n + 1);
   };
   const cams = Object.keys((drawn?.scene ?? data)?.cameras ?? {});
+  // A cloud fitted to its room can be drawn with flat walls and floor: the option is offered when one is.
+  const canFlatten = (combined?.cameras ?? []).some(c => c.fitted && c.placed) || read?.view?.fit?.state === 'fitted';
   // How many points lie outside the plan among the cameras shown: what "Only inside the plan" leaves out.
   const leftOut = (combined?.cameras ?? []).reduce(
     (sum, c, i) => sum + (hiddenCameras.has(c.camera) ? 0 : (beyond[i] ?? 0)),
@@ -560,6 +574,15 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
                 }
                 checked={inside}
                 onChange={event => setInside(event.currentTarget.checked)}
+              />
+            )}
+            {canFlatten && (
+              <Checkbox
+                size="xs"
+                label="Flat walls and floor"
+                description={FLAT_NOTE}
+                checked={flat}
+                onChange={event => setFlat(event.currentTarget.checked)}
               />
             )}
           </Group>

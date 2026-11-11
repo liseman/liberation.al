@@ -1,4 +1,4 @@
-"""Standing a camera's cloud upright, and square to the house (#466).
+"""Standing a camera's cloud upright, square to the house, and fitted to its rooms (#466, #471).
 
 A cloud placed by its camera's spot alone is only as straight as that spot's facing and the cloud's own level. The
 cloud holds better evidence of both: its floor is horizontal, its walls are vertical, and its walls run along the
@@ -24,6 +24,25 @@ be moved onto it; the slide that suits them best, nearer walls counting more (a 
 is made when it is within `SLIDE_M`. A cloud is the model's own estimate of size, so two facing walls can ask for
 different slides: they share it, and neither is stretched to fit.
 
+**Fit to the room** (`fit`). The plan's rooms have walls of known length, which makes the plan the measurement of
+a cloud's size. Each wall of the squared cloud is matched to the plan wall its camera sees there: the first plan wall
+on the sight lines from the camera's spot to the cloud wall (so never one behind another), when it runs the same way
+(`FACING_DEG`) and the cloud wall is within `SIZE` of its distance. Of several cloud planes facing one plan wall, the
+farthest is the wall (in pieces, where it bends) and the nearer ones are fronts of what stands against it. The cloud
+is resized about its camera and slid, by least squares, so its matched walls land on the plan's; one wall gives the
+size alone, walls on both sides the slide too. A fit past `SIZE` or `FIT_SLIDE_M`, or with no wall matched, is not
+made, and says why. Where the cloud has a floor and its camera a measured height, it is sized upwards by the height,
+across by the walls: a floor stays flat and a wall upright under that, and near and far each keep their own measure.
+
+**Flat walls and floor** (`flatten`). In a fitted cloud, the points of its floor are drawn on the floor and the points
+of each matched wall on that wall of the plan, where they were along it and up it. A wall drawn so is the plan's wall
+with what the camera saw painted on it; where the camera saw nothing there is a hole. Everything else, the fronts of
+furniture included, stays the points it is.
+
+Registering overlapping clouds to each other from their points and colours (coloured ICP) was tried on the Linux
+machine and left out: one pair of six overlaps at all, and there it moved a cloud 0.3 to 0.4 m and tipped it 4 to 5
+degrees off level, farther from what the two pictures measured (0.26 m to 0.54 m).
+
 Levelling is part of making a cloud (spatial/camera_clouds.py `make`, and `relevel` for one made before this). What
 comes of squaring is an `Align`: a step of the camera on the floor (to its right, ahead, and a turn). It is kept
 beside the cloud (`keep`, `kept`), and holds only for the cloud, the spot, and the plan it was made from:
@@ -44,7 +63,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -381,21 +400,206 @@ def square(found: Sequence[Line], x: float, y: float, bearing: float, plan: Sequ
                   len(asks) if not why else 0, why, round(off_before, 2), bend)  # fmt: skip
 
 
+# ---- fitting to the room
+
+SIZE = (0.8, 1.25)  # how far a cloud may be resized: the model's metres were 0.96 to 1.06 of the plan's on live walls
+FIT_SLIDE_M = 0.5  # and how far it may be slid, once resized
+FACING_DEG = 10.0  # a cloud wall within this of a plan wall's direction may be that wall (walls bend up to 8)
+RAYS = 5  # sight lines from the camera to a cloud wall, to find the plan wall it sees there
+OFF_M = 0.3  # a matched wall left this far from its plan wall by the fit is not that wall
+SAME_WALL_M = (
+    0.3  # cloud planes this near the farthest one matched to a plan wall are that wall, bent; nearer ones are furniture
+)
+HOLD = 0.05  # how hard the slide is held to nothing, as a share of the walls' weight
+
+
+@dataclass(frozen=True)
+class Matched:
+    """A wall of a cloud and the plan wall it was matched to."""
+
+    a: tuple[float, float]  # the plan wall's ends, in the scene
+    b: tuple[float, float]
+    normal: tuple[float, float]  # the cloud wall, as a line in the cloud's own frame: normal . p = offset
+    offset: float
+    lo: float  # its reach along (-normal_y, normal_x)
+    hi: float
+    off_deg: float  # how far the cloud wall runs off the plan wall, squared
+    before_m: float  # how far it stood from the plan wall before the fit (positive: beyond it)
+    after_m: float  # and after
+
+
+@dataclass(frozen=True)
+class Fit:
+    """How a squared cloud was fitted to the rooms of the plan."""
+
+    #: "fitted"; "no_walls" (no wall in the cloud); "no_match" (no wall of it could be matched to a plan wall);
+    #: "beyond" (the fit asks for a resize or a slide past the bounds: left alone, and `scale`, `dx`, `dy` say what it
+    #: would have taken)
+    state: str
+    scale: float = 1.0  # the cloud's size across the floor, against the model's own metres
+    up: float = 1.0  # and its size upwards (the camera's measured height over the cloud's, when known; else `scale`)
+    dx: float = 0.0  # the slide of the camera from its spot, in the scene (m)
+    dy: float = 0.0
+    turn_deg: float = 0.0  # the squaring turn it was fitted with
+    walls: tuple[Matched, ...] = ()
+    seen: int = 0  # the walls in the cloud
+
+
+def _first_hit(origin: np.ndarray, toward: np.ndarray, plan: Sequence[Edge]) -> int | None:
+    """The plan wall a sight line from `origin` through `toward` meets first, or None."""
+    ray = toward - origin
+    best, which = math.inf, None
+    for index, (a, b) in enumerate(plan):
+        a0, edge = np.array(a), np.array(b) - np.array(a)
+        cross = ray[0] * edge[1] - ray[1] * edge[0]
+        if abs(cross) < 1e-12:
+            continue
+        gap = a0 - origin
+        t = (gap[0] * edge[1] - gap[1] * edge[0]) / cross  # along the ray
+        u = (gap[0] * ray[1] - gap[1] * ray[0]) / cross  # along the wall
+        if t > 1e-6 and -1e-9 <= u <= 1 + 1e-9 and t < best:
+            best, which = t, index
+    return which
+
+
+def fit(
+    found: Sequence[Line],
+    x: float,
+    y: float,
+    bearing: float,
+    plan: Sequence[Edge],
+    turn_deg: float = 0.0,
+    height: tuple[float, float] | None = None,
+) -> Fit:
+    """Fit a levelled cloud to the plan's rooms: `found` are its walls (its own frame, the camera at the origin),
+    for a camera the owner put at x, y facing `bearing`, squared by `turn_deg`. Each cloud wall is matched to the
+    plan wall the camera sees where that wall is: the first plan wall on the sight lines from the camera to it, when
+    that wall runs the same way. The plan's walls are the measurement: with the cloud resized by s about its camera
+    and slid by t, a wall d metres from the camera along its plan wall's normal m lands s d + m . t from the
+    camera's spot, and should land where the plan wall is. s and t are the least-squares answer, t held lightly to
+    nothing, so one wall gives the size alone and walls on both sides give size and slide. `height` is the camera's
+    measured height and its height in the cloud: the cloud is sized upwards by their ratio, so near things, sized
+    by the floor under the camera, and far walls each get their own measure."""
+    if not found:
+        return Fit("no_walls")
+    facing = bearing + math.radians(turn_deg)
+    eye = np.array([x, y])
+    rows, hit = [], []
+    for line in found:
+        placed = _moved(line, x, y, facing)
+        normal = np.array(placed.normal)
+        along = np.array([-normal[1], normal[0]])
+        marks = np.linspace(placed.lo, placed.hi, RAYS + 2)[1:-1]
+        hits = [_first_hit(eye, normal * placed.offset + along * mark, plan) for mark in marks]
+        seen = [hit for hit in hits if hit is not None]
+        if not seen:
+            continue
+        which = max(set(seen), key=seen.count)
+        if seen.count(which) * 2 <= RAYS:
+            continue  # the sight lines don't agree on a wall: an opening, or a corner
+        a, b = plan[which]
+        edge = np.array(b) - np.array(a)
+        wall_normal = np.array([edge[1], -edge[0]]) / float(np.linalg.norm(edge))
+        if wall_normal @ (np.array(a) - eye) < 0:
+            wall_normal = -wall_normal
+        off = float(np.degrees(np.arccos(np.clip(wall_normal @ normal, -1.0, 1.0))))
+        if off > FACING_DEG:
+            continue
+        # the cloud wall's distance from the camera along the plan wall's normal, at the middle of its reach
+        middle = normal * placed.offset + along * float(np.mean(marks)) - eye
+        d, g = float(middle @ wall_normal), float((np.array(a) - eye) @ wall_normal)
+        if d <= 0.3 or not SIZE[0] <= g / d <= SIZE[1]:
+            continue
+        rows.append((line, (a, b), wall_normal, d, g, off))
+        hit.append(which)
+    # Several planes of a cloud can face one plan wall: the wall itself, in pieces where it bends, and the fronts of
+    # what stands against it. The wall is the farthest; a cupboard's front is not laid on it.
+    farthest = {which: max(row[3] for row, w in zip(rows, hit, strict=True) if w == which) for which in set(hit)}
+    rows = [row for row, which in zip(rows, hit, strict=True) if row[3] >= farthest[which] - SAME_WALL_M]
+    if not rows:
+        return Fit("no_match", turn_deg=turn_deg, seen=len(found))
+    scale, slide = 1.0, np.zeros(2)
+    while rows:
+        weight = np.array([row[0].weight for row in rows])
+        root = np.sqrt(weight)
+        hold = math.sqrt(HOLD * float(weight.sum()))
+        lhs = np.array([[row[3], *row[2]] for row in rows]) * root[:, None]
+        rhs = np.array([row[4] for row in rows]) * root
+        lhs = np.vstack([lhs, [[0.0, hold, 0.0], [0.0, 0.0, hold]]])
+        answer, *_ = np.linalg.lstsq(lhs, np.append(rhs, [0.0, 0.0]), rcond=None)
+        scale, slide = float(answer[0]), answer[1:]
+        left = np.array([scale * row[3] + float(row[2] @ slide) - row[4] for row in rows])
+        worst = int(np.abs(left).argmax())
+        if abs(left[worst]) <= OFF_M or len(rows) == 1:
+            break
+        rows.pop(worst)  # not the wall it was taken for
+    matched = tuple(
+        Matched(a, b, line.normal, line.offset, line.lo, line.hi, round(off, 2), round(d - g, 3), round(left_m, 3))
+        for (line, (a, b), m, d, g, off), left_m in zip(
+            rows, (scale * row[3] + float(row[2] @ slide) - row[4] for row in rows), strict=True
+        )
+    )
+    up = scale
+    if height is not None and height[1] > 0 and 1 / SIZE[1] <= height[0] / height[1] <= SIZE[1]:
+        up = height[0] / height[1]
+    state = "fitted" if SIZE[0] <= scale <= SIZE[1] and float(np.linalg.norm(slide)) <= FIT_SLIDE_M else "beyond"
+    return Fit(state, round(scale, 4), round(up, 4), round(float(slide[0]), 3), round(float(slide[1]), 3), turn_deg,
+               matched, len(found))  # fmt: skip
+
+
+FLOOR_BAND_M = 0.05  # a point this near the cloud's floor is the floor's
+WALL_BAND_M = 0.12  # and one this near a matched wall is that wall's: walls bow up to 7 cm
+POINT, FLOOR, WALL = 0, 1, 2  # what a drawn point is
+
+
+def flatten(own: np.ndarray, move: np.ndarray, found: Fit) -> tuple[np.ndarray, np.ndarray]:
+    """A fitted cloud's points as they are drawn flat: `own` (its own frame) moved into the scene by `move` (4 x 4),
+    with the points of its floor laid on the floor (z = 0) and the points of each matched wall laid on that wall of
+    the plan, each where it was along the wall and up it. Returns the scene points, and for each what it is (`POINT`,
+    `FLOOR`, `WALL`). Nothing is added: where the camera saw no wall there is none. Everything else stays as it is."""
+    scene = own @ move[:3, :3].T + move[:3, 3]
+    kind = np.full(len(own), POINT, dtype=np.uint8)
+    if found.state != "fitted":
+        return scene, kind
+    floor = np.abs(own[:, 2]) < FLOOR_BAND_M
+    kind[floor] = FLOOR
+    scene[floor, 2] = 0.0
+    for wall in found.walls:
+        normal = np.array(wall.normal)
+        along = np.array([-normal[1], normal[0]])
+        reach = own[:, :2] @ along
+        past = 0.1 + 0.06 * (wall.hi - wall.lo)  # a wall's reach is measured short of its last few points
+        on = (
+            (np.abs(own[:, :2] @ normal - wall.offset) < WALL_BAND_M)
+            & (reach > wall.lo - past)
+            & (reach < wall.hi + past)
+            & (kind == POINT)
+        )
+        a, edge = np.array(wall.a), np.array(wall.b) - np.array(wall.a)
+        length = float(np.linalg.norm(edge))
+        run = edge / length
+        where = np.clip((scene[on, :2] - a) @ run, 0.0, length)  # along the plan wall, and not past its ends
+        scene[on, :2] = a + where[:, None] * run
+        kind[on] = WALL
+    return scene, kind
+
+
 # ---- what is kept
 
 
 @dataclass(frozen=True)
 class Align:
-    """A cloud's squaring to the plan, and what it was made from."""
+    """A cloud's squaring and fit to the plan, and what they were made from."""
 
     cloud: str  # the cloud's id
     square: Square
     basis: str  # the spot it was squared from (spatial/cloud_scene.py `SpotAt.basis`)
     plan: str  # and the plan's walls (`plan_key`)
+    fit: Fit | None = None  # None in a record kept before clouds were fitted: it is made again
 
     def holds(self, cloud: str, basis: str, plan: str) -> bool:
         """Whether it is still of this cloud, spot, and plan."""
-        return (self.cloud, self.basis, self.plan) == (cloud, basis, plan)
+        return self.fit is not None and (self.cloud, self.basis, self.plan) == (cloud, basis, plan)
 
 
 def plan_key(rooms: Sequence[Sequence[tuple[float, float]]]) -> str:
@@ -410,11 +614,44 @@ def make(
     at: tuple[float, float, float],
     basis: str,
     rooms: Sequence[Sequence[tuple[float, float]]],
+    height: tuple[float, float] | None = None,
 ) -> Align:
     """A levelled cloud's `Align`: `points` (its own frame, its camera on the z axis looking along +y) squared to the
-    plan's `rooms`, for a camera the owner put at `at` (x, y, and bearing in the scene)."""
-    squared = square(lines(planes(points)), at[0], at[1], at[2], edges_of(rooms))
-    return Align(cloud, squared, basis, plan_key(rooms))
+    plan's `rooms` and fitted to them, for a camera the owner put at `at` (x, y, and bearing in the scene). `height`
+    is `fit`'s."""
+    found = lines(planes(points))
+    walls = edges_of(rooms)
+    squared = square(found, at[0], at[1], at[2], walls)
+    turn = squared.turn_deg if squared.state == "squared" else 0.0
+    return Align(cloud, squared, basis, plan_key(rooms), fit(found, at[0], at[1], at[2], walls, turn, height))
+
+
+def fit_of(raw: Mapping[str, Any]) -> Fit:
+    """A `Fit` from its dict (`asdict`, or read back from JSON). Raises KeyError, TypeError, or ValueError."""
+    walls = tuple(
+        Matched(
+            (float(w["a"][0]), float(w["a"][1])),
+            (float(w["b"][0]), float(w["b"][1])),
+            (float(w["normal"][0]), float(w["normal"][1])),
+            float(w["offset"]),
+            float(w["lo"]),
+            float(w["hi"]),
+            float(w["off_deg"]),
+            float(w["before_m"]),
+            float(w["after_m"]),
+        )
+        for w in raw["walls"]
+    )
+    return Fit(
+        str(raw["state"]),
+        float(raw["scale"]),
+        float(raw["up"]),
+        float(raw["dx"]),
+        float(raw["dy"]),
+        float(raw["turn_deg"]),
+        walls,
+        int(raw["seen"]),
+    )
 
 
 def keep(folder: Path, found: Align) -> None:
@@ -428,6 +665,7 @@ def kept(folder: Path) -> Align | None:
     if not isinstance(raw, dict):
         return None
     try:
-        return Align(str(raw["cloud"]), Square(**raw["square"]), str(raw["basis"]), str(raw["plan"]))
+        fitted = None if raw.get("fit") is None else fit_of(raw["fit"])
+        return Align(str(raw["cloud"]), Square(**raw["square"]), str(raw["basis"]), str(raw["plan"]), fitted)
     except KeyError, TypeError, ValueError:
         return None
