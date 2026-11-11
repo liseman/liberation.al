@@ -286,10 +286,60 @@ def test_a_reset_refuses_before_stopping_anything_when_the_broker_isnt_installed
     host, plan = house
     derived_state(plan.state)
     host.broker_unit = False
-    with pytest.raises(reset_catalog.Refused, match="pack-services install"):
+    preview = "\n".join(reset_catalog.describe(plan, host))
+    assert "pack-services install" not in preview
+    assert "pack-services migrate" in preview and "pack-app" in preview
+    with pytest.raises(reset_catalog.Refused, match="pack-services migrate") as raised:
         reset_catalog.run(plan, host, say=lambda line: None)
+    assert "pack-services install" not in str(raised.value)
+    assert "pack-app" in str(raised.value) and "pack-supervisor run" in str(raised.value)
     assert host.calls == ["start continuum-broker", "start dashboard"], "only the fixture's own start"
     assert (plan.state / "continuum/tier/a.chunk").exists()
+
+
+def test_a_closed_application_with_nothing_installed_is_reset_and_told_to_open_it(tmp_path):
+    state = tmp_path / "state"
+    chunk = state / "continuum" / "tier" / "a.chunk"
+    chunk.parent.mkdir(parents=True)
+    chunk.write_bytes(b"old")
+    devices = tmp_path / "devices.toml"
+    devices.write_text('[[device]]\nname = "cam0"\nkind = "camera"\n')
+    plan = reset_catalog.Plan(state, tmp_path / "faces", devices)
+    host = NoServices()
+    preview = "\n".join(reset_catalog.describe(plan, host))
+    assert "pack-services install" not in preview and "Refuses:" not in preview
+    assert "pack-app" in preview and "pack-supervisor run" in preview
+    said: list[str] = []
+    reset_catalog.run(plan, host, say=said.append)
+    assert not chunk.exists()
+    done = "\n".join(said)
+    assert "pack-services install" not in done
+    assert "pack-app" in done and "pack-supervisor run" in done
+    assert any(line.startswith("Deleting ") for line in said)
+
+
+def test_a_closed_application_refuses_while_the_broker_socket_is_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(reset_catalog, "listening", lambda path: True)
+    state = tmp_path / "state"
+    chunk = state / "continuum" / "tier" / "a.chunk"
+    chunk.parent.mkdir(parents=True)
+    chunk.write_bytes(b"old")
+    devices = tmp_path / "devices.toml"
+    devices.write_text('[[device]]\nname = "cam0"\nkind = "camera"\n')
+    plan = reset_catalog.Plan(state, tmp_path / "faces", devices)
+    with pytest.raises(reset_catalog.Refused, match="socket") as raised:
+        reset_catalog.run(plan, NoServices(), say=lambda line: None)
+    assert "pack-services install" not in str(raised.value)
+    assert chunk.exists()
+
+
+def test_reset_help_tells_a_closed_application_to_open_it(capsys):
+    with pytest.raises(SystemExit) as raised:
+        reset_catalog.main(["--help"])
+    assert raised.value.code == 0
+    out = capsys.readouterr().out
+    assert "pack-services install" not in out
+    assert "pack-app" in out and "pack-supervisor run" in out
 
 
 def test_a_service_gone_from_the_code_is_stopped_but_never_started_again(house):

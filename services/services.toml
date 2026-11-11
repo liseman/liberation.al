@@ -1,5 +1,7 @@
-# The pack's long-running services, declared once. `uv run pack-services` renders
-# them to launchd agents (macOS) or systemd user units (Linux) and installs them.
+# The pack's long-running services, declared once. The application (pack-app, or
+# pack-supervisor run without a window) runs the selected ones as its own children.
+# Rendering a unit file per service is only for an install that has not moved
+# (docs/SERVICES.md). `pack-services migrate` removes those units.
 #
 # Per service:
 #   description  one plain sentence, for the machine's owner, on what it does (Settings' Services shows it); build

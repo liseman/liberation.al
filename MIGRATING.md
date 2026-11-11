@@ -101,10 +101,11 @@ The `positions` service runs `pack-positions` every hour at 20 past. It replaces
 
 1. **Install the command.** Sync the checkout's environment, keeping your extras ("Every upgrade", step 3).
 
-2. **Add the service.** Under the application, quitting it and opening it again does the same.
+2. **Add the service.** With the application open, have it read the service list again. Quitting it and opening it
+   again does the same.
 
    ```sh
-   uv run --no-sync pack-services install positions
+   uv run --no-sync pack-supervisor reload
    ```
 
 3. **Bring the positions up to date once**, so the first hourly run is short. The first command prints what a run
@@ -309,7 +310,8 @@ recorded history. What you taught (people, voices, faces, pets, zones, and setti
    .venv/bin/pack-reset-catalog --keep-taught
    ```
 
-3. **Reset.** This stops the services, resets, and starts them again.
+3. **Reset.** With the application open, this stops the services, resets, and starts them again. With it closed,
+   this resets and says to open the application.
 
    ```sh
    .venv/bin/pack-reset-catalog --keep-taught --yes
@@ -385,7 +387,7 @@ A routine upgrade needs no reset. When one does:
    uv run --no-sync pack-reset-catalog --keep-taught
    ```
 
-3. **Reset**, with the same mode and `--yes`:
+3. **Reset**, with the same mode and `--yes`. With the application closed, open it afterwards:
 
    ```sh
    uv run --no-sync pack-reset-catalog --keep-taught --yes

@@ -75,9 +75,14 @@ derived from them should start again.
    uv run pack-reset-catalog --keep-taught --yes
    ```
 
-   It stops every service, deletes the machine-made data, turns on H.264 for the cameras in `config/devices.toml`
-   (`--camera NAME`, repeated, limits which), and starts the services that were running. If it stops partway, it
+   Run it with the application open. It stops every service, deletes the machine-made data, and starts the services
+   that were running. It leaves `config/devices.toml` and each camera's settings as they are. If it stops partway, it
    leaves everything stopped and says how to finish by hand.
+
+   With the application closed there is nothing to stop: the reset deletes the machine-made data and says to open
+   the application afterwards (`pack-app`, or `pack-supervisor run` on a machine without a desktop). It refuses while
+   a broker is still running, and an older install with a unit per service is told to remove the units with
+   `pack-services migrate`.
 
 To keep each place's maps, plans, walks, and splats too, add `--keep-places` to both commands.
 
