@@ -7,17 +7,22 @@
 
 In order:
 
-1. Check the plan can run: the broker's service is installed (if it isn't, the reset refuses before stopping
-   anything and says to run `pack-services install`).
+1. See what is installed. Per-service units are an older install: the broker's unit has to be one of them, and if
+   it isn't, the reset refuses before stopping anything and says to remove those units (`pack-services migrate`)
+   and open the application. When nothing is installed, the application is closed and there is nothing to stop.
+   The reset deletes the machine-made data and says to open the application afterwards (`pack-app`, or
+   `pack-supervisor run` without the window). A broker socket that is still open, with nothing installed to stop,
+   refuses the same way: nothing is deleted while a broker might have the catalog open.
 2. Stop every installed service outside the `core` group, then the core services too, and check that nothing is
    running and the broker's socket is closed. A broker that crash-loops (on an old catalog format, say) can bind its
    socket again between the stop and the check, so the reset stops it again until it stays down, and refuses only if
    it's still up after `STOP_WAIT_S`.
 3. Delete the catalog, the recorded video and audio it indexes (`tier` and `tier2`), the worker state derived from
    it (see `targets`), and the segment store.
-4. Start the broker and the other core services that were running, wait for the broker's socket, then start the
-   other services that were running. The broker always starts, even if it was stopped or crash-looping when the
-   reset began: the reset leaves a fresh catalog it can open, and nothing else runs without it.
+4. When services were installed, start the broker and the other core services that were running, wait for the
+   broker's socket, then start the other services that were running. The broker always starts, even if it was
+   stopped or crash-looping when the reset began: the reset leaves a fresh catalog it can open, and nothing else
+   runs without it. When nothing was installed, there is nothing to start.
 
 From step 3 on, a failure leaves everything stopped and says how to finish by hand: starting a broker on half a
 reset is worse than a stopped house.
@@ -218,6 +223,27 @@ def listening(socket: Path) -> bool:
         return True
 
 
+OPEN_APPLICATION = "open the application: pack-app (or pack-supervisor run, without the window)"
+
+
+def _clear(plan: Plan, say: Callable[[str], None]) -> None:
+    """Delete the plan's files. A failure leaves whatever remains and says how to finish by hand."""
+    finish = "Everything is stopped. Finish by hand: delete what's left of the plan's list, then start the services."
+    try:
+        for path in deleted(plan):
+            say(f"Deleting {path}")
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        for path in logs(plan):
+            path.write_bytes(b"")
+        if plan.mode == "fresh" and plan.logs is not None:
+            say(f"Truncated the logs in {plan.logs}")
+    except Exception as error:
+        raise Stopped(f"{error}. {finish}") from error
+
+
 def describe(plan: Plan, host: Host) -> list[str]:
     """The plan, as the dry run prints it."""
     installed = host.installed()
@@ -241,9 +267,16 @@ def describe(plan: Plan, host: Host) -> list[str]:
     if plan.keep_places:
         lines.append(f"Keep: {plan.state / 'places'} (visits and positions start fresh)")
     lines.append(f"Not touched: {plan.devices} (each camera's encoding settings stay as they are)")
-    lines.append("Start the broker and the services that were running")
-    if BROKER not in installed:
-        lines.append(f"Refuses: {BROKER} isn't installed (run `pack-services install` first)")
+    if not installed:
+        lines.append("Nothing is installed, so nothing is stopped or started.")
+        lines.append(f"Afterwards, {OPEN_APPLICATION}.")
+    else:
+        lines.append("Start the broker and the services that were running")
+        if BROKER not in installed:
+            lines.append(
+                f"Refuses: {BROKER} isn't installed. Remove the per-service units with `pack-services migrate`, "
+                f"then {OPEN_APPLICATION}."
+            )
     if plan.mode == "fresh":
         lines.append("Not touched: settings (pack.toml, including [owner], and config/devices.toml)")
     retired = [n for n in installed if n not in host.declared()]
@@ -265,10 +298,22 @@ def run(
         raise Refused(f"the mode is one of {', '.join(MODES)}")
 
     installed = host.installed()
+    if not installed:
+        if listening(plan.broker_socket):
+            raise Refused(
+                "the broker's socket is still open, and nothing is installed to stop, so nothing was deleted. "
+                "Quit whatever has it open (pack-supervisor quit), then run the reset again. "
+                f"Afterwards, {OPEN_APPLICATION}."
+            )
+        _clear(plan, say)
+        say("Nothing was running. Open the application: pack-app (or pack-supervisor run, without the window).")
+        say("Reset done")
+        return
     if BROKER not in installed:
         raise Refused(
-            f"{BROKER} isn't installed, so the reset couldn't start the house again; run `pack-services install`, "
-            "then the reset. Nothing was stopped or deleted"
+            f"{BROKER} isn't installed, so the reset couldn't start the house again. "
+            f"Remove the per-service units with `pack-services migrate`, then {OPEN_APPLICATION}. "
+            "Nothing was stopped or deleted"
         )
     core = host.core()
     states = host.states()
@@ -295,20 +340,7 @@ def run(
         time.sleep(STOP_RETRY_S)
         host.stop(list(dict.fromkeys([*still, BROKER])))
 
-    finish = "Everything is stopped. Finish by hand: delete what's left of the plan's list, then start the services."
-    try:
-        for path in deleted(plan):
-            say(f"Deleting {path}")
-            if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
-            else:
-                path.unlink()
-        for path in logs(plan):
-            path.write_bytes(b"")
-        if plan.mode == "fresh" and plan.logs is not None:
-            say(f"Truncated the logs in {plan.logs}")
-    except Exception as error:
-        raise Stopped(f"{error}. {finish}") from error
+    _clear(plan, say)
 
     say("Starting the core services")
     host.start([n for n in installed if n in core and (n in running or n == BROKER)])
