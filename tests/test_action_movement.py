@@ -79,3 +79,24 @@ def test_a_camera_shift_is_found_by_phase_correlation():
     assert shift == pytest.approx((10 / 160, 0.0))
     still, _ = gpu_pose.phase_shift(base, spectrum)
     assert still == pytest.approx((0.0, 0.0))
+
+
+def test_a_walk_by_far_from_every_camera_motion_sample_is_marked_unknown():
+    # The camera's motion is only known from samples near the crossing; behaviour must not change with the walk-by
+    # sample lookup, so a crossing with none in reach still says the motion is unknown and the walk moved.
+    written: list[dict[str, Any]] = []
+    movement = action_movement.Movement("cam0", lambda stream, rows: written.extend(rows))
+    movement._moved.extend([(T / 1e9, False), (T / 1e9 + 1.0, False)])
+    movement._walks(
+        [{"ts": T / 1e9 + 300.0, "tracks": [7], "direction": "left_to_right", "crossings": 1, "verified": True}]
+    )
+    (walk,) = written
+    assert (walk["uncertainty"], walk["camera_moved"]) == ({"camera_motion": "unknown"}, True)
+
+    written.clear()
+    movement._moved.append((T / 1e9 + 300.5, False))
+    movement._walks(
+        [{"ts": T / 1e9 + 300.0, "tracks": [7], "direction": "left_to_right", "crossings": 1, "verified": True}]
+    )
+    (walk,) = written
+    assert (walk["uncertainty"], walk["camera_moved"]) == ({}, False), "a sample within 2 s is the walk's motion"
