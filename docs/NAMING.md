@@ -96,6 +96,9 @@ A wrong picture among a person's or a pet's examples pulls matches the wrong way
    wrong one usually is. Each says how alike it is to the rest, and one far below the others is marked "Unlike the
    rest".
 3. Select each wrong picture and press "Remove N selected".
+
+   ![A pet's training images with the picture unlike the rest ticked, and the Remove 1 selected button above the tiles](images/demo-pet-remove-selected.png)
+
 4. Confirm. Removal cannot be undone.
 
 Recognition stops matching against the removed examples at once, with no restart.

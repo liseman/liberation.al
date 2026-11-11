@@ -1,6 +1,8 @@
 # How to set up network inventory, device links, and cameras
 
-Every local-network feature is off by default and read-only toward the network. [BLUETOOTH.md](BLUETOOTH.md) covers the
+This guide shows you how to have the pack notice which devices are on your network, link a phone or a watch to its
+person so the pack can tell who is home, and add network cameras. Every local-network feature is off by default and
+read-only toward the network. [BLUETOOTH.md](BLUETOOTH.md) covers the
 Bluetooth advertisement sensors.
 
 ## What network observations prove and do not prove
