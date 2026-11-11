@@ -123,13 +123,104 @@ it("draws an earlier map's splat that still lines up, labelled as one", async ()
 
 const learning = (more: object = {}) => ({ on: true, cameras: 1, ...more });
 
-it('says a place with no map has none: the 3D map is being rebuilt with a new method', async () => {
-  serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0 }) });
+it('says no camera has a point cloud yet, and that learning is off, for a place with nothing to draw', async () => {
+  serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0 }), views: [] });
   renderPage(<CloudView place="p1" />);
   expect(
-    await screen.findByText(/^No 3D map of this place yet: the 3D map is being rebuilt with a new method\./),
+    await screen.findByText(/^No camera has a point cloud of this place yet\. Learn surroundings is off/),
   ).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull();
   expect(build).not.toHaveBeenCalled();
+});
+
+// One camera's own cloud (#417): picked by camera, drawn as points alone, from that camera's viewpoint.
+const view = (camera: string, more: object = {}) => ({
+  camera,
+  cloud: true,
+  at: 1.8e9,
+  points: 1024,
+  size: 'approximate',
+  why: null,
+  ...more,
+});
+const VIEWS = [view('hall'), view('porch', { cloud: false, at: null, points: null, size: null, why: 'people' })];
+const cloudOf = (camera: string, more: object = {}) =>
+  scene({
+    revision: `c-${camera}`,
+    map: `/places/map?place=p1&revision=c-${camera}&camera=${camera}`,
+    splat: null,
+    cameras: {
+      [camera]: {
+        pose: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1.5, 0, 0, 0, 1],
+        focal: 300,
+        width: 512,
+        height: 288,
+        at: 1,
+      },
+    },
+    learning: learning(),
+    views: VIEWS,
+    view: { camera, size: 'approximate', floor_found: true, points: 1024, at: 1.8e9 },
+    ...more,
+  });
+
+/** Serve each camera's scene by the camera asked for; with none asked for, the first camera's. */
+function serveCameras() {
+  const asked: (string | null)[] = [];
+  server.use(
+    http.get('/places/scene', ({ request }) => {
+      const camera = new URL(request.url).searchParams.get('camera');
+      asked.push(camera);
+      if (camera === 'porch')
+        return HttpResponse.json({ place: 'p1', revision: null, learning: learning(), views: VIEWS, view: { camera } });
+      return HttpResponse.json(cloudOf('hall'));
+    }),
+    http.get('/places/map', () => bytes(MAP)),
+  );
+  return asked;
+}
+
+it("opens on the first camera's own cloud, from that camera, as points with no splat or plan offered", async () => {
+  serveCameras();
+  renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  expect(build.mock.calls[0]?.[3]).toBeNull(); // no splat
+  expect(build.mock.calls[0]?.[4]).toBe('hall'); // from where the camera stands
+  expect(await screen.findByText(/1,024 points from .+ Approximate size/)).toBeTruthy();
+  expect(screen.queryByText('Splat')).toBeNull();
+  expect(screen.queryByLabelText('Plan')).toBeNull();
+  expect(screen.queryByText(/No splat/)).toBeNull();
+});
+
+it('says a cloud was sized from the mounting height when it was', async () => {
+  serve(cloudOf('hall', { view: { camera: 'hall', size: 'height', floor_found: true, points: 1024, at: 1.8e9 } }));
+  renderPage(<CloudView place="p1" />);
+  expect(await screen.findByText(/Sized from the camera's mounting height\./)).toBeTruthy();
+});
+
+it('shows the camera picked, and says why one with no cloud has none', async () => {
+  const asked = serveCameras();
+  renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  await userEvent.click(screen.getByRole('combobox', { name: 'Camera' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'porch (no cloud yet)' }));
+  expect(
+    await screen.findByText(
+      'No point cloud from porch yet. Someone was in view each time it looked. It needs about 20 seconds with nobody in view.',
+    ),
+  ).toBeTruthy();
+  expect(asked).toEqual([null, 'porch']);
+  // and back to the one that has a cloud
+  await userEvent.click(screen.getByRole('combobox', { name: 'Camera' }));
+  await userEvent.click(await screen.findByRole('option', { name: 'hall' }));
+  await waitFor(() => expect(asked.at(-1)).toBe('hall'));
+  expect(await screen.findByText(/1,024 points/)).toBeTruthy();
+});
+
+it("says why a camera's cloud isn't newer while learning is off", async () => {
+  serve(cloudOf('hall', { learning: learning({ on: false, cameras: 0 }), views: [view('hall', { why: 'off' })] }));
+  renderPage(<CloudView place="p1" />);
+  expect(await screen.findByText(/Learn surroundings is off, so nothing is made or refreshed/)).toBeTruthy();
 });
 
 it('asks for the scene again every few seconds while learning is on, and seldom while it is off', () => {
@@ -195,7 +286,9 @@ it("doesn't draw the map again when only what is said about learning changed", a
   reply = withSplat({ splat_state: 'current', learning: learning({ on: false }) });
   await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
   await waitFor(() =>
-    expect(client.getQueryData<{ learning?: { on: boolean } }>(['places', 'scene', 'p1'])?.learning?.on).toBe(false),
+    expect(client.getQueryData<{ learning?: { on: boolean } }>(['places', 'scene', 'p1', null])?.learning?.on).toBe(
+      false,
+    ),
   );
   expect(build.mock.calls.length).toBe(before);
 });

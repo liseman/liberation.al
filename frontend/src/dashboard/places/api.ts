@@ -1,6 +1,6 @@
 // Known › Places' reads: the places the house has (GET /places, memory/places.py) and where people and pets were in
 // one of them over a window of time (GET /places/positions; the position layer is spatial/positions.py).
-import { queryOptions } from '@tanstack/react-query';
+import { keepPreviousData, queryOptions } from '@tanstack/react-query';
 import type { Scene as PlanGraph } from '../../plan-editor/protocol';
 import { request } from '../../shared/http';
 
@@ -166,8 +166,8 @@ export const restorePlan = (place: string, record: string) =>
     record,
   });
 
-/** Whether pictures are collected from the cameras (the Live tab's "Learn surroundings"), for the 3D map being
- *  rebuilt with a new method. */
+/** Whether pictures are collected from the cameras (the Live tab's "Learn surroundings"), which is also what keeps
+ *  each camera's own cloud up to date. */
 export interface Learning {
   /** The switch. */
   on: boolean;
@@ -175,8 +175,34 @@ export interface Learning {
   cameras: number;
 }
 
+/** Why a camera has no cloud, or no newer one: what the cloud maker noted of its last try, or that learning is off,
+ *  the camera isn't chosen, or it is waiting for a picture with nobody in it. */
+export type ViewWhy =
+  | 'off'
+  | 'not_chosen'
+  | 'waiting'
+  | 'no_runtime'
+  | 'dark'
+  | 'people'
+  | 'lens'
+  | 'gpu'
+  | 'failed'
+  | 'unsure'
+  | 'flat';
+
+/** One camera the 3D view offers: whether it has a cloud of its own view, and why not (or why no newer one). */
+export interface CameraView {
+  camera: string;
+  cloud: boolean;
+  /** When its cloud was made (epoch seconds), how many points it has, and how it was sized; null without one. */
+  at: number | null;
+  points: number | null;
+  size: 'height' | 'approximate' | null;
+  why: ViewWhy | null;
+}
+
 /** What the 3D view draws for a place (GET /places/scene), all in its map's frame, or `revision: null` while it
- *  has no map. */
+ *  has nothing to draw. With `view`, the scene is one camera's own cloud, not the place's map. */
 export interface Scene {
   place: string;
   revision: string | null;
@@ -215,6 +241,18 @@ export interface Scene {
   plan_aligned?: boolean;
   /** Whether pictures are collected for the map; also given while the place has no map. */
   learning?: Learning;
+  /** The cameras whose own clouds the view offers. */
+  views?: CameraView[];
+  /** The camera whose own cloud this scene is (its points, in a level frame of its own, with the camera in it), with
+   *  how it was sized: by the camera's measured mounting height, or left in the model's approximate metres. Only
+   *  `camera` while that camera has no cloud yet. */
+  view?: {
+    camera: string;
+    size?: 'height' | 'approximate';
+    floor_found?: boolean;
+    points?: number;
+    at?: number;
+  };
 }
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
@@ -223,10 +261,18 @@ export interface Scene {
 export const SCENE_LEARNING_MS = 10_000;
 export const SCENE_IDLE_MS = 60_000;
 
-export const sceneQuery = (place: string) =>
+/** A place's scene; with `camera`, that camera's own cloud. Changing the camera keeps the scene before it on screen
+ *  until the new one answers. */
+export const sceneQuery = (place: string, camera?: string | null) =>
   queryOptions({
-    queryKey: ['places', 'scene', place],
-    queryFn: ({ signal }) => request<Scene>(`/places/scene?${new URLSearchParams({ place })}`, undefined, signal),
+    queryKey: ['places', 'scene', place, camera ?? null],
+    queryFn: ({ signal }) =>
+      request<Scene>(
+        `/places/scene?${new URLSearchParams({ place, ...(camera ? { camera } : {}) })}`,
+        undefined,
+        signal,
+      ),
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60_000,
     refetchInterval: q => (q.state.data?.learning?.on ? SCENE_LEARNING_MS : SCENE_IDLE_MS),
   });

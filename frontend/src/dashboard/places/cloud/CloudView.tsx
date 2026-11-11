@@ -13,9 +13,13 @@
 //
 // A map learned from the cameras changes while the view is open (#259): the scene is asked for again every few
 // seconds, and a newer map or splat is drawn once all of its bytes are here, the one before it staying drawn until
-// then, from where the person was looking. A line under the view says whether learning is on, how many views the
-// map was built from, and when it last improved (status.ts).
-import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
+// then, from where the person was looking.
+//
+// Until a place has a map of its own, what there is to draw is each camera's own point cloud (#417): what that one
+// camera sees, with depth. A picker over the view chooses the camera, the view opens from where that camera stands,
+// and a line says how the cloud was sized and when it was made, or why a camera has none yet (status.ts). One camera
+// at a time: clouds of different cameras are never drawn together, since nothing relates them.
+import { Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import {
   type ChangeEvent,
@@ -29,11 +33,12 @@ import {
 } from 'react';
 import { messageOf } from '../../../shared/http';
 import { PageError } from '../../lib/page';
-import { type Scene, sceneQuery } from '../api';
+import { viewName } from '../../review/views';
+import { type CameraView, type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { type Built, build, type Colour, type View } from './scene';
-import { learningNote, loadingText, planNote, splatNote } from './status';
+import { learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
 
 type Draw = 'points' | 'splat';
 
@@ -50,6 +55,7 @@ function drawnPart(scene: Scene): string {
   const { place, revision, map, map_format, map_bytes, splat, splat_format, splat_bytes, splat_revision } = scene;
   const { floor, plan_transform, cameras, plan } = scene;
   return JSON.stringify({
+    view: scene.view?.camera ?? null,
     place,
     revision,
     map,
@@ -139,10 +145,42 @@ export default function CloudView({ place }: { place: string }) {
   );
 }
 
+/** The camera whose own cloud is shown, picked from the cameras the scene offers. A camera with no cloud yet can be
+ *  picked too: the line under it says why it has none. Nothing is drawn with one camera or none to pick from. */
+function CameraPicker({
+  views,
+  camera,
+  onPick,
+}: {
+  views: readonly CameraView[];
+  camera: string | null;
+  onPick: (camera: string) => void;
+}) {
+  if (!views.length) return null;
+  return (
+    <Select
+      size="xs"
+      w={240}
+      label="Camera"
+      allowDeselect={false}
+      value={camera}
+      onChange={value => value && onPick(value)}
+      data={views.map(v => ({
+        value: v.camera,
+        label: v.cloud ? viewName(v.camera) : `${viewName(v.camera)} (no cloud yet)`,
+      }))}
+    />
+  );
+}
+
 function CloudMap({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
-  const scene = useQuery({ ...sceneQuery(place), enabled: webgl });
+  // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
+  const [picked, setPicked] = useState<string | null>(null);
+  const scene = useQuery({ ...sceneQuery(place, picked), enabled: webgl });
   const read = scene.data;
+  const views = read?.views ?? [];
+  const camera = read?.view?.camera ?? null;
   // The scene as far as drawing goes: the same object from one read to the next while nothing drawn changed.
   const part = read ? drawnPart(read) : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `part` is what of `read` is drawn
@@ -203,7 +241,8 @@ function CloudMap({ place }: { place: string }) {
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
     // the views it trained on ("Back to the start" goes to the overview). A newer splat of the same place opens
     // from where the one before it was being looked at.
-    const opening = carried.current ?? (file ? openingCamera(Object.keys(data.cameras ?? {})) : null);
+    // A camera's own cloud opens from that camera too: it is that camera's view, and empty from behind.
+    const opening = carried.current ?? (file || data.view ? openingCamera(Object.keys(data.cameras ?? {})) : null);
     carried.current = null;
     (async () => build(el, data, parseCloud(map, 'ply'), file, opening))().then(
       b => {
@@ -290,9 +329,14 @@ function CloudMap({ place }: { place: string }) {
     );
   if (data && !data.revision)
     return (
-      <Text size="sm" c="dimmed">
-        {(read && learningNote(read)) ?? 'No 3D map of this place yet. It appears once the house has built one.'}
-      </Text>
+      <>
+        <CameraPicker views={views} camera={camera} onPick={setPicked} />
+        <Text size="sm" c="dimmed" mt={views.length ? 'sm' : 0} role="status">
+          {camera
+            ? `No point cloud from ${viewName(camera)} yet. ${viewWhy(views.find(v => v.camera === camera)) ?? ''}`.trim()
+            : ((read && learningNote(read)) ?? 'Nothing to show in 3D here yet.')}
+        </Text>
+      </>
     );
   if (data && !canDraw(data.map_format))
     return (
@@ -305,6 +349,9 @@ function CloudMap({ place }: { place: string }) {
   const splatLoading = hasSplat && !splatError && !splatReady && !newer;
   const note = read ? splatNote(read) : null;
   const learning = read ? learningNote(read) : null;
+  const own = read ? viewNote(read) : null;
+  // Why the camera's cloud isn't newer than it is (learning is off, nobody has left its view, no GPU memory).
+  const held = read?.view ? viewWhy(views.find(v => v.camera === camera)) : null;
   const plan = read ? planNote(read) : null;
   const retry = () => {
     setDrawFault(null);
@@ -323,6 +370,17 @@ function CloudMap({ place }: { place: string }) {
       className={classes.cloudFrame}
       style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
     >
+      {views.length > 0 && (
+        <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
+          <CameraPicker views={views} camera={camera} onPick={setPicked} />
+          {own && (
+            <Text size="xs" c="dimmed" role="status" flex={1} miw={220}>
+              {own}
+              {held ? ` ${held}` : ''}
+            </Text>
+          )}
+        </Group>
+      )}
       <div
         className={classes.cloud}
         ref={host}
@@ -376,7 +434,7 @@ function CloudMap({ place }: { place: string }) {
             checked={show.cameras}
             onChange={onOverlay('cameras')}
           />
-          <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />
+          {!read?.view && <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />}
         </Group>
         <Text
           size="xs"
@@ -386,8 +444,20 @@ function CloudMap({ place }: { place: string }) {
           className={classes.cloudHome}
           onClick={() => built.current?.home()}
         >
-          Back to the start
+          {read?.view ? 'See it from outside' : 'Back to the start'}
         </Text>
+        {read?.view && camera && (
+          <Text
+            size="xs"
+            c="dimmed"
+            component="button"
+            type="button"
+            className={classes.cloudHome}
+            onClick={() => built.current?.lookFrom(camera)}
+          >
+            Back to the camera's view
+          </Text>
+        )}
       </Group>
       {splatLoading && (
         <Group gap="xs" mt="xs" wrap="nowrap" role="status">
@@ -435,7 +505,7 @@ function CloudMap({ place }: { place: string }) {
           {plan}
         </Text>
       )}
-      {cams.length > 0 && (
+      {cams.length > 0 && !read?.view && (
         <Group gap="xs" mt="xs" wrap="wrap">
           <Text size="xs" c="dimmed">
             Look from

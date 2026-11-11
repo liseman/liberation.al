@@ -196,8 +196,37 @@ disk stay where they are, and the 3D view doesn't show them.
 2. **Sync, build the dashboard, and restart everything**, as in "Every upgrade". Keys were removed from
    `config/defaults.toml`, so every config-reading service restarts, the dashboard included.
 
-3. **Optionally, free the disk.** Nothing in the pack reads `data/mast3r/`, `data/gsplat/`, `data/models/mast3r/`,
-   or `data/models/depth-anything-3-metric/` any more, unless a tool of your own uses them.
+3. **Optionally, free the disk.** Nothing in the pack reads `data/mast3r/`, `data/gsplat/`, or
+   `data/models/depth-anything-3-metric/` any more, unless a tool of your own uses them. Keep `data/models/mast3r/`:
+   the cameras' point clouds read it (the next section).
+
+### Each camera's own point cloud
+
+The Places 3D view shows one camera's view at a time as a point cloud, made while Learn surroundings is on
+(`spatial/camera_clouds.py`). It needs MASt3R-SLAM, which the pack doesn't install: until it's set up, the view says
+that no cloud can be made.
+
+1. **Set up MASt3R-SLAM** in a folder of its own, outside the checkout: its code in `src/` (the
+   [rmurai0610/MASt3R-SLAM](https://github.com/rmurai0610/MASt3R-SLAM) repository at a commit you choose, with its
+   `thirdparty/eigen` submodule) and a Python 3.11 environment in `venv/` with it installed as its README says
+   (`thirdparty/mast3r`, then the repository itself, both without build isolation). It needs CUDA. Its code and
+   MASt3R's weights are licensed CC BY-NC-SA 4.0.
+2. **Have MASt3R's weights** as a directory holding `model.safetensors` and `config.json`
+   (`naver/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric` on Hugging Face). `data/models/mast3r/` from an earlier
+   version is that directory, if you kept it.
+3. **Point the pack at them** in `pack.toml`, then restart every service that reads the configuration
+   (`pack-services restart`), the dashboard included:
+
+   ```toml
+   [spatial]
+   pointmap_runtime = "/path/to/that/folder"
+   pointmap_weights = "data/models/mast3r"
+   ```
+
+4. Turn Learn surroundings on (the Live tab). A camera gets its cloud once it has been in view of nobody for about
+   20 seconds, and a pass needs 4 GB of free GPU memory.
+
+`pack-reset-places` deletes the clouds with the rest of what the machine made; they are made again.
 
 ### One application instead of a service per daemon
 

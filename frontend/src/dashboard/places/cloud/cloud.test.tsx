@@ -19,7 +19,7 @@ import {
   type V3,
 } from './geometry';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { learningNote, loadingText, planNote, splatNote } from './status';
+import { learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -278,7 +278,7 @@ it('says when a place has no 3D map yet, or one in a format it cannot draw', asy
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as RenderingContext);
   server.use(http.get('/places/scene', () => HttpResponse.json({ place: 'p1', revision: null })));
   const { unmount } = renderPage(<CloudView place="p1" />);
-  expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
+  expect(await screen.findByText(/Nothing to show in 3D here yet/)).toBeTruthy();
   unmount();
   server.use(
     http.get('/places/scene', () =>
@@ -413,33 +413,57 @@ it('writes the collision as a GLB the viewer will take for one: a data URL endin
   expect(url.startsWith('data:model/gltf-binary,%67%6c%54%46')).toBe(true);
 });
 
-// The line about the map (#259): with none, that the 3D map is being rebuilt with a new method, and whether
-// pictures are being collected for it.
+// The line while there is nothing to draw: that no camera has a point cloud yet, and what would make one.
 const learning = (more: object = {}) => ({ on: false, cameras: 0, ...more });
 
 it.each([
   [
     'off',
     learning(),
-    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. Turn on Learn surroundings on the Live tab to collect pictures for it.',
+    'No camera has a point cloud of this place yet. Learn surroundings is off, so none is made. Turn it on on the Live tab, and each camera chosen there gets a cloud of what it sees.',
   ],
   [
     'on',
     learning({ on: true, cameras: 1 }),
-    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. Pictures are being collected for it.',
+    'No camera has a point cloud of this place yet. Each chosen camera gets one once it has had about 20 seconds with nobody in view.',
   ],
   [
     'on with no camera',
     learning({ on: true }),
-    'No 3D map of this place yet: the 3D map is being rebuilt with a new method. No camera is chosen to collect pictures from. Choose one on the Live tab.',
+    'No camera has a point cloud of this place yet. No camera is chosen to learn from. Choose one beside Learn surroundings on the Live tab.',
   ],
-])('says the 3D map is being rebuilt for a place with no map: %s', (_, said, text) => {
+])('says what would make a point cloud for a place where no camera has one: %s', (_, said, text) => {
   expect(learningNote({ place: 'p1', revision: null, learning: said })).toBe(text);
 });
 
 it("says nothing more about a place's map once it has one, or when the scene doesn't say", () => {
   expect(learningNote({ place: 'p1', revision: 'r2', learning: learning({ on: true, cameras: 2 }) })).toBeNull();
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
+});
+
+it("says how a camera's own cloud was sized, and nothing of a splat it never has", () => {
+  const own = { place: 'p1', revision: 'c1', view: { camera: 'hall', points: 1024, at: 1.8e9 } } as const;
+  expect(viewNote({ ...own, view: { ...own.view, size: 'height' } })).toMatch(
+    /^1,024 points from .+, as this camera alone sees it\. Sized from the camera's mounting height\.$/,
+  );
+  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate' } })).toMatch(/Approximate size/);
+  expect(viewNote({ place: 'p1', revision: 'r2' })).toBeNull(); // the place's own map
+  expect(viewNote({ place: 'p1', revision: null, view: { camera: 'hall' } })).toBeNull(); // no cloud yet
+  expect(splatNote({ ...own, splat: null })).toBeNull();
+});
+
+it.each([
+  ['off', /Learn surroundings is off/],
+  ['people', /nobody in view/],
+  ['gpu', /GPU memory/],
+  ['no_runtime', /isn't set up on this machine/],
+] as const)('says why a camera has no cloud: %s', (why, text) => {
+  expect(viewWhy({ why })).toMatch(text);
+});
+
+it('says nothing stands in the way of a camera whose cloud is current', () => {
+  expect(viewWhy({ why: null })).toBeNull();
+  expect(viewWhy(undefined)).toBeNull();
 });
 
 it("says the owner's plan isn't drawn on a map not lined up with it, and nothing once it is", () => {

@@ -400,7 +400,7 @@ it("switches a real place between its plan and its map in 3D, but not an example
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: 'Edit plan' });
   fireEvent.click(screen.getByRole('radio', { name: '3D map' }));
-  expect(await screen.findByText(/No 3D map of this place yet/)).toBeTruthy();
+  expect(await screen.findByText(/Nothing to show in 3D here yet/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Edit plan' })).toBeTruthy(); // the way into editing stays put
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(await screen.findByRole('button', { name: 'Edit plan' })).toBeTruthy();

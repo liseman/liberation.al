@@ -4,10 +4,11 @@
   pack-reset-places --yes    # do it
 
 Everything the machine made about places goes: each place's revisions, maps, plans, and splats (`state/places/`),
-with the cameras' registrations they hold and the tilts fitted for cameras with a spot on a plan (`aims.json`), the files of walks imported from the Places page (`state/walk_imports/`),
-and the position layer's stored records (the `position.sample`, `position.placed`, `position.path`, and `camera.pose`
-streams of the segment store, with their condensed history). The job that builds maps from what the cameras see
-writes all of it again.
+with the cameras' registrations they hold and the tilts fitted for cameras with a spot on a plan (`aims.json`), each
+camera's own point cloud (`state/camera_clouds/`, spatial/camera_clouds.py), and the position layer's stored records
+(the `position.sample`, `position.placed`, `position.path`, and `camera.pose` streams of the segment store, with
+their condensed history). The clouds are made again while "learn surroundings" is on, and the positions by
+`pack-positions`.
 
 What the owner taught stays, since none of it is in those files: place names and plan corrections, with their
 history, and each camera's held focal and lens are in the knowledge store, which this never opens for writing. A
@@ -34,10 +35,9 @@ from liberational import config as cfg
 from liberational import json_state
 from liberational import segment_log as S
 from liberational.memory import places
-from liberational.spatial import plan_scene, positions
+from liberational.spatial import camera_clouds, plan_scene, positions
 
 PRODUCER = "places reset v1"
-WALK_IMPORTS = "walk_imports"  # under paths.state: what the Places page's walk import kept
 #: The position layer's streams: raw footprints, the placer's records and paths, and the cameras' pose series.
 STREAMS = (S.POSITIONS, S.PLACED, S.PLACED_PATHS, S.CAMERA_POSES)
 #: Signals a kept place carries over: the ones that say where it is. What named its old maps' sources doesn't.
@@ -73,8 +73,8 @@ def plan(state: Path) -> Plan:
     kept = tuple(Kept(p, len(plan_scene.rooms_of(p.plan or ""))) for p in found if p.plan_source == "owner" and p.plan)
     base = places.root(state)
     inside = sorted(base.iterdir()) if base.is_dir() else []
-    walks = state / WALK_IMPORTS
-    targets = [*inside, *([walks] if walks.exists() else []), *stream_dirs(state)]
+    clouds = camera_clouds.root(state)
+    targets = [*inside, *([clouds] if clouds.exists() else []), *stream_dirs(state)]
     return Plan(state, found, kept, tuple(targets))
 
 
