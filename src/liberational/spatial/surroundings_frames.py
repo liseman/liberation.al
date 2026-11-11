@@ -167,7 +167,9 @@ class Store:
         self.most = most
         self.per_view = per_view
         self.kept: list[Kept] = []
-        self._rows: list[np.ndarray] = []
+        # One buffer holds every kept frame's descriptor row, in `kept`'s order: the gate matmuls it whole on every
+        # offer, so it is never restacked. The rows past `len(kept)` are spare capacity and are never read.
+        self._rows = np.zeros((0, 0), dtype=np.float32)
         for row in json_state.read(folder / "index.json", []) or []:
             try:
                 frame = Kept(**{k: row[k] for k in FIELDS})  # a field of an earlier version is passed by
@@ -175,12 +177,12 @@ class Store:
             except TypeError, OSError, ValueError:
                 continue  # a row from another version, or a frame whose files are gone: not kept
             if (folder / f"{frame.id}.jpg").is_file():
-                self.kept.append(frame)
-                self._rows.append(np.asarray(descriptor, dtype=np.float32).ravel())
+                self._keep(frame, np.asarray(descriptor, dtype=np.float32).ravel())
 
     @property
     def descriptors(self) -> np.ndarray:
-        return np.stack(self._rows) if self._rows else np.zeros((0, 0), dtype=np.float32)
+        """The kept frames' descriptor rows, in `kept`'s order: a view of the store's own buffer."""
+        return self._rows[: len(self.kept)]
 
     def path(self, frame: Kept | str) -> Path:
         return self.folder / f"{frame if isinstance(frame, str) else frame.id}.jpg"
@@ -248,14 +250,32 @@ class Store:
         row = np.asarray(descriptor, dtype=np.float32).ravel()
         self.path(frame).write_bytes(jpeg.tobytes())
         np.save(self.folder / f"{frame.id}.npy", row)
-        self.kept.append(frame)
-        self._rows.append(row)
+        self._keep(frame, row)
         return frame
 
+    def _keep(self, frame: Kept, row: np.ndarray) -> None:
+        """Add `frame` and its descriptor row at the end of both lists."""
+        self._reserve(len(self.kept) + 1, row.shape[0])
+        self._rows[len(self.kept)] = row
+        self.kept.append(frame)
+
+    def _reserve(self, rows: int, dim: int) -> None:
+        """Grow the descriptor buffer to `rows` rows of `dim`, keeping what it holds."""
+        capacity, width = self._rows.shape
+        if capacity >= rows and width == dim:
+            return
+        grown = np.zeros((max(rows, 2 * capacity, self.most + 1), dim), dtype=np.float32)
+        if width == dim:  # an empty buffer has no width yet: there is nothing to carry over
+            grown[: len(self.kept)] = self._rows[: len(self.kept)]
+        self._rows = grown
+
     def _drop(self, ids: set[str]) -> None:
+        """Forget the frames in `ids`, compacting the rows in place."""
         keep = [i for i, f in enumerate(self.kept) if f.id not in ids]
+        if len(keep) == len(self.kept):
+            return
         self.kept = [self.kept[i] for i in keep]
-        self._rows = [self._rows[i] for i in keep]
+        self._rows[: len(keep)] = self._rows[keep]
 
     def _unlink(self, ids: set[str]) -> None:
         for frame_id in ids:
@@ -271,7 +291,6 @@ def status(state: Path) -> dict[str, Any]:
     (`sampling`, none while off), how many frames are kept (`kept`), each sampled camera's recent looks by outcome and
     when a frame of it was last kept (`cameras`, from the sampler's `status.json`), and each camera's newest kept
     frame (`frames`, by camera: the frame's id), for a page's thumbnail. It reads two small files."""
-    from liberational import json_state
     from liberational.spatial import surroundings
 
     folder = root(state)

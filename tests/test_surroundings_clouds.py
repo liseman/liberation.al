@@ -143,6 +143,21 @@ def test_a_squaring_that_fails_doesnt_stop_the_looks(store, made):
     assert looks(clouds, [picture(1, noise=n) for n in range(5)])[-1] == "made"
 
 
+def test_a_submit_that_fails_does_not_leave_the_camera_stuck_saying_it_is_making_one(store, made):
+    calls = []
+
+    def submit(job):
+        calls.append(job)
+        if len(calls) == 1:
+            raise RuntimeError("cannot schedule new futures after shutdown")
+        job()
+
+    clouds = due.Clouds(store, made, None, lambda pixels: pixels.mean() > 10, worker.thumbnail, submit=submit)
+    with pytest.raises(RuntimeError):
+        looks(clouds, [picture(1, noise=n) for n in range(5)])
+    assert looks(clouds, [picture(1, noise=n) for n in range(5, 10)]) == ["collecting"] * 4 + ["made"]
+
+
 def test_a_cloud_made_before_pictures_were_kept_is_made_again_once(clouds, made):
     made.pictures = False
     looks(clouds, [picture(1, noise=n) for n in range(5)])

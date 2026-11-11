@@ -750,6 +750,18 @@ def test_a_payload_fingerprint_link_matches_by_signature():
     assert devices.signature_matches(link, sig, devices.BLE_SIGHTINGS) is True
 
 
+def test_seen_matches_by_fingerprint_while_an_address_link_is_also_present():
+    # The row's signature is built once for the whole link list, so a mixed set still matches the payload only.
+    record = sighting(NOW, "11:22:33:44:55:66", data=AIRPODS_DATA)
+    fingerprint = ble.payload_fingerprint(dict(record))
+    assert fingerprint is not None
+    watch = devices.Link("l1", "ble_identifier", WATCH, "thing", "Watch", "e1")
+    pods = devices.Link("l2", "ble_fingerprint", fingerprint, "thing", "AirPods", "e2")
+    found = devices.seen([watch, pods], {devices.BLE_SIGHTINGS: [record]}, [], gap=600)
+    assert len(found.stays) == 1
+    assert found.last is not None and found.last["identifier"] == "11:22:33:44:55:66"
+
+
 @pytest.fixture
 def slow_summary(monkeypatch):
     """devices.at().summary in place, held until `go` is set; `calls` counts the reads."""

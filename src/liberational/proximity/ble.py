@@ -1,4 +1,4 @@
-"""Bounded BLE advertisement aggregation and explicitly unconfirmed payload matches.
+"""Bounded BLE advertisement aggregation and the exact-payload fingerprint devices are linked by.
 
 Observations retain native address or per-app identifier semantics. An aggregate counts reports received from the
 backend, not radio packets: the operating system may coalesce or cache advertisement properties. No absence,
@@ -9,7 +9,6 @@ import hashlib
 import json
 import math
 import uuid
-from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -372,207 +371,43 @@ class Aggregator:
         return out
 
 
+def _eligible_payload(record: dict[str, Any]) -> dict[str, Any] | None:
+    """The payload `payload_fingerprint` hashes, normalized to hex: None when there is too little of it, too few
+    distinct bytes, or it was truncated, malformed, or changed within the window."""
+    if record.get("payload_truncated") or record.get("payload_malformed") or record.get("payload_changes"):
+        return None
+    manufacturer = record.get("manufacturer_data") or {}
+    service = record.get("service_data") or {}
+    if not isinstance(manufacturer, dict) or not isinstance(service, dict) or len(manufacturer) + len(service) > 64:
+        return None
+    values: list[bytes] = []
+    normalized: list[dict[str, str]] = []
+    size = 0
+    for mapping in (manufacturer, service):
+        out: dict[str, str] = {}
+        for key, value in mapping.items():
+            if not isinstance(key, str) or len(key) > 128 or not isinstance(value, str) or len(value) > 131072:
+                return None
+            try:
+                data = bytes.fromhex(value)
+            except ValueError:
+                return None
+            size += len(data)
+            if size > _MAX_OBSERVATION_BYTES:
+                return None
+            values.append(data)
+            out[key] = data.hex()
+        normalized.append(out)
+    raw = b"".join(values)
+    if len(raw) < 8 or len(set(raw)) < 4:
+        return None
+    return dict(manufacturer_data=normalized[0], service_data=normalized[1])
+
+
 def payload_fingerprint(record: dict[str, Any]) -> str | None:
-    """The exact-payload fingerprint the candidate index groups sightings by, or None when the payload is too short,
-    too plain, truncated, malformed, or changed within the window to be one (devices are linked by it)."""
-    payload = CandidateIndex._eligible_payload(record)
+    """The exact-payload fingerprint a device is linked by, or None when the payload is too short, too plain,
+    truncated, malformed, or changed within the window to be one."""
+    payload = _eligible_payload(record)
     if payload is None:
         return None
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-@dataclass(frozen=True)
-class _SightingEvidence:
-    payload_id: str
-    first: float
-    last: float
-    reports: int
-
-
-@dataclass
-class _Member:
-    # Retain exactly the evidence we name as parents. Lifetime totals would survive purges of discarded parents.
-    sightings: list[_SightingEvidence] = field(default_factory=list)
-
-    @property
-    def first(self) -> float:
-        return min(sighting.first for sighting in self.sightings)
-
-    @property
-    def last(self) -> float:
-        return max(sighting.last for sighting in self.sightings)
-
-    @property
-    def reports(self) -> int:
-        return sum(sighting.reports for sighting in self.sightings)
-
-    @property
-    def ids(self) -> list[str]:
-        return [sighting.payload_id for sighting in self.sightings]
-
-
-@dataclass
-class _Fingerprint:
-    last: float
-    payload: dict[str, Any]
-    members: OrderedDict[NativeKey, _Member] = field(default_factory=OrderedDict)
-    emitted: tuple[NativeKey, ...] = ()
-
-
-class CandidateIndex:
-    """Bounded, expiring hints from exact complete payload equality, never a merged device identity.
-
-    At least eight payload bytes with four distinct values are required, and each identifier needs two backend
-    reports. These conservative heuristics reject trivial constants, but shared factory payloads can still collide.
-    Candidate evidence states that limitation explicitly. Names, service UUID lists, RSSI, and TX power are not proof.
-    Member spans and report counts cover only the two retained sighting aggregates named as causal parents, not
-    the identifier's lifetime totals. Purging any contributing raw sighting can therefore invalidate its candidate.
-    """
-
-    def __init__(self, max_entries: int = 1024, ttl_s: float = 3600, max_members: int = 8) -> None:
-        if max_entries < 1 or not math.isfinite(ttl_s) or ttl_s <= 0 or max_members < 2:
-            raise ValueError("candidate limits must be positive, with at least two members")
-        self.max_entries, self.ttl_s, self.max_members = max_entries, ttl_s, max_members
-        self._entries: OrderedDict[tuple[str, str, str, str], _Fingerprint] = OrderedDict()
-        self._stats = dict(
-            observed=0, candidates=0, expired=0, expired_members=0, evicted=0, dropped_members=0, ineligible=0
-        )
-        self._watermark = 0.0
-
-    @property
-    def stats(self) -> dict[str, int]:
-        return dict(self._stats, entries=len(self._entries))
-
-    def observe(self, record: dict[str, Any]) -> list[dict[str, Any]]:
-        self._stats["observed"] += 1
-        now = float(record["end"])
-        start = float(record["start"])
-        if not math.isfinite(now) or not math.isfinite(start) or start < 0 or now < start or int(record["reports"]) < 1:
-            raise ValueError("invalid candidate observation span or report count")
-        self._watermark = max(self._watermark, now)
-        if now < self._watermark - self.ttl_s:
-            self._stats["ineligible"] += 1
-            return []
-        for key in list(self._entries):
-            if self._watermark - self._entries[key].last > self.ttl_s:
-                del self._entries[key]
-                self._stats["expired"] += 1
-            else:
-                entry = self._entries[key]
-                for native in list(entry.members):
-                    if self._watermark - entry.members[native].last > self.ttl_s:
-                        del entry.members[native]
-                        self._stats["expired_members"] += 1
-                entry.emitted = tuple(native for native in entry.emitted if native in entry.members)
-        for name, limit in (
-            ("backend", 64),
-            ("adapter", 128),
-            ("identifier_kind", 32),
-            ("identifier", 256),
-            ("id", 64),
-        ):
-            value = record.get(name)
-            if not isinstance(value, str) or not value or len(value) > limit or len(value.encode()) > limit:
-                self._stats["ineligible"] += 1
-                return []
-        address_type = record.get("address_type")
-        if address_type is not None and (not isinstance(address_type, str) or len(address_type) > 32):
-            self._stats["ineligible"] += 1
-            return []
-        payload = self._eligible_payload(record)
-        if payload is None:
-            self._stats["ineligible"] += 1
-            return []
-        fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        scope = (str(record["backend"]), str(record["adapter"]), str(record["identifier_kind"]), fingerprint)
-        native: NativeKey = (*scope[:3], str(record["identifier"]), record.get("address_type"))
-        entry = self._entries.get(scope)
-        if entry is None:
-            if len(self._entries) >= self.max_entries:
-                self._entries.popitem(last=False)
-                self._stats["evicted"] += 1
-            entry = self._entries[scope] = _Fingerprint(now, payload)
-        self._entries.move_to_end(scope)
-        entry.last = max(entry.last, now)
-        member = entry.members.get(native)
-        if member is None:
-            if len(entry.members) >= self.max_members:
-                self._stats["dropped_members"] += 1
-                return []
-            member = entry.members[native] = _Member()
-        record_id = str(record["id"])
-        if record_id in member.ids:
-            return []  # replay does not turn one report into two independent observations
-        member.sightings = [
-            *member.sightings[-1:],
-            _SightingEvidence(record_id, start, now, int(record["reports"])),
-        ]
-        qualified = tuple(
-            sorted(
-                (key for key, value in entry.members.items() if value.reports >= 2), key=lambda k: (*k[:4], k[4] or "")
-            )
-        )
-        if len({key[3].casefold() for key in qualified}) < 2 or qualified == entry.emitted:
-            return []
-        entry.emitted = qualified
-        self._stats["candidates"] += 1
-        members = [
-            dict(
-                backend=k[0],
-                adapter=k[1],
-                identifier_kind=k[2],
-                identifier=k[3],
-                address_type=k[4],
-                start=entry.members[k].first,
-                end=entry.members[k].last,
-                reports=entry.members[k].reports,
-            )
-            for k in qualified
-        ]
-        return [
-            dict(
-                id=str(uuid.uuid7()),
-                schema_version=1,
-                status="unconfirmed",
-                method="exact_repeated_advertised_payload",
-                fingerprint=fingerprint,
-                fingerprint_algorithm="sha256",
-                evidence=dict(payload={key: dict(value) for key, value in entry.payload.items()}),
-                start=min(entry.members[k].first for k in qualified),
-                end=max(entry.members[k].last for k in qualified),
-                members=members,
-                parents=list(dict.fromkeys(pid for key in qualified for pid in entry.members[key].ids)),
-                caveat="Equal advertised payloads can be shared by unrelated devices; this is a candidate, not device identity or proof of address rotation.",
-            )
-        ]
-
-    @staticmethod
-    def _eligible_payload(record: dict[str, Any]) -> dict[str, Any] | None:
-        if record.get("payload_truncated") or record.get("payload_malformed") or record.get("payload_changes"):
-            return None
-        manufacturer = record.get("manufacturer_data") or {}
-        service = record.get("service_data") or {}
-        if not isinstance(manufacturer, dict) or not isinstance(service, dict) or len(manufacturer) + len(service) > 64:
-            return None
-        values: list[bytes] = []
-        normalized: list[dict[str, str]] = []
-        size = 0
-        for mapping in (manufacturer, service):
-            out: dict[str, str] = {}
-            for key, value in mapping.items():
-                if not isinstance(key, str) or len(key) > 128 or not isinstance(value, str) or len(value) > 131072:
-                    return None
-                try:
-                    data = bytes.fromhex(value)
-                except ValueError:
-                    return None
-                size += len(data)
-                if size > _MAX_OBSERVATION_BYTES:
-                    return None
-                values.append(data)
-                out[key] = data.hex()
-            normalized.append(out)
-        raw = b"".join(values)
-        if len(raw) < 8 or len(set(raw)) < 4:
-            return None
-        return dict(manufacturer_data=normalized[0], service_data=normalized[1])
