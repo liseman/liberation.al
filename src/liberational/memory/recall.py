@@ -1022,6 +1022,6 @@ def loop(
     warnings = list(dict.fromkeys(w for w in warnings if w not in (history.get("warnings") or [])))
     context, truncated = ask.evidence_context(
         dict(history, answer=None, evidence=found + start, warnings=[*(history.get("warnings") or []), *warnings]),
-        ask.evidence_budget(),  # what fits the answering model, as ask.execute uses in local mode
+        ask.evidence_budget(),  # what fits the answering model, as ask.execute uses
     )
     return dict(evidence=start + found, rounds=rounds, warnings=warnings, context=context, truncated=truncated)

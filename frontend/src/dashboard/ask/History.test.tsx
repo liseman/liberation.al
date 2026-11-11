@@ -1,12 +1,14 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { Providers } from '../../shared/Providers';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
+import { useRoute } from '../router';
 import { History } from './History';
 import type { HistoryEntry } from './historyApi';
+import { openAsk, useAskPage } from './openAsk';
 import { PackAsk } from './PackAsk';
 
 /** The saved answer's line, whose "[C1]" is now a link to its moment: matched as the paragraph reads. */
@@ -65,12 +67,12 @@ async function open() {
 
 it('fetches past answers after remount without posting or changing the new prompt', async () => {
   const net = historyServer();
-  const first = renderPage(<PackAsk showModes />);
+  const first = renderPage(<PackAsk />);
   await open();
   expect(net.reads[0]?.searchParams.has('surface')).toBe(false);
   first.unmount();
-  renderPage(<PackAsk showModes />);
-  const input = screen.getByRole('textbox', { name: 'What would you like to ask?' });
+  renderPage(<PackAsk />);
+  const input = screen.getByRole('textbox', { name: 'Your question' });
   await userEvent.type(input, 'A different question');
   await userEvent.click(await open());
   expect(await screen.findByText(visitorLeft)).toBeInTheDocument();
@@ -80,21 +82,21 @@ it('fetches past answers after remount without posting or changing the new promp
   // No POST handler: a model submission would fail strict network teardown.
 });
 
-it('filters Review by day and seeks a stored moment without resubmitting', async () => {
+it("lists every past question, and plays a stored moment in place when Ask is on Review's day", async () => {
   const net = historyServer();
-  const seekPlay = vi.fn();
-  const onMarks = vi.fn();
-  renderPage(
-    <PackAsk day="2026-10-27" bare compact dayLabel="Tuesday" today={false} onSeek={seekPlay} onMarks={onMarks} />,
-  );
+  const seek = vi.fn();
+  useRoute.setState({ tab: 'review' });
+  useAskPage.setState({ day: { day: '2026-10-27', label: 'Tuesday', today: false }, seek, mark: null });
+  renderPage(<PackAsk />);
+  act(() => openAsk({ hint: { kind: 'day', day: '2026-10-27', label: 'Tuesday', today: false } }));
   await userEvent.click(await open());
   const saved = await screen.findByRole('region', { name: 'Saved answer' });
   await userEvent.click(within(saved).getByRole('button', { name: /\[C1\]/ }));
-  expect(seekPlay).toHaveBeenCalledExactlyOnceWith(1200);
-  expect(onMarks).toHaveBeenLastCalledWith([1200]);
-  expect(net.reads[0]?.searchParams.get('surface')).toBe('review');
-  expect(net.reads[0]?.searchParams.get('day')).toBe('2026-10-27');
-  expect(screen.getByRole('textbox', { name: 'Ask about Tuesday' })).toHaveValue('');
+  expect(seek).toHaveBeenCalledExactlyOnceWith(1200);
+  // One Ask, one list: the day hint doesn't narrow the past questions
+  expect(net.reads[0]?.searchParams.has('day')).toBe(false);
+  expect(screen.getByRole('textbox', { name: 'Your question' })).toHaveValue('');
+  useAskPage.setState({ day: null, seek: null, mark: null });
 });
 
 it.each(['one', 'all'])('confirms before deleting %s with a JSON DELETE', async kind => {

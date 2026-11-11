@@ -110,8 +110,6 @@ token = ""
 openclaw_config = ""
 # Agent for owner requests by voice and phone, like openclaw/phone.
 phone_agent = ""
-# Agent for asking friends, like openclaw/friends-advisor.
-friends_agent = ""
 
 [ports]
 # Local ports for each service. The dashboard is the web UI.

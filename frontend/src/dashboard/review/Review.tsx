@@ -1,4 +1,5 @@
-// Review: video and timeline beside transcript/summary tabs, with day-scoped Ask in a nonblocking side panel.
+// Review: video and timeline beside transcript/summary tabs. Ask is the one Ask (ask/openAsk.ts): Review tells it the day
+// it shows, so Ask opened here starts with that day as a hint, and an answer's moments play and mark the timeline.
 // The engine owns time and media while this page fetches and arranges the day.
 import { Button, Tabs, Text, VisuallyHidden } from '@mantine/core';
 import { IconX } from '@tabler/icons-react';
@@ -6,14 +7,11 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import { messageOf } from '../../shared/http';
-import { useReviewAsk } from '../AskBar';
-import { AskPanel } from '../ask/AskPanel';
-import { PackAsk } from '../ask/PackAsk';
+import { useAskPage } from '../ask/openAsk';
 import { daysWords, isoDay } from '../lib/format';
 import { useSlow } from '../lib/loading';
 import { LoadError, PAGE_SLOW_MS } from '../lib/page';
 import { rememberedHeight, useRememberHeight } from '../lib/rememberedHeight';
-import { useRoute } from '../router';
 import { shell } from '../shell';
 import {
   activitiesQuery,
@@ -122,9 +120,6 @@ export function Review() {
     !!person &&
     !!chips.data &&
     !chips.data.some(c => c.kind === 'person' && c.label.toLocaleLowerCase() === person.toLocaleLowerCase());
-  const coveredBySettings = useRoute(s => s.tab === 'settings');
-  const askOpen = useReviewAsk(s => s.open);
-  const setAskOpen = useReviewAsk(s => s.setOpen);
   // A span picked on the timeline to mark as an event, while its form is open.
   const marking = useStore(engine.ui, s => s.eventSpan);
   // A span whose entries and exits are being labeled, in a drawer that leaves the player usable.
@@ -137,6 +132,15 @@ export function Review() {
     : day
       ? new Date(`${day}T12:00:00`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
       : '';
+  // Ask (ask/openAsk.ts) hears the day shown, to start from it as a hint, and how to play and mark its moments.
+  useEffect(() => {
+    useAskPage.setState({
+      day: day ? { day, label: dayName, today } : null,
+      seek: t => engine.seekPlay(t),
+      mark: times => setMarks(times),
+    });
+  }, [day, dayName, today, engine]);
+  useEffect(() => () => useAskPage.setState({ day: null, seek: null, mark: null }), []);
 
   const pick = (d: string) => {
     // Picking the day that's showing reloads it (Today, while today keeps growing).
@@ -297,26 +301,6 @@ export function Review() {
                 }
               />
             </div>
-            <AskPanel
-              opened={askOpen && !coveredBySettings}
-              onClose={() => setAskOpen(false)}
-              title={`Ask about ${dayName}`}
-              kind="review"
-              className={classes.askPanel}
-            >
-              {day && (
-                <PackAsk
-                  key={day}
-                  day={day}
-                  bare
-                  compact
-                  dayLabel={dayName}
-                  today={today}
-                  onSeek={t => engine.seekPlay(t)}
-                  onMarks={setMarks}
-                />
-              )}
-            </AskPanel>
             <div
               className={classes.timeline}
               ref={timelineRef}

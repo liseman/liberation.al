@@ -7,8 +7,8 @@ import { setupServer } from 'msw/node';
 const gateway = ws.link('ws://*:8766/ws');
 
 /** The fake network for tests: add handlers per test with server.use(http.get(...)). */
-/** Review's Ask shows a Research button, which asks whether research can run: by default it can't, with
- *  nothing in the Inbox. Tests about research serve their own reply. */
+/** Ask's Deep research switch asks whether research can run: by default it can't, with nothing in the Inbox.
+ *  Tests about research serve their own reply. */
 const research = http.get('/research/jobs', () =>
   HttpResponse.json({ jobs: [], available: false, reason: 'Research is off in tests.', unread: 0 }),
 );

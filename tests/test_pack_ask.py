@@ -35,8 +35,7 @@ from voices import write_voices
 # ask._owner_http reads DASH_PASSWORD from the module that defines the handler's class (dashboard/server.py in
 # production). Setting it here makes a remote request without a session fall through to Handler._authed.
 DASH_PASSWORD = "synthetic-test-password"
-QUESTION = {"question": "Explain gravity", "mode": "local"}
-AGENT_URL = "http://127.0.0.1:9/v1/chat/completions"
+QUESTION = {"question": "Explain gravity"}
 
 
 class Handler:
@@ -86,20 +85,6 @@ def jobs(monkeypatch):
     yield manager
     # A queued question's worker writes its answer to history; finish before the test's stores close.
     manager.queue.join()
-
-
-@pytest.fixture
-def agent():
-    with cfg.override({"agent": {"url": AGENT_URL}}):
-        yield
-
-
-@pytest.fixture
-def panel():
-    with patch(
-        "liberational.assistant.ask_friends.ask", autospec=True, return_value={"status": "ok", "answer": "Panel"}
-    ) as friends:
-        yield friends
 
 
 class FakeOllama:
@@ -180,15 +165,10 @@ def body(**fields):
             for length in ("0", "-1", "8193", "invalid")
         ],
         pytest.param({"body": {}}, 400, id="no-fields"),
-        pytest.param(body(mode="cloud"), 400, id="mode-cloud"),
+        *[pytest.param(body(deep=deep), 400, id=f"deep-{deep!r}") for deep in (None, "yes", 1)],
         pytest.param(body(question=[]), 400, id="question-list"),
         pytest.param(body(question=" "), 400, id="question-blank"),
         pytest.param(body(question="x" * 1201), 400, id="question-too-long"),
-        *[
-            pytest.param(body(scope=scope), 400, id=f"scope-{scope!r}")
-            for scope in (None, "", "auto", "video", 1, [], {})
-        ],
-        pytest.param(body(scope="general", day="2026-10-20"), 400, id="general-with-day"),
         *[
             pytest.param(body(day=day), 400, id=f"day-{day!r}")
             for day in ("2026-02-30", "2026-1-1", "../../etc", 1, {}, "2026-10-20T00:00")
@@ -204,25 +184,50 @@ def test_poll_unknown_id_is_not_found(jobs):
     assert call(command="GET", path="/" + "a" * 32)[0] == 404
 
 
-@pytest.mark.parametrize(
-    "fields, day, scope",
-    [
-        pytest.param({"day": "2026-10-20"}, "2026-10-20", "history", id="review-day"),
-        pytest.param({"scope": "general"}, None, "general", id="general"),
-    ],
-)
-def test_day_and_scope_reach_the_worker_subprocess(monkeypatch, fields, day, scope):
+@pytest.mark.parametrize("day", [pytest.param("2026-10-20", id="a-day-hint"), pytest.param(None, id="no-day")])
+def test_the_day_reaches_the_worker_subprocess_and_the_reply_says_what_was_searched(monkeypatch, day):
     output = {"status": "ok", "answer": "Synthetic answer"}
     manager = p.JobManager()
     monkeypatch.setattr(p, "JOBS", manager)
-    with worker_output(json.dumps(output)) as run:
-        code, ack = call(**body(**fields))
+    with worker_output(json.dumps(output)) as run, cfg.override({"recall": {"enabled": True, "max_rounds": 3}}):
+        code, ack = call(**body(**({"day": day} if day else {})))
         manager.queue.join()
-    assert (code, ack["day"], ack["scope"]) == (202, day, scope)
+    assert (code, ack["day"], ack["deep"]) == (202, day, False)
+    assert (ack["reach"]["rounds"], ack["reach"]["day"], ack["reach"]["deep"]) == (3, day, False)
     status, job = call(command="GET", path="/" + ack["id"])
     assert (status, job["status"], job["day"], job["result"]) == (200, "completed", day, output)
     payload = json.loads(run.call_args.kwargs["input"])
-    assert (payload["question"], payload["day"], payload["scope"]) == ("Explain gravity", day, scope)
+    assert (payload["question"], payload["day"]) == ("Explain gravity", day)
+
+
+# Deep research: the same route, queued as research for the Inbox
+
+
+@pytest.fixture
+def research_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(research, "root", lambda state=None: tmp_path / "research")
+    return tmp_path / "research"
+
+
+DEEP_OK = {"research": {"enabled": True, "max_rounds": 8, "model": "big"}, "ask": {"ollama_url": "127.0.0.1:11435"}}
+
+
+def test_deep_queues_research_not_a_quick_job_and_says_how_far_it_looks(jobs, research_dir):
+    with cfg.override(DEEP_OK):
+        code, ack = call(**body(deep=True, day="2026-10-20"))
+    assert (code, ack["deep"], ack["status"], ack["day"]) == (202, True, "queued", "2026-10-20")
+    assert (ack["reach"]["rounds"], ack["reach"]["model"], ack["reach"]["search_s"]) == (8, "big", 1800.0)
+    assert jobs.jobs == {}  # nothing for the quick path
+    assert [j["question"] for j in research.Store(research_dir.parent).jobs()] == ["Explain gravity"]
+
+
+def test_deep_is_refused_where_research_cant_run_and_for_a_follow_up(jobs, research_dir):
+    with cfg.override({"research": {"enabled": False}}):
+        code, reply = call(**body(deep=True))
+    assert (code, reply["error"]) == (409, "Research is turned off in Settings.")
+    with cfg.override(DEEP_OK):
+        assert call(**body(deep=True, followup={"report": "a" * 32}))[0] == 400
+    assert not research_dir.exists() or research.Store(research_dir.parent).jobs() == []
 
 
 # The job queue
@@ -238,7 +243,7 @@ def test_job_goes_queued_running_completed_and_get_returns_a_copy():
 
     manager = p.JobManager(slow)
     try:
-        job = manager.submit("Explain gravity", "local")
+        job = manager.submit("Explain gravity")
         assert job["status"] == "queued"
         assert entered.wait(2)
         assert manager.jobs[job["id"]]["status"] == "running"
@@ -263,7 +268,7 @@ def test_job_goes_queued_running_completed_and_get_returns_a_copy():
 )
 def test_unsuccessful_runs_fail_the_job(outcome, error):
     manager = p.JobManager(runner(side_effect=[outcome]))
-    job = manager.submit("Explain gravity", "local")
+    job = manager.submit("Explain gravity")
     manager.queue.join()
     result = manager.jobs[job["id"]]
     assert (result["status"], result["error"]) == ("failed", error)
@@ -279,27 +284,25 @@ def test_unsuccessful_runs_fail_the_job(outcome, error):
     ],
 )
 @pytest.mark.parametrize(
-    "mode, options",
+    "question, options",
     [
-        pytest.param("cloud", {}, id="mode-cloud"),
-        pytest.param("local", {"scope": "auto"}, id="scope-auto"),
-        pytest.param("local", {"scope": None}, id="scope-none"),
-        pytest.param("local", {"scope": "general", "day": "2026-10-20"}, id="general-with-day"),
+        pytest.param(" ", {}, id="blank"),
+        pytest.param("x" * 1201, {}, id="too-long"),
+        pytest.param("Explain gravity", {"day": "2026-02-30"}, id="bad-day"),
     ],
 )
-def test_entry_points_reject_bad_mode_scope_and_day(entry, mode, options):
+def test_entry_points_reject_a_bad_question_or_day(entry, question, options):
     with pytest.raises(ValueError):
-        entry("Explain gravity", mode, **options)
+        entry(question, **options)
 
 
 # The worker subprocess
 
 
-def test_worker_timeout_is_a_timeout_without_history_wording():
+def test_worker_timeout_is_a_timeout():
     with patch.object(p.subprocess, "run", autospec=True, side_effect=subprocess.TimeoutExpired("synthetic", 1)):
-        result = p.ask("Explain gravity", scope="general")
-    assert (result["status"], result["scope"]) == ("timeout", "general")
-    assert "interval" not in result["answer"]
+        result = p.ask("Explain gravity")
+    assert result["status"] == "timeout"
 
 
 @pytest.mark.parametrize("stdout", ["not-json", "[]", "{}"])
@@ -308,17 +311,17 @@ def test_worker_bad_output_is_an_error(stdout):
         assert p.ask("hello")["status"] == "error"
 
 
-def test_worker_and_cli_forward_general_scope(monkeypatch):
+def test_worker_and_cli_forward_the_question_and_day(monkeypatch):
     monkeypatch.setattr(p.sys, "argv", ["pack-ask", "--worker"])
-    monkeypatch.setattr(p.sys, "stdin", io.StringIO(json.dumps({**QUESTION, "scope": "general"})))
+    monkeypatch.setattr(p.sys, "stdin", io.StringIO(json.dumps({**QUESTION, "day": "2026-10-20"})))
     with patch.object(p, "execute", autospec=True, return_value={"answer": "ok"}) as execute:
         p.main()
-    execute.assert_called_once_with("Explain gravity", "local", None, day=None, scope="general")
-    monkeypatch.setattr(p.sys, "argv", ["pack-ask", "--scope", "general", "--mode", "friends"])
+    execute.assert_called_once_with("Explain gravity", None, day="2026-10-20")
+    monkeypatch.setattr(p.sys, "argv", ["pack-ask"])
     monkeypatch.setattr(p.sys, "stdin", io.StringIO("Explain gravity"))
     with patch.object(p, "ask", autospec=True, return_value={"answer": "ok"}) as ask:
         p.main()
-    ask.assert_called_once_with("Explain gravity", "friends", str(p.STATE), scope="general")
+    ask.assert_called_once_with("Explain gravity", str(p.STATE))
 
 
 # The local model request
@@ -510,8 +513,7 @@ def test_cpu_expert_answer_refuses_the_shared_server_before_a_request(ollama, se
 @pytest.mark.parametrize("think, seconds", [(False, 180), (True, 270)])  # 270: 80 s of rounds, 170 s, and 20
 def test_a_thinking_job_gets_the_rounds_and_a_whole_thinking_answer(think, seconds):
     with cfg.override({"ask": {"think": think}}):
-        assert p.deadline("local") == seconds
-        assert p.deadline("friends") == 360
+        assert p.deadline() == seconds
 
 
 def test_an_openclaw_context_keeps_the_old_evidence_cap(tmp_path, monkeypatch):
@@ -679,24 +681,11 @@ def test_an_answer_that_breaks_the_format_twice_fails(ollama):
     assert len(ollama.requests) == 2
 
 
-def test_a_general_answer_is_never_asked_for_again(ollama):
-    ollama.contents = ["First. Second."]
-    assert p.local_answer("write a haiku", None) == ("First. Second.", "ollama/synthetic")
-    assert len(ollama.requests) == 1
-
-
 @pytest.mark.parametrize("num_ctx", [4096, 8192, 16384, 65536])
 def test_the_evidence_and_the_reply_fit_the_context(num_ctx):
     evidence, reply = p.budgets(num_ctx)
     assert evidence // 3 + 1600 + reply <= num_ctx  # about 3 characters a token; the full prompt and question need room
     assert 2400 <= evidence <= 16000 and reply <= 1400
-
-
-def test_general_questions_get_a_general_prompt(ollama):
-    p.local_answer("Write a function", None)
-    system, message = ollama.last()["messages"]
-    assert message == {"role": "user", "content": "Write a function"}
-    assert "Cite evidence IDs" not in system["content"]
 
 
 def test_history_questions_get_structured_evidence_and_clock(ollama):
@@ -722,66 +711,36 @@ def test_answer_prompt_states_the_given_now(ollama, now):
 # Routing in execute
 
 
-@pytest.fixture
-def no_records():
-    with patch.object(
-        h, "collect", autospec=True, side_effect=AssertionError("General questions must not read records")
-    ):
-        yield
-
-
-def test_general_local_answer_reads_no_records(no_records):
-    with patch.object(p, "local_answer", autospec=True, return_value=("General answer", "synthetic")) as local:
-        result = p.execute("What happened yesterday?", scope="general")
-    local.assert_called_once_with("What happened yesterday?", None)
-    assert (result["status"], result["answer"], result["scope"], result["is_history"]) == (
-        "ok",
-        "General answer",
-        "general",
-        False,
-    )
-    assert (result["evidence"], result["coverage"], result["warnings"], result["query"]) == ([], {}, [], {})
-
-
-@pytest.mark.parametrize("mode, subset", [("friends", "pair"), ("everyone", "all")])
-def test_general_panel_gets_no_records(no_records, agent, panel, mode, subset):
-    result = p.execute("What happened yesterday?", mode, scope="general")
-    panel.assert_called_once_with("What happened yesterday?", context="", subset=subset)
-    assert (result["status"], result["answer"], result["evidence"]) == ("ok", "Panel", [])
-
-
-def test_general_friends_without_an_agent_falls_back_to_local(no_records, panel):
-    with (
-        cfg.override({"agent": {"url": ""}}),
-        patch.object(p, "local_answer", autospec=True, return_value=("General fallback", "synthetic")) as local,
-    ):
-        result = p.execute("Explain gravity", "friends", scope="general")
-    assert (result["scope"], result["mode"], result["answer"]) == ("general", "local", "General fallback")
-    assert len(result["warnings"]) == 1
-    local.assert_called_once_with("Explain gravity", None)
-    panel.assert_not_called()
-
-
-def test_general_model_failure_does_not_claim_retrieved_evidence():
-    with patch.object(p, "local_answer", autospec=True, side_effect=RuntimeError("unavailable")):
-        result = p.execute("Explain gravity", scope="general")
-    assert (result["status"], result["error"]) == ("error", "RuntimeError")
-    assert "evidence" not in result["answer"].lower()
-
-
-@pytest.mark.parametrize("mode", p.MODES)
-def test_recorded_answer_survives_every_mode_without_the_model(agent, panel, tmp_path, mode):
+def test_a_recorded_answer_needs_no_model(tmp_path):
     answer = "2 observed transitions (not a verified outage total)."
     history = {"is_history": True, "answer": answer, "evidence": [], "coverage": {"partial": True}}
     with (
         patch.object(h, "collect", autospec=True, return_value=history) as collect,
         patch.object(p, "local_answer", autospec=True, side_effect=AssertionError("no model for a recorded answer")),
     ):
-        result = p.execute("how many times did the lights go off", mode, state_dir=tmp_path, day="2026-10-20")
+        result = p.execute("how many times did the lights go off", state_dir=tmp_path, day="2026-10-20")
     collect.assert_called_once_with(
         "how many times did the lights go off", state_dir=tmp_path, now=None, day="2026-10-20"
     )
-    assert (result["answer"], result["status"]) == (answer, "partial")
+    assert (result["answer"], result["status"], result["found"]) == (answer, "partial", True)
+
+
+@pytest.mark.parametrize(
+    "found, model_evidence, expected",
+    [
+        pytest.param(h.NO_EVIDENCE, None, False, id="recorded-nothing"),
+        pytest.param(None, [], False, id="model-with-no-evidence"),
+        pytest.param(None, [{"id": "T1", "text": "Dana booked the venue."}], True, id="model-with-evidence"),
+    ],
+)
+def test_found_says_whether_the_recordings_held_anything(found, model_evidence, expected):
+    collected = {"is_history": True, "answer": found, "evidence": model_evidence or [], "query": {}}
+    with (
+        cfg.override({"recall": {"enabled": False}}),
+        patch.object(h, "collect", autospec=True, return_value=collected),
+        patch.object(p, "local_answer", autospec=True, return_value=("Nothing about that.", "ollama/test")),
+    ):
+        assert p.execute("What was said yesterday?")["found"] is expected
 
 
 def test_evidence_context_keeps_what_fits_and_says_so():
@@ -810,13 +769,6 @@ def test_execute_is_partial_when_the_model_saw_only_part_of_the_evidence():
     assert any("input budget" in w for w in result["warnings"])
 
 
-def test_panel_failure_is_not_masked_by_truncated_evidence(agent, panel):
-    panel.return_value = {"status": "error", "answer": "Panel failed"}
-    history = {"is_history": True, "evidence": [{"text": "x" * 20000}]}
-    with patch.object(h, "collect", autospec=True, return_value=history):
-        assert p.execute("What was said yesterday", "friends")["status"] == "error"
-
-
 # The recall loop: on by default, off with recall.enabled or zero rounds, the single pass on failure
 
 
@@ -832,8 +784,8 @@ def history(**fields):
 
 
 @pytest.fixture
-def run_recall(agent, panel):
-    def run(found, settings, loop_error=None, mode="local"):
+def run_recall():
+    def run(found, settings, loop_error=None):
         loop_result = {
             "evidence": EVIDENCE + [{"id": "J2", "text": "Dana planned the party."}],
             "rounds": ROUNDS,
@@ -847,7 +799,7 @@ def run_recall(agent, panel):
             patch.object(recall, "loop", autospec=True, return_value=loop_result, side_effect=loop_error) as loop,
             patch.object(p, "local_answer", autospec=True, return_value=("answer", "ollama/test")) as local,
         ):
-            return p.execute("what did Dana say yesterday", mode, now=1000.0), loop, local
+            return p.execute("what did Dana say yesterday", now=1000.0), loop, local
 
     return run
 
@@ -890,16 +842,15 @@ def test_loop_failure_falls_back_to_the_single_pass(run_recall):
 
 
 @pytest.mark.parametrize(
-    "found, mode",
+    "found",
     [
-        pytest.param(history(answer="2 observed on-to-off transitions."), "local", id="recorded-answer"),
-        pytest.param(history(), "friends", id="panel"),
-        pytest.param({"is_history": False}, "local", id="not-history"),
-        pytest.param(history(query={}, answer="Use one explicit YYYY-MM-DD date."), "local", id="unparsed"),
+        pytest.param(history(answer="2 observed on-to-off transitions."), id="recorded-answer"),
+        pytest.param({"is_history": False}, id="not-history"),
+        pytest.param(history(query={}, answer="Use one explicit YYYY-MM-DD date."), id="unparsed"),
     ],
 )
-def test_loop_is_skipped(run_recall, found, mode):
-    result, _, _ = run_recall(found, {"max_rounds": 2}, mode=mode)
+def test_loop_is_skipped(run_recall, found):
+    result, _, _ = run_recall(found, {"max_rounds": 2})
     assert "rounds" not in result
 
 
@@ -1061,30 +1012,20 @@ def test_spoken_history_questions_use_the_local_backend(owner_voice, monkeypatch
     reply = {"status": "ok", "answer": "Synthetic historical answer", "coverage": {"partial": True}}
     with patch.object(p, "ask", autospec=True, return_value=reply) as ask:
         said = voice.handle(question, speaker, OWNER)
-    ask.assert_called_once_with(question, mode="local", on_short=ANY)
+    ask.assert_called_once_with(question, on_short=ANY)
     assert said == PARTIAL + "Synthetic historical answer"
     speaker.speak.assert_called_once_with(said)
 
 
-@pytest.mark.parametrize(
-    "prefix, mode",
-    [
-        ("Ask friends", "friends"),
-        ("Ask your friends", "friends"),
-        ("Ask everyone", "everyone"),
-        ("Ask all friends", "everyone"),
-        ("Ask all your friends", "everyone"),
-    ],
-)
-def test_spoken_panel_prefix_picks_the_subset(owner_voice, monkeypatch, prefix, mode):
+@pytest.mark.parametrize("prefix", ["Ask friends", "Ask your friends", "Ask everyone", "Ask all your friends"])
+def test_asking_outside_models_by_voice_gets_a_plain_line_and_asks_nothing(owner_voice, monkeypatch, prefix):
     monkeypatch.setattr(voice, "optional_module", lambda name: p)
-    with patch.object(p, "ask", autospec=True, return_value={"status": "ok", "answer": "Synthetic answer"}) as ask:
-        assert voice.handle(prefix + " why stars shine", entry=OWNER) == "Synthetic answer"
-    ask.assert_called_once_with("why stars shine", mode=mode)
+    with patch.object(p, "ask", autospec=True, side_effect=AssertionError("asked")) as ask:
+        assert voice.handle(prefix + " why stars shine", entry=OWNER) == voice.NO_OUTSIDE_MODELS
+    ask.assert_not_called()
 
 
-@pytest.mark.parametrize("mode", ["local", "friends", "everyone"])
-def test_presence_answers_bypass_models_in_every_mode(tmp_path, monkeypatch, agent, mode, vision):
+def test_presence_answers_bypass_the_model(tmp_path, monkeypatch, vision):
     at = dt.datetime(2026, 10, 20, 12, tzinfo=h.TZ).timestamp()
     vision.add(segment_log.WALKBY_COVERAGE, ts_start=at - 3600, ts_end=at, cam="cam0", frames=7200)
     attributes = {"direction": "left_to_right", "crossings": 1, "tracks": 1, "followed": True}
@@ -1095,11 +1036,8 @@ def test_presence_answers_bypass_models_in_every_mode(tmp_path, monkeypatch, age
         p, "local_answer", create_autospec(p.local_answer, side_effect=AssertionError("no model counting"))
     )
     monkeypatch.setattr(recall, "loop", create_autospec(recall.loop, side_effect=AssertionError("no recall counting")))
-    with (
-        cfg.override({"presence": {"enabled": True}}),
-        patch("liberational.assistant.ask_friends.ask", autospec=True, side_effect=AssertionError("no panel counting")),
-    ):
-        result = p.execute("how many times did someone walk by camera0 today?", mode, tmp_path, now=at + 1)
+    with cfg.override({"presence": {"enabled": True}}):
+        result = p.execute("how many times did someone walk by camera0 today?", tmp_path, now=at + 1)
     assert result["model"] == "local-history-evidence"
     assert result["paths"] == ["presence"]
     assert result["answer"].startswith("People walked past the camera once.")
@@ -1107,8 +1045,7 @@ def test_presence_answers_bypass_models_in_every_mode(tmp_path, monkeypatch, age
     assert "crossings" not in result
 
 
-@pytest.mark.parametrize("mode", ["local", "friends", "everyone"])
-def test_presence_read_failure_never_falls_back_to_models(tmp_path, monkeypatch, agent, mode, vision):
+def test_presence_read_failure_never_falls_back_to_the_model(tmp_path, monkeypatch, vision):
     monkeypatch.setattr(
         p, "local_answer", create_autospec(p.local_answer, side_effect=AssertionError("no model counting"))
     )
@@ -1118,45 +1055,24 @@ def test_presence_read_failure_never_falls_back_to_models(tmp_path, monkeypatch,
         raise ConnectionRefusedError("broker down")
 
     monkeypatch.setattr(vision, "range", unreachable)
-    with (
-        cfg.override({"presence": {"enabled": True}}),
-        patch("liberational.assistant.ask_friends.ask", autospec=True, side_effect=AssertionError("no panel counting")),
-    ):
-        result = p.execute("how many times did someone come into view today?", mode, tmp_path)
+    with cfg.override({"presence": {"enabled": True}}):
+        result = p.execute("how many times did someone come into view today?", tmp_path)
     assert result["status"] == "error"
     assert result["model"] == "local-history-evidence"
     assert result["paths"] == ["presence"]
     assert result["answer"] == "History source could not be read safely."
 
 
-@pytest.mark.parametrize("mode", ["friends", "everyone"])
-def test_presence_without_agent_does_not_claim_model_fallback(tmp_path, mode):
-    with cfg.override({"presence": {"enabled": True}, "agent": {"url": ""}}):
-        result = p.execute("how many times did someone come into view today?", mode, tmp_path)
-    assert result["model"] == "local-history-evidence"
-    assert not any("local model answered" in warning for warning in result["warnings"])
-    assert result["mode"] == mode
-
-
-@pytest.mark.parametrize("mode", ["local", "friends", "everyone"])
 @pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.parametrize("clock", ["3", "3pm", "15:30"])
-def test_presence_unsupported_time_refuses_without_panel_only_when_enabled(
-    tmp_path, agent, panel, mode, enabled, clock
-):
+def test_presence_unsupported_time_refuses(tmp_path, enabled, clock):
     with cfg.override({"presence": {"enabled": enabled}}):
-        result = p.execute(f"how many times did someone come into view before {clock} today?", mode, tmp_path)
+        result = p.execute(f"how many times did someone come into view before {clock} today?", tmp_path)
+    assert result["answer"].startswith("Unsupported time phrase;")
     if enabled:
-        panel.assert_not_called()
         assert result["paths"] == ["presence"]
         assert result["model"] == "local-history-evidence"
-        assert result["answer"].startswith("Unsupported time phrase;")
     else:
-        if mode == "local":
-            panel.assert_not_called()
-            assert result["answer"].startswith("Unsupported time phrase;")
-        else:
-            panel.assert_called_once()
         assert "presence" not in result.get("paths", [])
 
 
@@ -1197,14 +1113,14 @@ def test_history_delete_consumes_body_and_prevents_running_job_resurrection(memo
 
     entered, release = threading.Event(), threading.Event()
 
-    def blocked(question, mode):
+    def blocked(question):
         entered.set()
         assert release.wait(5)
         return {"status": "ok", "answer": "Late answer", "evidence": []}
 
     manager = p.JobManager(blocked)
     monkeypatch.setattr(p, "JOBS", manager)
-    job = manager.submit("Question", "local")
+    job = manager.submit("Question")
     try:
         assert entered.wait(5)
         handler, (status, body) = history_call("/" + job["id"], command="DELETE", body={})
@@ -1268,7 +1184,7 @@ def test_completed_job_poll_respects_source_purge_instead_of_cached_answer(memor
         )
     )
     monkeypatch.setattr(p, "JOBS", manager)
-    job = manager.submit("What happened?", "local")
+    job = manager.submit("What happened?")
     manager.queue.join()
     assert call(command="GET", path="/" + job["id"])[1]["result"]["answer"] == "Source words [J1]"
     memory.purge([source_id], "test source removal")
@@ -1282,19 +1198,18 @@ def test_completed_job_poll_respects_source_purge_instead_of_cached_answer(memor
     assert saved["result"] is None
 
 
-def test_completion_write_failure_keeps_live_answer_with_storage_warning(memory, monkeypatch):
+def test_an_answer_that_could_not_be_saved_is_not_served_from_memory(memory, monkeypatch):
+    """An Ask answer rests on recordings that can be purged, so one its history could not keep is not shown later."""
     from liberational.memory import ask_history
 
     with patch.object(ask_history.History, "finish", autospec=True, side_effect=OSError("temporary write failure")):
         manager = p.JobManager(runner(return_value={"status": "ok", "answer": "Computed answer", "evidence": []}))
         monkeypatch.setattr(p, "JOBS", manager)
-        job = manager.submit("Explain gravity", "local", scope="general")
+        job = manager.submit("Explain gravity")
         manager.queue.join()
     status, polled = call(command="GET", path="/" + job["id"])
-    assert status == 200
-    assert polled["status"] == "completed"
-    assert polled["result"]["answer"] == "Computed answer"
-    assert "could not be saved" in " ".join(polled["result"]["warnings"])
+    assert (status, polled["status"]) == (200, "failed")
+    assert "unavailable" in polled["error"]
     saved = ask_history.at(p.STATE).get(job["id"])
     assert saved is not None
     assert saved["result"] is None
@@ -1316,7 +1231,7 @@ def test_completion_write_failure_does_not_bypass_later_root_or_source_purge(mem
     with patch.object(ask_history.History, "finish", autospec=True, side_effect=OSError("temporary write failure")):
         manager = p.JobManager(runner(return_value=result))
         monkeypatch.setattr(p, "JOBS", manager)
-        job = manager.submit("What happened?", "local")
+        job = manager.submit("What happened?")
         manager.queue.join()
     assert call(command="GET", path="/" + job["id"])[1]["result"]["answer"] == "Private words [J1]"
     memory.purge([source_id], "test source removal")
@@ -1336,7 +1251,7 @@ def test_unsaved_evidence_answer_is_hidden_when_deletion_checkpoint_is_unavailab
     with patch.object(ask_history.History, "finish", autospec=True, side_effect=OSError("write failure")):
         manager = p.JobManager(runner(return_value=result))
         monkeypatch.setattr(p, "JOBS", manager)
-        job = manager.submit("What happened?", "local")
+        job = manager.submit("What happened?")
         manager.queue.join()
     status, polled = call(command="GET", path="/" + job["id"])
     assert status == 200
@@ -1500,17 +1415,13 @@ def test_the_answer_shown_while_writing_is_always_the_start_of_the_final_one(sho
     assert (final + "\n\n").startswith(shown) or final.startswith(shown)
 
 
-def test_a_general_answer_is_shown_as_written():
-    assert p.partial_answer("Gravity bends", history=False) == "Gravity bends"
-
-
 def test_the_partial_file_holds_the_answer_so_far(tmp_path):
     path = tmp_path / "ask" / "partial" / "j1.txt"
-    write = p.partial_writer(path, history=True)
+    write = p.partial_writer(path)
     assert write is not None
     write('{"short_answer": "Dana wants tom')
     assert path.read_text() == "Dana wants tom"
-    assert p.partial_writer(None, history=True) is None
+    assert p.partial_writer(None) is None
 
 
 def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(tmp_path, monkeypatch):
@@ -1518,7 +1429,7 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
     started, release = threading.Event(), threading.Event()
     seen: dict[str, object] = {}
 
-    def fake_result(question, mode, state_dir=None, day=None, scope="history", partial=None):
+    def fake_result(question, state_dir=None, day=None, partial=None):
         seen["partial"] = partial
         assert partial is not None
         partial.parent.mkdir(parents=True, exist_ok=True)
@@ -1531,7 +1442,7 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
     monkeypatch.setattr(p, "_history_start", lambda *a, **k: None)
     manager = p.JobManager()
     manager.runner = fake_result
-    job = manager.submit("what does Dana want", "local")
+    job = manager.submit("what does Dana want")
     assert started.wait(5)
     running = manager.get(job["id"])
     assert running is not None and running["partial"] == "Dana wants tom"
@@ -1545,7 +1456,7 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
 
 def test_the_worker_subprocess_is_told_where_to_stream(monkeypatch, tmp_path):
     with worker_output(json.dumps({"status": "ok", "answer": "x"})) as run:
-        p._ask_result("Explain gravity", "local", tmp_path, scope="general", partial=tmp_path / "j1.txt")
+        p._ask_result("Explain gravity", tmp_path, partial=tmp_path / "j1.txt")
     assert json.loads(run.call_args.kwargs["input"])["partial"] == str(tmp_path / "j1.txt")
 
 
@@ -1740,7 +1651,7 @@ def test_pronoun_note_precedes_both_early_speech_and_the_final_answer(monkeypatc
     monkeypatch.setattr(p, "_history_finish", lambda ident, result, *a: (dict(result), False))
     seen = []
 
-    def worker(question, mode, state, day, scope, *, on_short):
+    def worker(question, state, day, *, on_short):
         assert question == "What did Dana say yesterday?"
         short = {"answer": "Tea was requested.", "status": "ok", "coverage": {}}
         on_short(short)
@@ -1827,27 +1738,17 @@ def test_a_followup_on_a_report_still_running_is_refused(tmp_path):
 def test_a_followup_job_hands_the_report_to_its_run_once():
     seen = []
 
-    def run(question, mode, **options):
+    def run(question, **options):
         seen.append(options.get("followup"))
         return {"status": "ok", "answer": "synthetic"}
 
     manager = p.JobManager(run)
     earlier = {"question": "Who came by this week?", "answer": "Dana, twice."}
-    manager.submit("And when?", "local", followup=earlier)
-    manager.submit("Explain gravity", "local")
+    manager.submit("And when?", followup=earlier)
+    manager.submit("Explain gravity")
     manager.queue.join()
     assert seen == [earlier, None]
     assert manager.followups == {}
-
-
-@pytest.mark.parametrize(
-    "mode, scope", [pytest.param("friends", "history", id="friends"), pytest.param("local", "general", id="general")]
-)
-def test_a_followup_asks_only_my_recordings(mode, scope):
-    manager = p.JobManager(runner(return_value={"status": "ok", "answer": "synthetic"}))
-    with pytest.raises(ValueError, match="My recordings"):
-        manager.submit("And when?", mode, scope=scope, followup={"question": "q", "answer": "a"})
-    assert manager.jobs == {}
 
 
 def test_a_post_following_up_on_a_missing_report_is_refused_without_queueing(jobs):
