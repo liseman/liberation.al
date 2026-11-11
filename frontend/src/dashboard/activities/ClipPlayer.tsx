@@ -6,11 +6,11 @@
 // was and playing if it was; closing hands its time back to the card.
 import { ActionIcon, Alert, UnstyledButton } from '@mantine/core';
 import { IconArrowsMaximize } from '@tabler/icons-react';
-import { type CSSProperties, type MouseEvent, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type MouseEvent, useRef, useState } from 'react';
 import { ClipFloat } from '../clip/ClipFloat';
 import { ClipPoster } from '../clip/ClipPoster';
 import { type LoadSegments, type Moment, useClip } from '../clip/clip';
-import { cameraRatio, learnRatio, ratioOf, WIDE } from '../clip/ratio';
+import { learnRatio, WIDE } from '../clip/ratio';
 import { clipLength, hm } from '../lib/format';
 import { EngineContext } from '../review/context';
 import { type MakeVideo, Player } from '../review/Player';
@@ -38,25 +38,10 @@ function Embedded({
   makeVideo,
   loadSegments,
   ratio,
-  onRatio,
-}: ClipPlayerProps & { ratio: number | null; onRatio: (ratio: number) => void }) {
+}: ClipPlayerProps & { ratio: number | null }) {
   const frame = useRef<HTMLDivElement>(null);
   const { engine, clip, loading, error } = useClip({ cam, start: start - LEAD_S, end: end + LEAD_S, loadSegments });
   const [popup, setPopup] = useState<Moment | null>(null);
-  // The gateway sizes its canvas to the video's own frame: once it has painted, that's the camera's true shape.
-  useEffect(() => {
-    const root = frame.current;
-    if (!root) return;
-    const read = () => {
-      for (const canvas of root.querySelectorAll('canvas')) {
-        const found = ratioOf(canvas.width, canvas.height);
-        if (found && canvas.width > 300) return onRatio(found); // past a fresh canvas's default 300 x 150
-      }
-    };
-    const observer = new MutationObserver(read);
-    observer.observe(root, { attributes: true, attributeFilter: ['width', 'height'], subtree: true });
-    return () => observer.disconnect();
-  }, [onRatio]);
   const expand = () => {
     if (!clip) return;
     const moment = { t: engine.t ?? clip.at, play: engine.playing };
@@ -86,7 +71,7 @@ function Embedded({
       }}
     >
       <EngineContext value={engine}>
-        <Player loading={loading} compact makeVideo={makeVideo} />
+        <Player loading={loading} compact mediaBox={{ ratio }} makeVideo={makeVideo} />
       </EngineContext>
       {clip && (
         <ActionIcon
@@ -120,7 +105,8 @@ function Embedded({
 
 export function ClipPlayer({ cam, start, end, label, makeVideo, loadSegments }: ClipPlayerProps) {
   const [open, setOpen] = useState(false);
-  const [ratio, setRatio] = useState<number | null>(() => cameraRatio(cam));
+  // Use this clip's still, not another recording's cached camera shape (capture modes can change).
+  const [ratio, setRatio] = useState<number | null>(null);
   const learn = useRef((found: number) => {
     learnRatio(cam, found);
     setRatio(previous => (previous !== null && Math.abs(previous - found) < 0.01 ? previous : found));
@@ -138,7 +124,6 @@ export function ClipPlayer({ cam, start, end, label, makeVideo, loadSegments }: 
         makeVideo={makeVideo}
         loadSegments={loadSegments}
         ratio={ratio}
-        onRatio={learn}
       />
     );
   return (

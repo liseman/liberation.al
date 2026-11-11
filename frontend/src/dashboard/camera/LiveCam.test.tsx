@@ -19,6 +19,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  delete (window as Window & { __PACK_DEMO__?: boolean }).__PACK_DEMO__;
 });
 
 const canvas = () => document.querySelector('canvas') as HTMLCanvasElement;
@@ -131,4 +132,29 @@ describe('useCameraAspect', () => {
     expect(frame.style.getPropertyValue('--camera-aspect')).toBe(String(640 / 480));
     expect(JSON.parse(localStorage.getItem('liberational.cameraAspect') ?? '{}')).toEqual({ desk: 640 / 480 });
   });
+});
+
+it('draws the demo still without connecting to a camera gateway', async () => {
+  (window as Window & { __PACK_DEMO__?: boolean }).__PACK_DEMO__ = true;
+  const picture = { onload: null as (() => void) | null, src: '', naturalWidth: 960, naturalHeight: 540 };
+  function fakeImage() {
+    return picture;
+  }
+  vi.stubGlobal('Image', fakeImage);
+  const draw = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+    drawImage: draw,
+  } as unknown as CanvasRenderingContext2D);
+  const ref = createRef<HTMLCanvasElement>();
+  const { unmount } = render(<LiveCam cam="kitchen" alt="Kitchen" canvasRef={ref} />);
+  expect(picture.src).toBe('/demo/media/kitchen.jpg');
+  act(() => picture.onload?.());
+  expect(canvas().width).toBe(960);
+  expect(canvas().height).toBe(540);
+  expect(draw).toHaveBeenCalledWith(picture, 0, 0);
+  expect(screen.getByRole('img', { name: 'Kitchen, demo illustration' })).toBe(canvas());
+  await settle();
+  expect(net.conns).toHaveLength(0);
+  unmount();
+  expect(ref.current).toBeNull();
 });

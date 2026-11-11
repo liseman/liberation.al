@@ -128,53 +128,42 @@
 .ask {
   gap: 8px;
 }
+/* Reserve a second line for wrapped clip facts before playback, so narrow cards keep their questions aligned. */
+.clip > p {
+  min-height: 2lh;
+}
 .answers {
   display: flex;
 }
 .answers > * {
   flex: 1;
+  padding-inline: 8px;
 }
 .callIt {
   align-self: flex-start;
 }
-/* A clip takes its camera's own shape (--clip-ratio, width over height, set by ClipPlayer; 16:9 until known), so a
-   portrait camera fills a tall box instead of a strip between gray bars. Tall ones stop at 70% of the
-   window's height, centred. The poster and the playing video share the size, so nothing jumps on play. */
+/* The poster, loading cover, and player occupy the same box, including outside the rating grid.
+   Intrinsic media dimensions only choose where the controls fit; they never resize this box. */
 .clipBox,
 .clipFrame {
-  width: min(100%, calc(70vh * var(--clip-ratio, 1.7778)));
-  margin-inline: auto;
-  border-radius: 8px;
-}
-.clipBox {
+  position: relative;
   display: block;
-  aspect-ratio: var(--clip-ratio, 16 / 9);
+  width: 100%;
+  height: 240px;
+  flex: none;
+  border-radius: 8px;
   overflow: hidden;
+}
+.clipBox > * {
+  height: 100%;
+  aspect-ratio: auto;
+}
+.clipBox img {
+  object-position: center top;
 }
 .clipBox:focus-visible {
   outline: 2px solid var(--mantine-color-anchor);
   outline-offset: 2px;
-}
-.clipFrame {
-  position: relative;
-  --player-ratio: var(--clip-ratio, 16 / 9); /* the embedded player's stage (player.module.css), its controls below */
-}
-/* In a card, a clip stays within 240px of height (a portrait camera would otherwise make one card a screen tall). */
-.cards .clipBox,
-.cards .clipFrame {
-  width: min(100%, calc(240px * var(--clip-ratio, 1.7778)));
-}
-/* The poster is a fixed box the card's full width, its still letterboxed in it, so it doesn't grow from 16:9 to the
-   camera's shape once that's known (a load shift of every card). Playing, the clip takes its own shape at the same
-   240px height. */
-.cards .clipBox {
-  width: 100%;
-  height: 240px;
-  aspect-ratio: auto;
-}
-.cards .clipBox > * {
-  height: 100%; /* the shared ClipPoster fills the box rather than taking the clip's shape inside it */
-  aspect-ratio: auto;
 }
 /* A phone's kinds: one row of chips that scrolls sideways, its height fixed so the clips under it stay put. */
 .chips {

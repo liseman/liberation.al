@@ -61,6 +61,39 @@ export function useCameraAspect<T extends HTMLElement>(cam: string): RefObject<T
 /** The canvas, and the note in its place before any frame: a LiveBoxes beside them finds the picture in their
  *  parent. */
 export function LiveCam({ cam, alt, canvasRef }: { cam: string; alt: string; canvasRef?: Ref<HTMLCanvasElement> }) {
+  if ((window as Window & { __PACK_DEMO__?: boolean }).__PACK_DEMO__)
+    return <DemoCam cam={cam} alt={alt} canvasRef={canvasRef} />;
+  return <CapturedCam cam={cam} alt={alt} canvasRef={canvasRef} />;
+}
+
+function DemoCam({ cam, alt, canvasRef }: { cam: string; alt: string; canvasRef?: Ref<HTMLCanvasElement> }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const picture = new Image();
+    let active = true;
+    picture.onload = () => {
+      if (!active || !canvas) return;
+      canvas.width = picture.naturalWidth;
+      canvas.height = picture.naturalHeight;
+      canvas.getContext('2d')?.drawImage(picture, 0, 0);
+    };
+    picture.src = `/demo/media/${encodeURIComponent(cam)}.jpg`;
+    if (typeof canvasRef === 'function') canvasRef(canvas);
+    else if (canvasRef) canvasRef.current = canvas;
+    return () => {
+      active = false;
+      picture.onload = null;
+      if (typeof canvasRef === 'function') canvasRef(null);
+      else if (canvasRef) canvasRef.current = null;
+    };
+  }, [cam, canvasRef]);
+  return (
+    <canvas ref={ref} className="live-canvas" data-cam={cam} role="img" aria-label={`${alt}, demo illustration`} />
+  );
+}
+
+function CapturedCam({ cam, alt, canvasRef }: { cam: string; alt: string; canvasRef?: Ref<HTMLCanvasElement> }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const setCanvas = useCallback(
     (canvas: HTMLCanvasElement | null) => {
