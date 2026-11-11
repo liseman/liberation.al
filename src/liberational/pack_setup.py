@@ -9,11 +9,13 @@ It does, in order:
 
 1. System packages: lists what this machine is missing and the command that installs it (system_packages.py). It
    installs none of them itself: that takes sudo, and `pack-system install` asks first.
-2. Python extras for this machine (extras()): face recognition, object masks, and deep transcription everywhere,
-   and voice cloning on Linux with an NVIDIA GPU. MLX on Apple Silicon and CUDA's ONNX Runtime on Linux come with
-   the package itself. They are installed with uv into the environment this command runs from, as the extras of the
-   package that is already installed, so no index has to carry the package. When the release ships its lock
-   (LOCK, a constraints file the release build writes into the package), every version is pinned to it.
+2. Python extras for this machine (extras()): object masks and deep transcription everywhere, face recognition
+   everywhere but a Linux x86-64 machine without an NVIDIA GPU (its CUDA ONNX Runtime and cuDNN wheels are several
+   GB such a machine cannot use, so it is told plainly and gets the rest), and voice cloning only with an NVIDIA
+   GPU. MLX on Apple Silicon and CUDA's ONNX Runtime on Linux come with the package itself. They are installed with
+   uv into the environment this command runs from, as the extras of the package that is already installed, so no
+   index has to carry the package. When the release ships its lock (LOCK, a constraints file the release build
+   writes into the package), every version is pinned to it.
 3. Continuum: says whether the SDK and the daemons are in this environment. They come with the package as wheels;
    nothing here builds or fetches them.
 4. Ollama: says whether it is there and answering, and how to get it. Its models are pulled in step 5 when it is.
@@ -54,6 +56,9 @@ DIST = "liberational-pack"
 # by hand) resolves the extras to the newest versions that fit.
 LOCK = cfg.RESOURCES / "constraints.txt"
 EVERYWHERE = ("faces", "segmentation", "deep-asr")
+# The extras only an NVIDIA GPU can use: voice cloning, and the CUDA ONNX Runtime and cuDNN wheels under face
+# recognition (several GB, and a Linux machine without the GPU cannot use them; the application needs one on Linux).
+GPU_EXTRAS = ("faces", "voice-clone")
 # The module each extra brings: `--check` finds its spec (without importing it) to say which extra is missing.
 EXTRA_MODULES = {
     "faces": ("insightface",),
@@ -68,10 +73,13 @@ type Run = Callable[[list[str]], int]
 
 
 def extras(platform: str | None = None, nvidia: bool | None = None) -> list[str]:
-    """The optional extras this machine gets, as `mise run setup` picks them: voice cloning needs CUDA, so it is
-    only for Linux x86-64 with an NVIDIA GPU (nvidia-smi on PATH)."""
+    """The optional extras this machine gets. The CUDA ones (GPU_EXTRAS) need an NVIDIA GPU, so a Linux x86-64
+    machine without one (no nvidia-smi on PATH) is told plainly and gets everything else; Apple Silicon and the ARM
+    Linux platforms (their ONNX Runtime is the plain or the MLX one) get every extra in EVERYWHERE."""
     platform = platform or cfg.platform_key()
     nvidia = shutil.which("nvidia-smi") is not None if nvidia is None else nvidia
+    if platform == "linux-x86_64" and not nvidia:
+        return [extra for extra in EVERYWHERE if extra not in GPU_EXTRAS]
     return [*EVERYWHERE, *(["voice-clone"] if nvidia and platform == "linux-x86_64" else [])]
 
 
@@ -123,6 +131,12 @@ def extras_step(check: bool, run: Run = _run) -> bool:
     there is nothing for this command to do (a checkout)."""
     chosen = extras()
     print(f"Python extras for this machine: {', '.join(chosen)}")
+    if "faces" not in chosen:
+        print(
+            "  no NVIDIA GPU: leaving out faces. Its CUDA ONNX Runtime and cuDNN wheels are several GB this machine"
+            " cannot use, so face recognition will not work here, and on Linux the application needs an NVIDIA GPU"
+            " to run."
+        )
     if cfg.CHECKOUT is not None:
         print("  a checkout syncs them from uv.lock: `mise run setup`")
         return True

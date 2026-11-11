@@ -37,13 +37,24 @@ def recorder(code=0):
     "platform, nvidia, want",
     [
         pytest.param("linux-x86_64", True, ["faces", "segmentation", "deep-asr", "voice-clone"], id="linux-nvidia"),
-        pytest.param("linux-x86_64", False, ["faces", "segmentation", "deep-asr"], id="linux-no-gpu"),
+        pytest.param("linux-x86_64", False, ["segmentation", "deep-asr"], id="linux-no-gpu"),
         pytest.param("linux-aarch64", True, ["faces", "segmentation", "deep-asr"], id="linux-arm-nvidia"),
+        pytest.param("linux-aarch64", False, ["faces", "segmentation", "deep-asr"], id="linux-arm-no-gpu"),
         pytest.param("darwin-arm64", False, ["faces", "segmentation", "deep-asr"], id="apple-silicon"),
     ],
 )
-def test_voice_cloning_is_only_for_linux_x86_with_an_nvidia_gpu(platform, nvidia, want):
+def test_the_cuda_extras_go_only_to_a_linux_x86_machine_with_an_nvidia_gpu(platform, nvidia, want):
     assert pack_setup.extras(platform, nvidia) == want
+
+
+def test_a_linux_machine_without_a_gpu_is_told_what_it_does_not_get(installed, monkeypatch, capsys):
+    monkeypatch.setattr(cfg, "platform_key", lambda: "linux-x86_64")
+    ran, run = recorder()
+    assert pack_setup.extras_step(check=False, run=run) is True
+    said = capsys.readouterr().out
+    assert "no NVIDIA GPU: leaving out faces" in said
+    assert "the application needs an NVIDIA GPU to run" in said
+    assert [command[-1] for command in ran] == ["liberational-pack[segmentation,deep-asr]==1.2.3"]
 
 
 def test_the_extras_are_installed_as_the_installed_packages_own_at_its_version(installed):
