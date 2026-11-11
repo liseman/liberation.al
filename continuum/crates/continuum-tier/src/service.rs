@@ -631,7 +631,7 @@ impl Service {
             rings: BTreeMap::new(),
             settings,
             started: Instant::now(),
-            epoch_ns: now_utc_ns(),
+            epoch_ns: continuum_core::utc_now_ns(),
             next_resubscribe: Instant::now(),
             last_report: Instant::now(),
             report_clock: continuum_log::Periodic::default(),
@@ -1744,12 +1744,6 @@ fn read_slot(arena: &Arena, handle: SlotHandle) -> Option<Vec<u8>> {
         }
     }
     None
-}
-
-pub(crate) fn now_utc_ns() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
 }
 
 #[cfg(test)]

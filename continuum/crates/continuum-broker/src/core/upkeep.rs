@@ -145,7 +145,7 @@ impl Sched {
     /// nothing names (`Catalog::prune_frames`), a writer step at a time.
     fn queue_frame_sweep(&mut self) {
         self.upkeep.pruned_at = Some(Instant::now());
-        let cutoff = super::now_ns().saturating_sub(u64::try_from(FRAME_ROWS_KEPT.as_nanos()).unwrap_or(u64::MAX));
+        let cutoff = super::utc_now_ns().saturating_sub(u64::try_from(FRAME_ROWS_KEPT.as_nanos()).unwrap_or(u64::MAX));
         let job = frame_sweep(cutoff, &self.upkeep.pruning, self.writer_config);
         if self.background.try_send(super::LongJob::droppable(job)).is_err() {
             self.upkeep.pruned_at = None; // the writer is busy: the next tick tries again

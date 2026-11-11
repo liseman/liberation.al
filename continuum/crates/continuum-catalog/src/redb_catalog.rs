@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock, Weak};
 
-use continuum_core::{BootId, HeaderBuf, Interval, StageId, StorageLocator, StorageTier, StreamId, Uuid};
+use continuum_core::{BootId, HeaderBuf, Interval, StageId, StorageLocator, StorageTier, StreamId, Uuid, utc_now_ns};
 use redb::{Database, Durability, ReadableDatabase};
 
 use crate::codec::{self, In, Out};
@@ -1867,7 +1867,7 @@ impl RedbCatalog {
             Ok(db) => db,
             Err(e) => {
                 if matches!(e, redb::DatabaseError::Storage(redb::StorageError::Corrupted(_))) {
-                    let why = format!("{e}, at {} ns since the epoch", now_ns());
+                    let why = format!("{e}, at {} ns since the epoch", utc_now_ns());
                     if std::fs::write(&failed, &why).is_ok() {
                         let _ = sync_dir(&path);
                     }
@@ -3982,7 +3982,8 @@ impl Catalog for RedbCatalog {
         }
         drop(old);
         let file_after = std::fs::metadata(&self.path).map_or(0, |m| m.len());
-        let last = LastScrub { at_ns: now_ns(), file_before, file_after, live_bytes, rows: s.copied + carried as u64 };
+        let last =
+            LastScrub { at_ns: utc_now_ns(), file_before, file_after, live_bytes, rows: s.copied + carried as u64 };
         // Physical scrub statistics do not change availability. Preserve a projection carried through
         // the swap; normal writes (including the earlier scrub request) still advance its revision.
         self.write_restart(false, |w| {

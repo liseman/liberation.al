@@ -343,7 +343,7 @@ impl Sched {
             mode: ask.mode,
         };
         let live = self.live();
-        let out = self.engine.query(&IndexView::new(&self.index, &live), req, now_ns());
+        let out = self.engine.query(&IndexView::new(&self.index, &live), req, utc_now_ns());
         let actions = out.actions;
         let (covered, missing, quote) = match out.decision {
             QueryDecision::Hit { covered, missing } => (covered, missing, None),
@@ -378,7 +378,7 @@ impl Sched {
             Err(why) => {
                 // A quote nobody will see is cancelled, so nothing runs for it.
                 if let Some(p) = promise {
-                    if let Ok(actions) = self.engine.cancel_promise(p, now_ns()) {
+                    if let Ok(actions) = self.engine.cancel_promise(p, utc_now_ns()) {
                         self.run_actions(actions);
                     }
                     self.promise_ended(p);
@@ -548,7 +548,7 @@ impl Sched {
     /// An unseen quote must not outlive a query that failed before delivering its result.
     fn query_size_error(&mut self, reply: &QueryReply, code: ErrorCode, message: &str) {
         if let Some(quote) = &reply.quote {
-            if let Ok(actions) = self.engine.cancel_promise(quote.promise, now_ns()) {
+            if let Ok(actions) = self.engine.cancel_promise(quote.promise, utc_now_ns()) {
                 self.run_actions(actions);
             }
             self.promise_ended(quote.promise);
@@ -574,7 +574,8 @@ impl Sched {
         }
         let live = self.live();
         let alternative = option.checked_sub(1);
-        match self.engine.commit_promise(&IndexView::new(&self.index, &live), promise, alternative, band, now_ns()) {
+        match self.engine.commit_promise(&IndexView::new(&self.index, &live), promise, alternative, band, utc_now_ns())
+        {
             Ok(actions) => {
                 // The answer goes first; what the commit set off (a dispatch, or a failure when the only producer
                 // is gone) follows it, so the consumer never hears of a promise's end before its acceptance.
@@ -613,7 +614,7 @@ impl Sched {
             self.push(session, bytes);
             return;
         }
-        match self.engine.cancel_promise(promise, now_ns()) {
+        match self.engine.cancel_promise(promise, utc_now_ns()) {
             Ok(actions) => {
                 self.run_actions(actions);
                 self.promise_ended(promise);
@@ -655,7 +656,7 @@ impl Sched {
             return;
         }
         let live = self.live();
-        match self.engine.job_rejected(&IndexView::new(&self.index, &live), job, reason, now_ns()) {
+        match self.engine.job_rejected(&IndexView::new(&self.index, &live), job, reason, utc_now_ns()) {
             Ok(actions) => self.run_actions(actions),
             Err(e) => debug!(error = %e, "JobRejected for a job the engine doesn't know"),
         }
@@ -669,7 +670,7 @@ impl Sched {
             for promise in owned {
                 self.promise_ended(promise);
             }
-            let actions = self.engine.consumer_gone(consumer, now_ns());
+            let actions = self.engine.consumer_gone(consumer, utc_now_ns());
             self.run_actions(actions);
         }
     }
@@ -743,7 +744,7 @@ impl Sched {
         self.staging.remove(&lease);
         warn!(lease = lease.0, why, "couldn't stage a job's inputs");
         let live = self.live();
-        match self.engine.claim_failed(&IndexView::new(&self.index, &live), lease, now_ns()) {
+        match self.engine.claim_failed(&IndexView::new(&self.index, &live), lease, utc_now_ns()) {
             Ok(actions) => self.run_actions(actions),
             Err(e) => debug!(error = %e, "claim_failed for a lease the engine doesn't know"),
         }
@@ -851,7 +852,7 @@ impl Sched {
         // A delivery error can precede the engine's own completion. Release its armed capture and job leases;
         // ownership is already gone, so cancellation actions cannot send a second terminal response.
         if self.promise_alive(promise)
-            && let Ok(actions) = self.engine.cancel_promise(promise, now_ns())
+            && let Ok(actions) = self.engine.cancel_promise(promise, utc_now_ns())
         {
             self.run_actions(actions);
         }
