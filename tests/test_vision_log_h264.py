@@ -158,6 +158,9 @@ def test_records_go_in_decode_order_not_time_order(monkeypatch):
 
     monkeypatch.setattr(vision_log.continuum_py, "decode_header", lambda header: header)
     monkeypatch.setattr(vision_log.read, "records", records)
+    # This is about the order the records come back in, not about decoding them, so no ffmpeg-built decoder is
+    # needed: the stub stands in where `_h264_stretch` opens one.
+    monkeypatch.setattr(vision_log.continuum_py, "H264Decoder", lambda *args, **kwargs: Decoder())
     gop = asyncio.run(vision_log._h264_stretch(cast(Any, Client()), "cam0.video", 0, 2**62))
     assert gop is not None
     assert [data for _start, data in gop.records] == [b"a", b"b", b"c", b"e", b"d", b"f"]
