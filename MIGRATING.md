@@ -321,6 +321,27 @@ untouched.
 
 Labels keep their photo, so a later model change needs only `tools/restore_pet_references.py` with no arguments.
 
+### Pets are learned from every example
+
+Cats are named by a classifier over all their labeled examples when it passes a check on later sightings, and each
+pet's card says how well it is learned. Nothing is reset, and no state is migrated.
+
+1. **Sync Python**, as in "Every upgrade", keeping your extras: scikit-learn is a new dependency.
+2. **Restart every config-reading service.** Four settings are new under `[pets]` in `config/defaults.toml`:
+   `classifier_min_labels`, `classifier_species`, `classifier_regularization`, and `learning_days`.
+3. **Give older answers their examples back**, where a pet's card says earlier taught sightings have no usable
+   reference. The first command counts the kept photos without loading a model, the second detects and embeds them
+   without writing, and the third writes the examples:
+
+   ```sh
+   .venv/bin/python tools/restore_pet_references.py --inventory-only
+   .venv/bin/python tools/restore_pet_references.py --dry-run
+   .venv/bin/python tools/restore_pet_references.py
+   ```
+
+   Only a label whose photo is still kept can be restored. No answer is deleted, and none is guessed. Restart the
+   services again afterwards.
+
 ### The gateway lists streams from the catalog
 
 Upgrade the broker, the gateway, and the frontend together, or the dashboard shows no camera as live:

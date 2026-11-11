@@ -14,7 +14,9 @@ how to take back a wrong answer or a wrong training image. Everything here is do
 
 - **Faces and voices**: open Known, then People. The line above the list says how many faces and voices need a name;
   it opens "Who's this?". On Live, "Who's this?" beside "Here now" opens the same list.
-- **Animals**: open Known, then Pets, then "Sightings to name".
+- **Animals**: open Known, then Pets, then "Sightings to name". A sighting the pack already named by itself is not
+  listed: it is on that pet's card. A sighting that waits says why under its pictures, such as "Appearance is below
+  the naming threshold." or "Another animal looks too similar to name this sighting safely."
 
 ![Who's this? beside the list of people: two faces waiting, each with its best guess and score](images/demo-whos-this.png)
 
@@ -88,6 +90,22 @@ For a pet, use "New pet" in Known, then Pets, and name a group of its sightings.
 - Right after an answer, press "Undo" in the confirmation that appears.
 - To bring back something ignored or blocked, turn on "Show ignored and blocked" under the list, then press
   "Un-ignore" or "Unblock" on the item. It waits for a name again.
+
+## See how well a pet is learned
+
+Open the pet's card (Known, then Pets) and read "Recognition".
+
+- "Recognized by appearance" means new sightings of the pet are named without you, and says how many labeled
+  sightings that was checked on, with how many came out right, wrong, and unsure.
+- The next line is the check on recent sightings the pack was not taught from: the dates it covers, the share named
+  correctly by itself, and how many were wrong or unsure. It covers the days that have such sightings, so it can be
+  shorter than the week it looks back over. With none, it says no check is available.
+- "Usable teaching examples" is how many of your answers recognition can use. "Earlier taught sightings have no
+  usable reference" counts answers given for an earlier model whose pictures are gone; answer more sightings of that
+  pet to replace them.
+
+Every answer in "Sightings to name" teaches the pack, and the wrong and unsure counts fall as the pet's examples
+cover more of how it looks.
 
 ## Remove a wrong training image
 
