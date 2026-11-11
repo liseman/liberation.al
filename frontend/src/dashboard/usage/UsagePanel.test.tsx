@@ -63,7 +63,7 @@ describe('the task manager panel', () => {
     vi.spyOn(window, 'matchMedia').mockImplementation(
       query =>
         ({
-          matches: query === '(max-width: 720px)',
+          matches: query === '(max-width: 700px)',
           media: query,
           addEventListener() {},
           removeEventListener() {},
