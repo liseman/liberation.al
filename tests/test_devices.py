@@ -323,6 +323,22 @@ def test_the_dashboard_links_lists_and_unlinks_a_device(http_):
     assert http_("GET", "/device-links")[1]["links"] == []
 
 
+@pytest.mark.parametrize("kind,value", [("net_mac", PHONE), ("ble_identifier", WATCH)])
+def test_picker_body_updates_seen_device_and_counts(http_, home, kind: str, value: str) -> None:
+    reg, record = home
+    if kind == "net_mac":
+        record(devices.NET_OBSERVATIONS, [network(NOW - 60, value)])
+    else:
+        record(devices.BLE_SIGHTINGS, [sighting(NOW - 60, value)])
+    code, made = http_("POST", "/device-links", {"kind": kind, "value": value, "target": "person", "name": "Sam"})
+    assert code == 200
+    # A fresh reader proves the link is persisted, rather than only echoed in the save response.
+    fresh = devices.Devices(segments=reg.segments, knowledge_db=reg.knowledge.path)
+    found = fresh.summary(NOW - 3600, NOW)
+    assert (found["total"], found["linked"], found["unknown"]) == (1, 1, 0)
+    assert found["devices"][0]["linked"] == {"id": made["link"]["id"], "target": "person", "name": "Sam"}
+
+
 def test_the_dashboard_locates_a_device_and_removes_its_location(http_, tmp_path):
     home_id = a_place(tmp_path)
     code, listing = http_("GET", "/device-links")
