@@ -299,7 +299,6 @@ def test_a_drain_hands_over_the_records_after_the_durable_position_and_keeps_its
     )
     assert again == [ids[3]]
     assert log.drain(memory_log.JOURNAL, "test-facts", lambda r: pytest.fail("nothing new"), limit=10, idle_s=0.3) == 0
-    assert "position" in log.range(memory_log.JOURNAL, T0, T0 + 1)[0] or True  # range records carry no position
 
 
 def test_a_drain_waits_for_a_handler_longer_than_the_links_timeout(tmp_path):
