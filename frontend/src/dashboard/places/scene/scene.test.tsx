@@ -6,7 +6,7 @@ import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
 import { EXAMPLE_PLACES, type Place } from '../examples';
 import { along, buildScene } from './build';
-import { centre, drawScene, spots } from './draw';
+import { centre, drawScene, spots, summarise } from './draw';
 import { EXAMPLE_SCENE } from './example';
 import { EMPTY_SCENE, PlaceEditor } from './PlaceEditor';
 import { PlanFrame } from './PlanFrame';
@@ -220,6 +220,7 @@ it("draws a scene's rooms, walls, openings, and camera spots, and says where a p
   if (!drawing) throw new Error('nothing drawn');
   expect(drawing.rooms).toBe(6);
   expect(drawing.area).toBeCloseTo(72); // the example's six rectangles
+  expect(summarise(EXAMPLE_SCENE)).toEqual({ rooms: 6, area: 72 }); // a row's summary, read without drawing
   expect(Object.keys(drawing.cameras)).toEqual(['hall']);
   const doc = new DOMParser().parseFromString(drawing.svg, 'image/svg+xml');
   expect(doc.documentElement.getAttribute('aria-label')).toBe('Floor plan of Flat & "co"'); // escaped, and read back
@@ -244,6 +245,7 @@ it("draws a scene's rooms, walls, openings, and camera spots, and says where a p
 
 it('draws nothing for a scene with nothing on its level, and leaves out a spot with no position', () => {
   expect(drawScene({ nodes: {}, rootNodeIds: [] }, 'Empty')).toBeNull();
+  expect(summarise({ nodes: {}, rootNodeIds: [] })).toBeNull();
   const bare = buildScene({ height: 2.4, walls: [], openings: [], rooms: [] });
   expect(drawScene(bare, 'Bare')).toBeNull();
   const spotted = buildScene({
