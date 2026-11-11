@@ -595,6 +595,38 @@ def test_a_voices_latest_line_is_found_past_a_newer_line_with_no_voice(heard):
     assert latest["ts_start"] == T0 + 5
 
 
+def test_a_voices_newest_clip_heard_recently_is_read_from_the_last_hour(heard, monkeypatch):
+    """A voice still being heard costs an hour's read, not a read of every line: the whole log is only opened when
+    the last hour holds nothing of it."""
+    now = time.time()
+    fresh = {
+        "ts_start": now - 60,
+        "ts_end": now - 58,
+        "speaker": "Alice",
+        "speaker_id": 1,
+        "speaker_sim": 0.9,
+        "text": "heard a minute ago",
+        "audio": AUDIO,
+    }
+    write_lines(heard, [*HEARD, fresh])
+    real = transcript_lines.heard_lines
+
+    def counted(start: float = 0.0, end: float | None = None):
+        assert start != 0.0, "a voice heard a minute ago must not cost a read of every line"
+        return real(start, end)
+
+    monkeypatch.setattr(transcript_lines, "heard_lines", counted)
+    latest = speaker_lines.latest_for_speaker(1)
+    assert latest is not None and latest["ts_start"] == now - 60
+
+
+def test_a_voices_newest_clip_is_found_in_the_whole_log_when_it_was_long_ago(heard, monkeypatch):
+    """And a voice unheard for longer still answers: the hour is tried first, then every line."""
+    monkeypatch.setattr(speaker_lines, "LATEST_WINDOW_S", 1.0)  # the two lines in HEARD are hours old
+    latest = speaker_lines.latest_for_speaker(1)
+    assert latest is not None and latest["ts_start"] == T0 + 5
+
+
 def test_people_views_keep_a_renamed_persons_lines_from_a_newcomer(heard):
     """The roster, a profile's recent lines, and Evidence read a line heard as Alice as of its time: it stays
     Alicia's after someone new is called Alice."""

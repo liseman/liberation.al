@@ -49,9 +49,7 @@ def reject_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_rejection(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {
-        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
-    }
+    available = transcript_lines.lines_by_key(keys)  # the hours those lines fall in, not the whole history
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -71,9 +69,7 @@ def media_transcript(body: Mapping[str, Any]) -> Reply:
     keys = list(dict.fromkeys(keys))
     if token := revisions.current_media(context.STATE, keys):
         return 200, {"ok": True, "lines": keys, "undo": token}
-    available = {
-        registry.key_of(e): e for e in transcript_lines.heard_lines() if isinstance(e.get("ts_start"), int | float)
-    }
+    available = transcript_lines.lines_by_key(keys)  # the hours those lines fall in, not the whole history
     if any(key not in available for key in keys):
         return 404, {"ok": False, "error": "One of those transcript lines is unavailable. Refresh the conversation."}
     try:
@@ -147,12 +143,20 @@ def log_mark() -> tuple[int, ...]:
 
 
 def latest_for_speaker(sid: int) -> dict[str, Any] | None:
-    view = transcript_lines._view()
-    for e in transcript_lines.iter_back():
-        # A rejected line, or one with no voice, has no speaker_id.
-        if transcript_lines.has_audio(e) and (e := view.line(e)).get("speaker_id") == sid:
-            return e
+    """The newest line of one voice that has audio, read as the transcript shows it (None for a voice with none).
+    Reads the last hour first and widens to every line only when that held nothing of it: a voice heard today costs
+    an hour's read, and one unheard for months costs that plus one whole read, in one batch through the view."""
+    now = time.time()
+    for since in (now - LATEST_WINDOW_S, 0.0):
+        with_audio = [e for e in transcript_lines.heard_lines(since) if transcript_lines.has_audio(e)]
+        for e in reversed(transcript_lines._view().individual_lines(with_audio)):  # newest first
+            # A rejected line, or one with no voice, has no speaker_id.
+            if e.get("speaker_id") == sid:
+                return e
     return None
+
+
+LATEST_WINDOW_S = 3600.0  # how far back the newest clip of a voice is looked for before reading every line
 
 
 _speakers_shared: tuple[tuple[Any, ...], dict[str, Any]] | None = None

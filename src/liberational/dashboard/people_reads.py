@@ -8,7 +8,6 @@ GET /identity/why           why a line or a recorded face has its name
 GET /health                 the dashboard is up, and how far the People warm-up has got
 """
 
-import collections
 import copy
 import threading
 import time
@@ -44,24 +43,24 @@ if TYPE_CHECKING:
 UNNAMED_FACES, UNNAMED_VOICES, UNNAMED_VIDEOS = 24, 12, 12  # how many of each the unnamed list offers
 
 
+NEAR_WINDOW_S = 3600.0  # how far either side of a line its neighbours are read: a copy is seconds from it
+
+
 def lines_near(e: dict[str, Any], n: int = 200) -> list[dict[str, Any]]:
-    """The n lines stored on each side of e in the transcript, where another mic's copy of it is: written a
-    moment apart live, or together by a re-transcription."""
+    """The lines stored on each side of e in the transcript, where another mic's copy of it is: written a moment
+    apart live, or together by a re-transcription. At most n each side, from an hour around it: a copy of a line is
+    seconds from it, so there is no need to walk from the newest line down to an old one."""
+    ts = e.get("ts_start")
+    if not isinstance(ts, int | float):
+        return []
     key = registry.key_of(e)
-    after: collections.deque[dict[str, Any]] = collections.deque(maxlen=n)
-    before: list[dict[str, Any]] = []
-    found = False
-    for x in transcript_lines.iter_back():
-        if not found:
-            if isinstance(x.get("ts_start"), int | float) and registry.key_of(x) == key:
-                found = True
-            else:
-                after.append(x)
-            continue
-        before.append(x)
-        if len(before) >= n:
-            break
-    return [*after, *before] if found else []
+    window = transcript_lines.heard_lines(float(ts) - NEAR_WINDOW_S, float(ts) + NEAR_WINDOW_S)
+    at = next((i for i, x in enumerate(window) if registry.key_of(x) == key), None)
+    if at is None:
+        return []
+    older = list(reversed(window[:at]))[:n]  # nearest first, as the walk from the newest line gave them
+    newer = window[at + 1 :][-n:]  # the n nearest of those after it, in time order
+    return [*newer, *older]
 
 
 def unknown_groups_view() -> tuple[int, dict[str, Any]]:
@@ -264,13 +263,11 @@ AMBIGUOUS = "more than one line starts then; send its line"
 
 def _stored_line(ts: object = None, line: object = None) -> dict[str, Any] | None:
     """A transcript line as stored: by its key (`line`, registry.key_of), else by its ts_start to the millisecond.
-    Raises AmbiguousLine when the time alone matches lines from two microphones, and ValueError for a bad time."""
-    entries = transcript_lines.heard_lines()
-    entries = [e for e in entries if isinstance(e.get("ts_start"), int | float) and not isinstance(e["ts_start"], bool)]
+    Raises AmbiguousLine when the time alone matches lines from two microphones, and ValueError for a bad time.
+    Reads the moments around it (transcript_lines.line_window), not the whole history."""
     if isinstance(line, str) and line:
-        return next((e for e in entries if registry.key_of(e) == line), None)
-    t = float(ts)  # ty: ignore[invalid-argument-type]  # a bad value is the caller's ValueError or TypeError
-    hits = [e for e in entries if abs(float(e["ts_start"]) - t) < 0.0015]
+        return transcript_lines.line_at(key=line)
+    hits = transcript_lines.line_window(float(ts))  # ty: ignore[invalid-argument-type]  # a bad value is the caller's ValueError or TypeError
     if len({registry.key_of(e) for e in hits}) > 1:
         raise AmbiguousLine(AMBIGUOUS)
     return hits[0] if hits else None

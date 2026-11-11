@@ -142,6 +142,22 @@ def test_this_is_tv_needs_lines_that_were_heard(heard, body, status):
     assert speaker_lines.media_transcript(body)[0] == status
 
 
+def test_a_batch_of_keys_is_found_from_the_hours_they_fall_in(tmp_path, monkeypatch):
+    """GET /transcript's corrections take up to 1000 line keys at once, including two microphones' copies starting
+    in the same millisecond. The route reads the hours those keys fall in, not the whole speech history."""
+    from speech_fake import fake
+
+    monkeypatch.setattr(context, "STATE", tmp_path)
+    both = [line(T, "Front door", device="Mic A"), line(T, "Front door", device="Mic B")]
+    rest = [line(T + 7 * i, f"line {i}") for i in range(1, 999)]  # one screen of lines, a couple of hours apart
+    fake().write([*both, *rest])
+    keys = [registry.key_of(e) for e in [*both, *rest]]
+    code, reply = speaker_lines.media_transcript({"lines": keys})
+    assert (code, len(reply["lines"])) == (200, 1000)
+    marked = {registry.key_of(r) for r in revisions.filter_lines(tmp_path, [*both, *rest]) if r.get("media")}
+    assert marked == set(keys), "every key the batch named, on both microphones"
+
+
 def test_this_is_tv_on_an_unnamed_voice_marks_every_line_it_has(heard, monkeypatch):
     monkeypatch.setattr(registry, "voice_names", lambda state, sids: dict.fromkeys(sids))
     code, reply = speaker_lines.media_voice({"group": 9})

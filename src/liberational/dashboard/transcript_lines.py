@@ -16,7 +16,7 @@ import pathlib
 import re
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -174,19 +174,72 @@ def iter_back() -> Iterator[dict[str, Any]]:
     yield from reversed(heard_lines())
 
 
-def find_entry(ts_start: float, tol: float = 0.002) -> dict[str, Any] | None:
-    for e in iter_back():
-        if abs(float(e.get("ts_start", -1)) - ts_start) <= tol:
-            return e
-    return None
+# A line's key carries its millisecond, so a key always names one line exactly. A time alone names the newest line
+# starting within LINE_MATCH_S of it; every route that takes a time uses this one tolerance.
+LINE_MATCH_S = 0.002
+WINDOW_EDGE_S = 1e-3  # so a line starting exactly at the edge is read too (a read of [start, end) leaves it out)
+
+
+def line_window(ts: float, tol: float = LINE_MATCH_S) -> list[dict[str, Any]]:
+    """The stored lines starting within `tol` of ts, oldest first: a read of the moments around it, not of the log."""
+    near = heard_lines(ts - tol, ts + tol + WINDOW_EDGE_S)
+    return [
+        e
+        for e in near
+        if isinstance(e.get("ts_start"), int | float)
+        and not isinstance(e["ts_start"], bool)
+        and abs(float(e["ts_start"]) - ts) <= tol
+    ]
+
+
+def line_at(ts: object = None, key: object = None, tol: float = LINE_MATCH_S) -> dict[str, Any] | None:
+    """The stored line a key or a ts_start names: by its exact key when one is given (its time is read from the key),
+    else the newest line starting within `tol` of the time. Reads the moments around it, not the whole log.
+    Raises ValueError or TypeError for a time that isn't one."""
+    if isinstance(key, str) and key:
+        try:
+            _slug, when = registry.split_key(key)
+        except ValueError:
+            return None
+        return next((e for e in reversed(line_window(when, tol)) if registry.key_of(e) == key), None)
+    if ts is None:
+        return None
+    hits = line_window(float(ts), tol)  # ty: ignore[invalid-argument-type]  # a bad value is the caller's TypeError
+    return hits[-1] if hits else None  # the newest, as the walk from the newest line gave
+
+
+BATCH_READ_S = 3600.0  # a batch's keys are read an hour at a time: a store read opens the hour parts it spans
+
+
+def lines_by_key(keys: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """{key: the stored line} for those of `keys` that are there: the batch write routes read the hours their keys
+    fall in instead of the whole history. A key that doesn't parse is simply absent."""
+    wanted = set(keys)
+    moments = [when for key in wanted if key and (when := _key_time(key)) is not None]
+    out: dict[str, dict[str, Any]] = {}
+    for hour in sorted({math.floor(when / BATCH_READ_S) for when in moments}):
+        for e in heard_lines(hour * BATCH_READ_S, (hour + 1) * BATCH_READ_S):
+            if isinstance(e.get("ts_start"), int | float) and (key := registry.key_of(e)) in wanted:
+                out[key] = e
+    return out
+
+
+def _key_time(key: str) -> float | None:
+    """The ts_start a line key names, or None when it isn't a line key."""
+    try:
+        return registry.split_key(key)[1]
+    except ValueError:
+        return None
+
+
+def find_entry(ts_start: float, tol: float = LINE_MATCH_S) -> dict[str, Any] | None:
+    """The stored line nearest after ts_start (the newest within `tol`), or None."""
+    return line_at(ts=ts_start, tol=tol)
 
 
 def find_line(line: str) -> dict[str, Any] | None:
-    """The transcript line with this key (registry.key_of), newest first like find_entry."""
-    for e in iter_back():
-        if isinstance(e.get("ts_start"), int | float) and registry.key_of(e) == line:
-            return e
-    return None
+    """The transcript line with this key (registry.key_of)."""
+    return line_at(key=line)
 
 
 # A line's audio is a stretch of its microphone's stream on the broker ("audio": {stream, start_ns, end_ns}), read
@@ -249,7 +302,7 @@ def audio_range(start: Any, end: Any) -> tuple[bytes, dict[str, Any]]:
         raise ValueError("end must be after start")
     end = min(end, start + RANGE_MAX_S)
     mics = sorted(speech_log.shared().mic_freshness())
-    newest = next((e["audio"]["stream"] for e in iter_back() if has_audio(e)), None)
+    newest = _newest_audio_stream()
     if newest in mics:
         mics.remove(newest)
         mics.insert(0, newest)
@@ -338,6 +391,20 @@ def _get_transcript_day(h: H) -> None:
         e for e in heard_lines(t0 - 3600, t0 + 90000) if time.strftime("%Y-%m-%d", time.localtime(e["ts_start"])) == day
     ]
     return h._json({"day": day, "entries": transcript_view.once(_view().lines(es))})  # once each
+
+
+def _newest_audio_stream() -> str | None:
+    """The microphone the newest line with audio came from: read from the last two minutes, then the last hour, and
+    only then from every line. The common case answers from a small read."""
+    now = time.time()
+    for start in (now - 120.0, now - 3600.0, 0.0):
+        found = next(
+            (e["audio"]["stream"] for e in reversed(heard_lines(start)) if has_audio(e)),
+            None,
+        )
+        if found is not None:
+            return found
+    return None
 
 
 @routes.get("/audio/range")
