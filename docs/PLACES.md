@@ -78,6 +78,8 @@ A cloud is made again when the camera's view changes.
    ([Give a camera a spot on the plan](#give-a-camera-a-spot-on-the-plan)).
 2. In the 3D view, switch from **One camera** to **All cameras**.
 
+![All cameras on the demo household: four cameras' clouds standing on the plan's outline, each where its camera is](images/demo-3d-all-cameras.png)
+
 Each camera's cloud is drawn where its camera stands on your plan. The clouds are separate layers and are never
 blended: each camera shows only what it sees, so expect gaps and seams. Under the view is a row for each camera:
 

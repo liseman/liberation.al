@@ -19,6 +19,8 @@ visits are found, and [ANSWERS.md](ANSWERS.md#deterministic-answers) how they ar
 
 The picture here is never mirrored, even when **Mirror** is on: a zone belongs to the camera's own frame.
 
+![The zone editor on the demo household's front-room camera, with one zone outlined on the rug and named Rug](images/demo-zones.png)
+
 ## Draw a zone
 
 1. Press **Add a zone**.
