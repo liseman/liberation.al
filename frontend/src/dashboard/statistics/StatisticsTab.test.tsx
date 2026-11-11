@@ -7,7 +7,7 @@ import { server } from '../../test/server';
 import { finding } from './Activity';
 import type { Activity, ChosenReport, Conversations, Health, Suggestion, WhosAround } from './api';
 import { dayTicks, step } from './charts';
-import ReportsTab, { pairsOf } from './ReportsTab';
+import StatisticsTab, { pairsOf } from './StatisticsTab';
 
 const DAY = '2026-10-20';
 const T10 = new Date(`${DAY}T10:00:00`).getTime() / 1000;
@@ -147,10 +147,10 @@ function serve(reports = built, whos: WhosAround = around()) {
   return saved;
 }
 
-describe('ReportsTab', () => {
+describe('StatisticsTab', () => {
   it('shows the chosen reports in order, each with a sentence stating what it found', async () => {
     serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const sections = await screen.findAllByRole('region');
     expect(sections.map(s => s.getAttribute('aria-label'))).toEqual([
       "Who's around",
@@ -165,7 +165,7 @@ describe('ReportsTab', () => {
 
   it('jumps to a report from its chip', async () => {
     serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const chips = await screen.findByRole('navigation', { name: 'Jump to a report' });
     expect(
       within(chips)
@@ -178,7 +178,7 @@ describe('ReportsTab', () => {
 
   it('links an hour someone was in to Review at that hour, and leaves gaps and empty hours unlinked', async () => {
     serve([built[0] as ChosenReport]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const link = await screen.findByRole('link', { name: /Tue Oct 20, 10 am: Alice 30 min\. Open in Review/ });
     expect(link).toHaveAttribute('href', `/review#day=${DAY}&t=${T10}`);
     const chart = screen.getByRole('figure', { name: /Who was around/ });
@@ -187,7 +187,7 @@ describe('ReportsTab', () => {
 
   it('removes a report and saves the new set on the server', async () => {
     const saved = serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByRole('region', { name: "Who's around" })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: "Remove Who's around" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Arrange' }));
@@ -199,7 +199,7 @@ describe('ReportsTab', () => {
 
   it('removes a report from its ⋯ menu without Arrange', async () => {
     const saved = serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     await userEvent.click(await screen.findByRole('button', { name: 'More for Conversations' }));
     await userEvent.click(await screen.findByRole('menuitem', { name: 'Remove from this page' }));
     await waitFor(() => expect(saved).toEqual([[built[0]]]));
@@ -227,7 +227,7 @@ describe('ReportsTab', () => {
     ];
     const pinned = { ...(built[0] as ChosenReport), people: ['p-alice'] };
     const saved = serve([pinned], around({ people }));
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const show = await screen.findByRole('radiogroup', { name: 'Show' });
     expect(within(show).getByRole('radio', { name: 'Everyone' })).toBeChecked();
     expect(screen.getByRole('combobox', { name: 'Someone else' })).toBeInTheDocument(); // Bob isn't pinned
@@ -239,7 +239,7 @@ describe('ReportsTab', () => {
 
   it('pins the person shown from the list when nobody is pinned yet, keeping focus on the button', async () => {
     const saved = serve([built[0] as ChosenReport]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     await userEvent.click(await screen.findByRole('combobox', { name: 'Someone else' }));
     await userEvent.click(await screen.findByRole('option', { name: 'Alice' }));
     await userEvent.click(screen.getByRole('button', { name: 'Pin Alice' }));
@@ -250,7 +250,7 @@ describe('ReportsTab', () => {
   it('offers to unpin someone pinned but not seen in this time', async () => {
     const pinned = { ...(built[0] as ChosenReport), people: ['p-gone', 'p-alice'] };
     const saved = serve([pinned]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByText("1 pinned person wasn't seen in this time.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Unpin them' }));
     await waitFor(() => expect(saved).toEqual([[{ ...pinned, people: ['p-alice'] }]]));
@@ -259,7 +259,7 @@ describe('ReportsTab', () => {
   it('keeps the filter, and focus, while the next person loads', async () => {
     const pinned = { ...(built[0] as ChosenReport), people: ['p-alice'] };
     serve([pinned]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const everyone = await screen.findByRole('radio', { name: 'Everyone' });
     everyone.focus();
     await userEvent.keyboard('{ArrowRight}');
@@ -269,7 +269,7 @@ describe('ReportsTab', () => {
 
   it('moves a report down', async () => {
     const saved = serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     await userEvent.click(await screen.findByRole('button', { name: 'Arrange' }));
     await userEvent.click(screen.getByRole('button', { name: "Move Who's around down" }));
     await waitFor(() => expect(saved).toEqual([[built[1], built[0]]]));
@@ -290,7 +290,7 @@ describe('ReportsTab', () => {
         }),
       ),
     );
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const list = await screen.findByRole('list', { name: 'Words said most' });
     expect(
       within(list)
@@ -311,7 +311,7 @@ describe('ReportsTab', () => {
         HttpResponse.json({ ...talk, words: [{ word: 'garden', total: 12, weeks }] }),
       ),
     );
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByRole('figure', { name: /each top word/ })).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Words said most' })).not.toBeInTheDocument();
   });
@@ -324,7 +324,7 @@ describe('ReportsTab', () => {
     ];
     serve([{ id: 'health', kind: 'health', arg: null, title: 'System health' }]);
     server.use(http.get('/reports/api/report', () => HttpResponse.json({ ...health, hours })));
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByRole('img', { name: /^Memory in use: 62% now, from 40 to 62%/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /^GPU memory in use \(peak\): 70% now, steady/ })).toBeInTheDocument();
     expect(screen.queryByRole('figure', { name: /Memory in use, each hour/ })).not.toBeInTheDocument();
@@ -334,14 +334,14 @@ describe('ReportsTab', () => {
 
   it('says how many days are still being read rather than showing them as empty', async () => {
     serve([built[0] as ChosenReport], around({ pending: ['2026-10-19', '2026-10-18'] }));
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByText(/Still reading 2 days/)).toBeInTheDocument();
   });
 
   it('keeps the card at its reserved height while the server is still reading the newest day', async () => {
     const today = around();
     serve([built[0] as ChosenReport], around({ pending: [today.last] }));
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const status = await screen.findByText(/Reading 1 day of records/);
     expect(status.closest('[data-kind="whos_around"]')?.querySelector('[data-report-loading]')).not.toBeNull();
   });
@@ -351,7 +351,7 @@ describe('ReportsTab', () => {
     const first = two.days[0];
     if (first) first.hours[11] = { t: T10 + 3600, who: [['p-alice', 10]] };
     serve([built[0] as ChosenReport], two);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const ten = await screen.findByRole('link', { name: /10 am: Alice/ });
     expect(ten).toHaveAttribute('tabindex', '0');
     ten.focus();
@@ -363,7 +363,7 @@ describe('ReportsTab', () => {
 describe('suggested reports', () => {
   it('does not offer opt-in report kinds as removed built-ins before they have data', async () => {
     serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     await screen.findByRole('region', { name: 'Suggested reports' });
     expect(screen.queryByRole('button', { name: 'Add Device observations' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Add Walk-bys by hour' })).not.toBeInTheDocument();
@@ -371,7 +371,7 @@ describe('suggested reports', () => {
   });
   it('shows five at a time, More shows the next, and Add puts one on the page', async () => {
     const saved = serve();
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     const panel = await screen.findByRole('region', { name: 'Suggested reports' });
     // Activity and System health were removed (not in this layout), so they're offered first.
     await waitFor(() => expect(within(panel).getAllByRole('button', { name: /^Add / })).toHaveLength(5));
@@ -393,7 +393,7 @@ describe('suggested reports', () => {
 describe('Activity and System health', () => {
   it('states the most common event against its typical day, and a day not looked at is unlinked', async () => {
     serve([{ id: 'activity', kind: 'activity', arg: null, title: 'Activity and events' }]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByText(/^Pushups is the most common event, 3 on a typical day/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Tue Oct 20: pushups 6 times\. Open in Review/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Mon Oct 19/ })).not.toBeInTheDocument();
@@ -404,7 +404,7 @@ describe('Activity and System health', () => {
     expect(finding({ ...activity, events: [crossing] })).toMatch(/^Walked past is the most common event/);
   });
 
-  it('preserves an explicit model event label in Reports', () => {
+  it('preserves an explicit model event label in Statistics', () => {
     const action = {
       ...activity.events[0],
       key: 'event:opening_package',
@@ -415,7 +415,7 @@ describe('Activity and System health', () => {
 
   it('leads with what is down, in plain names and words not only color, then storage against the plan', async () => {
     serve([{ id: 'health', kind: 'health', arg: null, title: 'System health' }]);
-    renderPage(<ReportsTab />);
+    renderPage(<StatisticsTab />);
     expect(await screen.findByText('1 service is down: Listening')).toBeInTheDocument();
     expect(
       screen.getByText('Recordings take 30 GB, over the 18.75 GB the plan allows for this day. Listening is down.'),

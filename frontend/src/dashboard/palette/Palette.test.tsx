@@ -53,7 +53,22 @@ it('lists pages, Settings sections, people, and pets, and a day only when one is
   expect(ids('')).toEqual(
     expect.arrayContaining(['page:live', 'page:people', 'settings:services', 'person:Dana', 'pet:Mia']),
   );
-  expect(ids('')).not.toContain('page:known'); // Known is its own tabs
+  expect(ids('')).toContain('page:known');
+  const pages = groups('').find(g => g.group === 'Pages')?.actions ?? [];
+  expect(pages.slice(0, 7).map(a => a.label)).toEqual([
+    'Live',
+    'Review',
+    'Known',
+    'Calls',
+    'Inbox',
+    'Journal',
+    'Statistics',
+  ]);
+  expect(pages.some(a => a.label === 'Reports')).toBe(false);
+  const ingest = pages.find(a => a.id === 'page:ingest');
+  expect(ingest?.description).toBe('Known');
+  ingest?.go();
+  expect(location.pathname).toBe('/ingest');
   expect(ids('nov 3')).toContain('day:2026-11-03');
 });
 

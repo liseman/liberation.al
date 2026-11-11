@@ -10,8 +10,7 @@ export type TabId =
   | 'known'
   | 'calls'
   | 'inbox'
-  | 'reports'
-  | 'ingest'
+  | 'statistics'
   | 'debug'
   | 'skeletons'
   | 'settings';
@@ -19,12 +18,11 @@ export type TabId =
 export const TABS: { id: Exclude<TabId, 'settings'>; path: string; label: string }[] = [
   { id: 'live', path: '/', label: 'Live' },
   { id: 'review', path: '/review', label: 'Review' },
-  { id: 'journal', path: '/journal', label: 'Journal' },
   { id: 'known', path: '/people', label: 'Known' },
   { id: 'calls', path: '/calls', label: 'Calls' },
   { id: 'inbox', path: '/inbox', label: 'Inbox' },
-  { id: 'reports', path: '/reports', label: 'Reports' },
-  { id: 'ingest', path: '/ingest', label: 'Ingest' },
+  { id: 'journal', path: '/journal', label: 'Journal' },
+  { id: 'statistics', path: '/statistics', label: 'Statistics' },
   { id: 'debug', path: '/debug', label: 'Debug' },
 ];
 
@@ -36,6 +34,7 @@ export const KNOWN_TABS = [
   { id: 'activities', path: '/activities', label: 'Activities' },
   { id: 'devices', path: '/devices', label: 'Devices' },
   { id: 'places', path: '/places', label: 'Places' },
+  { id: 'ingest', path: '/ingest', label: 'Ingest' },
 ] as const;
 export type KnownTab = (typeof KNOWN_TABS)[number]['id'];
 

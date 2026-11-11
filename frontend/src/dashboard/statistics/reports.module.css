@@ -1,4 +1,4 @@
-/* The Reports tab: one chart style for every report. Magnitude is one blue ramp, light to dark (dark: dark to light
+/* The Statistics tab: one chart style for every report. Magnitude is one blue ramp, light to dark (dark: dark to light
    against the dark card); a recorded hour with nothing in it is the track color, and an hour nothing was recorded in
    is hatched, so a gap never reads as a zero. Categorical slots follow one fixed order, for identity only. */
 .root {
@@ -267,7 +267,7 @@ a.cell {
   background: var(--lib-bg2);
 }
 .card {
-  /* A chip's card lands below both the app bar and the jump row (--reports-jump-h, measured in ReportsTab). */
+  /* A chip's card lands below both the app bar and the jump row (--reports-jump-h, measured in StatisticsTab). */
   scroll-margin-top: calc(var(--top-h, 56px) + var(--reports-jump-h, 44px) + 8px);
 }
 .byDay {
@@ -392,7 +392,7 @@ a.cell {
 }
 
 /* The cards: one column, and on a wide screen two smaller reports next to each other in the page's order share a row
-   (ReportsTab's pairsOf marks them data-paired); every other card spans the row. */
+   (StatisticsTab's pairsOf marks them data-paired); every other card spans the row. */
 .cards {
   display: flex;
   flex-direction: column;

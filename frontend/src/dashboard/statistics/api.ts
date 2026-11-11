@@ -1,4 +1,4 @@
-// Requests for the Reports tab (dashboard/reports.py): the chosen reports and their order, and each report's figures,
+// Requests for the Statistics tab (dashboard/reports.py): the chosen reports and their order, and each report's figures,
 // which the server aggregates by day and caches (memory/reports.py). A report still reading days says which, and its
 // query polls until it has them all.
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
