@@ -1,7 +1,7 @@
 """Short labels for the contact card's recent video clips: "Sitting on a chair, hand over mouth, glasses on."
 
 A label says what is happening in the clip with no subject, in the present tense: no "I", "my", or "me" (the journal
-is first person, so its text is never used), no "the person", no pronoun, and no name (the card shows whose clip it
+covers a wider stretch, so its text is never used), no "the person", no pronoun, and no name (the card shows whose clip it
 is). At most MAX_CHARS characters.
 
 It is written from the camera's captions during the clip (the Continuum vision log, third person), the real caption

@@ -1,12 +1,8 @@
 """Plain-language lines from the local model, cached (including Live's "What's happening").
 
-A source text (a journal entry, a run of conversation) goes in; a short neutral line comes out, with topic tags:
-"Worked at the desk for about 3 hours" ["work"]. clean() checks every reply. It must be JSON with a text that has no
-first person (the journal is written as "I"), no subject for whoever the line is about ("He worked", "A person sat",
-"The owner had lunch", "You read"), and at most MAX_CHARS characters; names of other people stay, and so do the
-pronouns that go with them ("Talked with Dana about her new job"). A reply that breaks a rule is asked for once
-more, with the rule it broke; one that breaks it again is dropped, never shown, and not asked for again while its
-source stays the same.
+A source text (a journal entry or conversation) becomes a short third-person line with topic tags.
+Names stay in the line, including the configured owner. A reply that breaks the length or narration rules is
+asked for once more, then dropped if still invalid. The model compresses the entry; there is no viewpoint conversion.
 
 Nobody waits for the model: many() returns what is cached and queues the rest for one background thread, the most
 recent request first (so the stretch on screen comes before ones looked at earlier), MAX_QUEUE at most. The thread
@@ -58,14 +54,14 @@ TOPICS = (
 LOG = logs.get("plain-text")
 
 SYSTEM = (
-    "You write one short line for a timeline of someone's day, from a diary entry written in the first person. Say "
-    "what happened, neutrally and with no subject: start with a verb in the past tense or a short noun phrase, as in "
-    '"Worked at the desk for about 3 hours", "Lunch in the kitchen", or "Talked with Dana about her trip". Never '
-    "use I, me, my, we, our, or you, and never start with who did it (he, she, they, the person, the owner). Other "
-    "people's names may stay. At most 90 characters. Then give the line's topics, chosen only from this list: "
+    "Condense a third-person household journal entry into one short factual timeline line in past tense. "
+    "Keep who did what, using the supplied names including the owner, and keep unnamed people unnamed. "
+    "Use only the entry's evidence. Never use I, me, my, we, our, or you as narrator. "
+    "At most 90 characters. Give topics chosen only from: "
     + ", ".join(TOPICS)
     + '. Reply with JSON only: {"text": "...", "topics": ["..."]}.'
 )
+
 AGAIN = "\n\nYour last line broke a rule: {why}. Write it again, following every rule."
 
 # "I" only as a word on its own in capitals; "us" only in lower case, so "the US" is fine.
@@ -75,7 +71,7 @@ FIRST_PERSON_ANY_CASE = re.compile(r"\b(me|my|mine|myself|we|our|ours|ourselves|
 
 
 def _says_i(text: str) -> bool:
-    """Whether text says "I" about the diarist: a capital "I" on its own, except after a capitalized word that
+    """Whether text says "I" as narrator: a capital "I" on its own, except after a capitalized word that
     isn't the first, where it is part of a name ("World War I", "Henry I")."""
     for m in FIRST_PERSON_I.finditer(text):
         before = text[: m.start()].split()
@@ -85,14 +81,7 @@ def _says_i(text: str) -> bool:
     return False
 
 
-SUBJECT = re.compile(
-    # who did it, as the line's first word: "He worked", "A person sat", "Someone cooked", "Man had lunch"
-    r"^(he|she|they|it|themself|themselves|(an? |the )?(man|woman|person|people|boy|girl|guy|lady|someone|somebody|"
-    r"user|owner|narrator|author|writer|diarist|individual))\b|"
-    # the reader, anywhere ("the owner of the cafe" mid-line is someone else, and fine)
-    r"\b(you|your|yours|yourself)\b",
-    re.I,
-)
+SECOND_PERSON = re.compile(r"\b(you|your|yours|yourself)\b", re.I)
 
 
 def _hash(text: str) -> str:
@@ -124,8 +113,8 @@ def check(reply: str | None, max_chars: int = MAX_CHARS) -> tuple[dict[str, Any]
         return None, f"at most {max_chars} characters"
     if _says_i(t) or FIRST_PERSON.search(t) or FIRST_PERSON_ANY_CASE.search(t):
         return None, "no I, me, my, we, or our"
-    if SUBJECT.search(t):
-        return None, "no subject: never start with who did it, and never say you"
+    if SECOND_PERSON.search(t):
+        return None, "third person: never say you"
     topics = d.get("topics") if isinstance(d.get("topics"), list) else []
     line = {"text": t[0].upper() + t[1:], "topics": sorted({str(x).lower() for x in topics} & set(TOPICS))}
     return line, ""
@@ -181,7 +170,7 @@ def _ask(system: str, text: str) -> str:
 
 
 def _rewrite(text: str) -> str:
-    return _ask(SYSTEM, f"Diary entry:\n{text}")
+    return _ask(SYSTEM, f"Journal entry:\n{text}")
 
 
 class Rewrites:

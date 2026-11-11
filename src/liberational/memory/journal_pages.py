@@ -99,7 +99,7 @@ DAY, WEEK, MONTH = "day", "week", "month"
 LEVELS = (DAY, WEEK, MONTH)
 STREAM = memory_log.PAGES
 QUIET, FAILED = memory_log.QUIET, memory_log.FAILED
-PROMPT_VERSION = "v4"  # a page written under an older prompt is written again (`stale`)
+PROMPT_VERSION = "v5"  # a page written under an older prompt is written again (`stale`)
 MAX_TRIES = 3  # failed model calls on one period, counted per process, before it gets a failed marker
 MAX_ITEMS = 8  # bullets in one section, enforced by the reply schema
 #: A day's What happened, told a part of the day at a time: (field, label, first hour, end hour). Asked for as a list,
@@ -321,8 +321,7 @@ CITE_INPUTS = (
 
 def _rules(owner: str, cite: str, more: str = "") -> str:
     return (
-        "Rules:\n"
-        f'- Write in the third person. In the input, "I" is {owner}: write "{owner}" instead.\n'
+        "Rules:\n" + journal.narration_rules() + "\n"
         "- Copy speaker tokens like [S12] exactly as they are; they become names later.\n"
         "- Use only what the input says. Never invent people, food, numbers, or times. Mention a count only as given.\n"
         "- Say what people did and said, not what the cameras showed while nobody was doing anything: leave out empty "
@@ -1004,6 +1003,26 @@ def local(system: str, payload: dict[str, Any], response_schema: dict[str, Any],
         raise journal.EmptyReply(f"the reply isn't JSON ({e})") from None
     if not isinstance(data, dict):
         raise journal.EmptyReply("the reply isn't a JSON object")
+    if not journal.narration_clean(data):
+        journal.reject_narration()
+        retry_system = system + journal.narration_retry()
+        retry_user = fit(retry_system, payload, reply_tokens, w.model, w.num_ctx)
+        reply = summarize.llm(
+            retry_system,
+            retry_user,
+            model=w.model,
+            num_predict=reply_tokens,
+            response_format=response_schema,
+            num_ctx=w.num_ctx,
+            keep_alive=w.keep_alive,
+        )[0]
+        try:
+            data = json.loads(reply)
+        except ValueError:
+            raise journal.EmptyReply("invalid page narration retry") from None
+        if not isinstance(data, dict) or not journal.narration_clean(data):
+            journal.reject_narration()
+            raise journal.NarrationRejected("first-person page narration after retry")
     return data
 
 
@@ -1015,6 +1034,14 @@ def prose(level: str, system: str, payload: dict[str, Any]) -> tuple[dict[str, A
     if agent := cloud_agent(level):
         try:
             data = cloud(system, payload, agent)
+            if not journal.narration_clean(data):
+                journal.reject_narration()
+                data = cloud(system + journal.narration_retry(), payload, agent)
+                if not journal.narration_clean(data):
+                    journal.reject_narration()
+                    raise journal.NarrationRejected("first-person cloud page after retry")
+        except journal.NarrationRejected:
+            raise
         except Exception as e:  # offline, the gateway down or refusing, or a reply that isn't a page
             _cloud_fell_back("failed", f"the cloud model failed ({type(e).__name__}: {str(e)[:200]})")
         else:
