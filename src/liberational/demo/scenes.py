@@ -20,6 +20,7 @@ COLORS = ((83, 111, 113), (170, 112, 82), (91, 104, 133))
 @dataclass
 class Mesh:
     faces: list[tuple[np.ndarray, tuple[int, int, int]]]
+    detail: int = 12
 
     def box(
         self, center: tuple[float, float, float], size: tuple[float, float, float], color: tuple[int, int, int]
@@ -31,11 +32,12 @@ class Mesh:
     def oval(
         self, center: tuple[float, float, float], size: tuple[float, float, float], color: tuple[int, int, int]
     ) -> None:
-        for j in range(12):
-            for k in range(24):
+        detail = self.detail if center[2] > 1.5 else 12
+        for j in range(detail):
+            for k in range(detail * 2):
                 vertices = []
                 for a, b in ((j, k), (j + 1, k), (j + 1, k + 1), (j, k + 1)):
-                    lat, lon = np.pi * a / 12, 2 * np.pi * b / 24
+                    lat, lon = np.pi * a / detail, np.pi * b / detail
                     vertices.append((np.sin(lat) * np.cos(lon), np.sin(lat) * np.sin(lon), np.cos(lat)))
                 self.faces.append((np.array(vertices) * np.array(size) / 2 + center, color))
 
@@ -132,7 +134,8 @@ def room(camera: str, variant: int = 0) -> Mesh:
             for y in (1.6, 2.7):
                 mesh.box((x, y, 0.23), (0.06, 0.06, 0.46), (73, 65, 54))
         mesh.box((2.8, 2.1, 0.53), (0.34, 0.46, 0.04), (89, 111, 117))
-        person(mesh, 1.7 + variant * 0.2, 2.3, variant % 3)
+        person(mesh, 1.7, 2.3, 2)
+        person(mesh, 3.4, 3.0, 1)
         dog(mesh, 2.0, 1.0)
     elif camera == "kitchen":
         mesh.box((2.0, 3.13, 0.45), (3.8, 0.72, 0.9), (175, 182, 167))
@@ -146,7 +149,6 @@ def room(camera: str, variant: int = 0) -> Mesh:
         for y in (0.7, 1.9):
             mesh.box((3.6, y, 0.38), (0.08, 0.08, 0.76), wood)
         person(mesh, 1.45 + variant * 0.12, 2.3, 0)
-        person(mesh, 2.65, 1.5, 1)
     elif camera == "study":
         mesh.box((3.7, 2.8, 0.76), (2.0, 0.85, 0.08), wood)
         for x in (2.85, 4.55):
@@ -158,7 +160,6 @@ def room(camera: str, variant: int = 0) -> Mesh:
         for z in (0.25, 0.7, 1.15, 1.6):
             for y in np.linspace(0.25, 1.35, 9):
                 mesh.box((4.44, float(y), z), (0.19, 0.075, 0.3), COLORS[int(y * 9) % 3])
-        person(mesh, 3.0, 1.9 + variant * 0.13, 0)
     else:
         mesh.box((2.0, 2.94, 1.1), (1.0, 0.06, 2.2), (93, 111, 109))
         mesh.box((2.0, 2.35, 0.015), (1.2, 0.7, 0.03), (113, 100, 82))
@@ -166,8 +167,6 @@ def room(camera: str, variant: int = 0) -> Mesh:
         for x in (3.3, 3.7):
             for y in (0.8, 2.2):
                 mesh.box((x, y, 0.22), (0.07, 0.07, 0.44), (78, 68, 57))
-        person(mesh, 1.7, 1.7 + variant * 0.1, 1)
-        dog(mesh, 2.4, 1.2)
     # A plant anchors the scale, with a deliberately restrained palette.
     mesh.oval((0.55, d - 0.5, 0.22), (0.38, 0.38, 0.44), (150, 112, 88))
     for k in range(6):
@@ -183,8 +182,8 @@ def room(camera: str, variant: int = 0) -> Mesh:
 def render(
     mesh: Mesh, *, portrait: bool = False, variant: int = 0, pet: bool = False
 ) -> tuple[bytes, np.ndarray, np.ndarray, np.ndarray]:
-    width, height = (400, 400) if portrait else (960, 540)
-    eye = np.array((2.5 + (variant - 1) * 0.3, 3.65, 0.85 if pet else 1.7) if portrait else (-1.0, -1.2, 2.65))
+    width, height = (800, 800) if portrait else (960, 540)
+    eye = np.array((2.5 + (variant - 1) * 0.65, 3.65, 0.85 if pet else 1.7) if portrait else (-1.0, -1.2, 2.65))
     target = np.array((2.5, 2.3, 0.48 if pet else 1.58) if portrait else (2.3, 2.5, 0.95))
     forward = target - eye
     forward /= np.linalg.norm(forward)
@@ -243,7 +242,7 @@ def render(
 
 
 def portrait(who: int, variant: int = 0) -> bytes:
-    mesh = Mesh([])
+    mesh = Mesh([], detail=32)
     mesh.box((2.5, 1.5, 1.5), (3, 0.1, 3), (214, 212, 201))
     mesh.box((1.9 + who * 0.3, 1.57, 1.65), (0.38, 0.03, 0.52), COLORS[(who + 1) % 3])
     person(mesh, 2.5, 2.3, who)

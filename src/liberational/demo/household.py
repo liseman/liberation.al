@@ -6,10 +6,10 @@ The generated media depicts only the procedural demo meshes. No camera, model, o
 import asyncio
 import datetime as dt
 import json
-import os
 import subprocess
 import time
 import uuid
+from itertools import pairwise
 from pathlib import Path
 
 from liberational import config as cfg
@@ -25,7 +25,7 @@ def media(state: Path, day: dt.date) -> None:
     folder = state / "demo"
     folder.mkdir(exist_ok=True)
     index = []
-    start = dataset._local(day, 18, 38)
+    start = dataset._local(day, *dataset.MEDIA_TIME)
     clouds = camera_clouds.Store(camera_clouds.root(state))
     for camera in scenes.CAMERAS:
         jpg, points, colors, pose = scenes.render(scenes.room(camera))
@@ -69,12 +69,6 @@ def media(state: Path, day: dt.date) -> None:
             timeout=60,
         )
         index.append({"cam": camera, "file": clip.name, "start": start, "fps": 5.0, "w": 960, "h": 540})
-        evening = folder / f"{camera}-evening.mp4"
-        evening.unlink(missing_ok=True)
-        os.link(clip, evening)
-        index.append(
-            {"cam": camera, "file": evening.name, "start": dataset._local(day, 22, 5), "fps": 5.0, "w": 960, "h": 540}
-        )
         cloud = camera_clouds.Cloud(
             str(uuid.uuid4()),
             camera,
@@ -120,14 +114,14 @@ def media(state: Path, day: dt.date) -> None:
                 who = (n + 1) % 3 if k == 0 else n  # the outlier stays visibly different
                 picture.write_bytes((folder / f"person-{who}-{k % 3}.jpg").read_bytes())
 
-    groups = [faces.new_group(np.stack(dataset._looks(n * 100, 512)[:6])) for n in range(2)]
+    groups = [faces.new_group(np.stack(dataset._looks(n * 100, 512)[:3])) for n in range(2)]
     groups_data = []
     writers = segments.Writers(segments.root(state))
     try:
         for n, group in enumerate(groups):
             shots = []
             for v in range(3):
-                sid, stamp = str(uuid.uuid4()), time.time() - v * 120
+                sid, stamp = str(uuid.uuid4()), dataset._local(day, *dataset.MEDIA_TIME) - v * 5
                 row = {
                     "id": sid,
                     "ts_start": stamp,
@@ -140,10 +134,10 @@ def media(state: Path, day: dt.date) -> None:
                     "cluster": f"Face {group}",
                     "quality": 0.9,
                 }
-                writers.append(segments.FACE_MATCHES, "front-room", [row])
+                writers.append(segments.FACE_MATCHES, dataset.HERE[dataset.PEOPLE[n]][0], [row])
                 writers.append(
                     segments.FACE_EMBEDDINGS,
-                    "front-room",
+                    dataset.HERE[dataset.PEOPLE[n]][0],
                     [
                         {
                             "id": str(uuid.uuid4()),
@@ -164,8 +158,12 @@ def media(state: Path, day: dt.date) -> None:
     unknown = cfg.path("paths.faces") / "_unknown"
     unknown.mkdir(exist_ok=True)
     for n, group in enumerate(groups):
-        (unknown / f"{group}.jpg").write_bytes(scenes.portrait(n))
-    (folder / "day.json").write_text(json.dumps({"day": day.isoformat(), "start": start, "end": start + 30}))
+        (unknown / f"{group}.jpg").write_bytes((folder / f"person-{n}-0.jpg").read_bytes())
+    (folder / "day.json").write_text(
+        json.dumps(
+            {"day": day.isoformat(), "start": start, "end": start + 30, "moment": dataset._local(day, *dataset.MOMENT)}
+        )
+    )
 
     async def register() -> None:
         from continuum_py import Client
@@ -182,11 +180,11 @@ def media(state: Path, day: dt.date) -> None:
 
 def activity(state: Path, day: dt.date) -> None:
     """Some observed clips wait for checking; the walk-by clips are counted by the normal activity reader."""
-    start = dataset._local(day, 18, 38)
+    start = dataset._local(day, *dataset.MEDIA_TIME)
     writers = segments.Writers(segments.root(state))
     ids = [str(uuid.uuid4()) for _ in scenes.CAMERAS]
     try:
-        for n, camera in enumerate(scenes.CAMERAS):
+        for n, (camera, name, kind, label) in enumerate(dataset.ACTIVITIES):
             at = start + n * 3
             row = {
                 "id": ids[n],
@@ -196,54 +194,122 @@ def activity(state: Path, day: dt.date) -> None:
                 "camera_moved": False,
                 "attributes": {"direction": "left_to_right", "supported": [[at, at + 8]], "observations": 40},
                 "subject_type": "person",
-                "kind": "read" if n == 3 else "stand_up",
-                "person": registry.at(state).person_id(dataset.PEOPLE[n % 3]),
-                "person_name": dataset.PEOPLE[n % 3],
+                "kind": kind,
+                "person": registry.at(state).person_id(name),
+                "person_name": name,
             }
             writers.append(segments.WALKBY_SPANS if n < 2 else segments.ACTION_SPANS, camera, [row])
+        for camera in ("front-room", "kitchen"):
+            writers.append(
+                segments.WALKBY_COVERAGE,
+                camera,
+                [
+                    {
+                        "id": str(uuid.uuid4()),
+                        "ts_start": start,
+                        "ts_end": start + 30,
+                        "frames": 150,
+                    }
+                ],
+            )
         writers.sync()
     finally:
         writers.close()
-    events.name_activity(state, events.NameActivity(ids[2], start + 6, "Coming home"))
+    for n, (_camera, _name, _kind, label) in enumerate(dataset.ACTIVITIES):
+        if label is not None:
+            events.name_activity(state, events.NameActivity(ids[n], start + n * 3, label))
     for n in range(2):
         events.feedback_activity(state, events.FeedbackActivity(ids[n], start + n * 3, "right"))
 
 
 def paths(state: Path, day: dt.date) -> None:
     """Paths across the plan throughout the day, including a recent snapshot for the default Today view."""
+    from liberational.people import pets
+
     place = places.places(state)[0]
-    points = ((2.0, 1.8), (2.8, 1.8), (4.5, 1.8), (6.5, 2.8), (6.5, 4.4), (6.5, 6.4))
     rows = []
     reg = registry.at(state)
-    for base in (dataset._local(day, 7), dataset._local(day, 12), dataset._local(day, 18), time.time() - 1800):
-        for n, name in enumerate(dataset.PEOPLE):
-            for k in range(60):
-                a, b = points[(k // 12) % 5], points[(k // 12) % 5 + 1]
-                portion = (k % 12) / 12
-                x, y = a[0] + (b[0] - a[0]) * portion, a[1] + (b[1] - a[1]) * portion
-                stamp = base + n * 120 + k * 4
+    pet = pets.at(state).listing()[0]["id"]
+    moment = dataset._local(day, *dataset.MOMENT)
+    for name, journeys in dataset.ITINERARIES.items():
+        entity = f"pet:{pet}" if name == dataset.PET else f"person:{reg.person_id(name)}"
+        for j, (hour, minute, origin, destination) in enumerate(journeys):
+            points = dataset.route(origin, destination)
+            if j == len(journeys) - 1:
+                points.append(dataset.HERE[name][2])
+            expanded = []
+            for a, b in pairwise(points):
+                count = max(1, int(((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 / 0.15))
+                expanded.extend(
+                    (a[0] + (b[0] - a[0]) * k / count, a[1] + (b[1] - a[1]) * k / count) for k in range(count)
+                )
+            expanded.append(points[-1])
+            start = dataset._local(day, hour, minute)
+            for k, (x, y) in enumerate(expanded):
+                stamp = start + k * 60 / max(1, len(expanded) - 1)
                 rows.append(
                     positions.Position(
                         str(uuid.uuid4()),
                         stamp,
                         stamp,
-                        f"person:{reg.person_id(name)}",
+                        entity,
                         name,
-                        f"demo-{name}-{int(base)}",
+                        f"demo-{name}-{j}",
                         "demo",
                         1.0,
                         place.id,
                         None,
                         None,
-                        x + n * 0.12,
-                        y + n * 0.12,
-                        "front-room",
+                        x,
+                        y,
+                        (
+                            "kitchen"
+                            if x < 4 and y < 3.5
+                            else "study"
+                            if x >= 4 and y > 5
+                            else "front-room"
+                            if x >= 4
+                            else None
+                        ),
                         None,
                         None,
                         place.plan_revision,
                     )
                 )
+            if j == len(journeys) - 1:
+                # The still-visible person/pet remains at this endpoint at the replay moment.
+                from dataclasses import replace
+
+                rows.append(replace(rows[-1], id=str(uuid.uuid4()), t=moment, end=moment))
     positions.write(state, sorted(rows, key=lambda r: r.t))
+    writers = segments.Writers(segments.root(state))
+    try:
+        for name in dataset.PEOPLE:
+            journeys = dataset.ITINERARIES[name]
+            for j, (hour, minute, _origin, destination) in enumerate(journeys):
+                camera = {"kitchen": "kitchen", "living": "front-room", "study": "study"}.get(destination)
+                if camera is None:
+                    continue
+                start = dataset._local(day, hour, minute) + 60
+                end = dataset._local(day, *journeys[j + 1][:2]) if j + 1 < len(journeys) else moment
+                writers.append(
+                    segments.FACE_VISITS,
+                    camera,
+                    [
+                        {
+                            "id": str(uuid.uuid4()),
+                            "ts_start": start,
+                            "ts_end": end,
+                            "name": name,
+                            "best_sim": 0.9,
+                            "samples": max(1, int((end - start) / 60)),
+                            "shots": [],
+                        }
+                    ],
+                )
+        writers.sync()
+    finally:
+        writers.close()
 
 
 def calls(day: dt.date) -> None:
@@ -263,7 +329,7 @@ def calls(day: dt.date) -> None:
                     "end": start + 145,
                     "duration_s": 145,
                     "durationSeconds": 145,
-                    "turns": 4,
+                    "turns": 2,
                     "speakers": {name: {}, "Alice": {}},
                     "outcome": "completed",
                     "number": "",

@@ -4,13 +4,13 @@ Only pack-demo launches this module. It never starts dashboard warmers or hardwa
 and subprocesses are refused, and writes that could trigger a service, model, call, or import are unavailable.
 """
 
+import datetime as dt
 import json
 import mimetypes
 import signal
 import socket
 import sys
 import threading
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -41,16 +41,30 @@ def answer(question: str) -> str:
     if "rex" in text or "dog" in text:
         return "Alice and Dana took Rex for a walk before the rain at lunchtime. Dana dried him off in the hall when they got back."
     if "dinner" in text or "eat" in text:
-        return "Alice cooked pasta, Sam set the table, and Dana joined them for dinner. Afterwards they played a board game; Sam won."
+        return "Alice is cooking pasta in the kitchen. Sam has set the table, and Dana has joined him and Rex in the living room. Dinner is planned for 18:38."
     if "dana" in text or "visit" in text or "who" in text:
         return "Dana stopped by with groceries at lunchtime and returned for dinner. Alice and Sam were home in the evening."
     if "deadline" in text or "friday" in text:
         return "The project deadline moved to Friday. Dana is helping Alice with the slides."
-    return "Alice worked in the study, Dana brought groceries, and Sam came home before dinner. They had pasta together and played a board game. This demo has prepared answers about dinner, visitors, Rex, and the project deadline."
+    return "Alice worked in the study, Dana brought groceries, and Sam came home before dinner. Alice is cooking pasta while Dana and Sam wait in the living room with Rex. This demo has prepared answers about dinner, visitors, Rex, and the project deadline."
+
+
+def day() -> dt.date:
+    return dt.date.fromisoformat(json.loads((cfg.path("paths.state") / "demo" / "day.json").read_text())["day"])
+
+
+def clock() -> float:
+    """Keep the offline replay at its photographed moment, even when opened on another day."""
+    return dataset._local(day(), *dataset.MOMENT)
+
+
+def here(name: str) -> dict[str, Any]:
+    camera, label, _, since = dataset.HERE[name]
+    return {"cam": camera, "camera_name": label, "since": dataset._local(day(), *since)}
 
 
 def devices(path: str) -> dict[str, Any]:
-    now = time.time()
+    now = clock()
     links = [
         {"id": str(n), "kind": "ble_name", "value": label, "target": target, "name": name}
         for n, (label, target, name) in enumerate(
@@ -106,8 +120,11 @@ def devices(path: str) -> dict[str, Any]:
                     "place": "Demo house",
                     "linked": l,
                     "stays": [
-                        {"start": now - (7 - n) * 3600, "end": now - (4 - n) * 3600},
-                        {"start": now - (2 - n) * 3600, "end": now - 30},
+                        {
+                            "start": dataset._local(day(), 7),
+                            "end": dataset._local(day(), 12, 45) if n == 0 else dataset._local(day(), 7, 40),
+                        },
+                        {"start": dataset._local(day(), 13 if n == 0 else 17), "end": now},
                     ],
                 }
                 for n, l in enumerate(links[:2])
@@ -142,7 +159,13 @@ class Handler(server.H):
         path = self.path.split("?", 1)[0]
         if path in server.APP_PATHS and (path == "/" or "text/html" in self.headers.get("Accept", "")):
             code, page = server.app_page()
-            page = page.replace(b"</head>", b"<script>window.__PACK_DEMO__=true;</script></head>")
+            # Date-based defaults open the archived demo day; timers and performance clocks remain ordinary.
+            script = f"""<script>window.__PACK_DEMO__=true;
+window.__PACK_DEMO_REVIEW__={dataset._local(day(), *dataset.MEDIA_TIME) + 2};
+const NativeDate=Date;
+window.Date=class extends NativeDate {{constructor(...args){{super(...(args.length?args:[{int(clock() * 1000)}]));}} static now(){{return {int(clock() * 1000)};}}}};
+</script></head>"""
+            page = page.replace(b"</head>", script.encode())
             return self._send(code, "text/html; charset=utf-8", page)
         if path.startswith("/demo/media/"):
             name = path.removeprefix("/demo/media/")
@@ -157,12 +180,12 @@ class Handler(server.H):
                 return self._json({"error": "Unknown demo camera"}, 404)
             return self._media((self.state / "demo" / f"{camera}.jpg").read_bytes(), "image/jpeg")
         if path == "/events":
-            now = time.time()
+            now = clock()
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            entries = transcript_lines.merged_tail(80)
+            entries = [e for e in transcript_lines.merged_tail(80) if e.get("ts_start", 0) <= now]
             payloads = {
                 "hello": {"ts": now},
                 "transcript": {"entries": entries, "reset": True},
@@ -170,12 +193,7 @@ class Handler(server.H):
                     {"cam": c, "caption": text, "ts": now, "faces": []}
                     for c, text in zip(
                         scenes.CAMERAS,
-                        (
-                            "Alice is reading while Rex rests nearby.",
-                            "Alice and Dana are preparing dinner.",
-                            "Dana has arrived with groceries.",
-                            "Alice is working at the desk.",
-                        ),
+                        dataset.CAPTIONS,
                     )
                 ],
                 "ambient": {"devices": {dataset.MIC: {"name": dataset.MIC, "healthy": False}}},
@@ -191,12 +209,12 @@ class Handler(server.H):
                 self.wfile.flush()
                 while not STOP.wait(10):
                     for row in payloads["scene"]:
-                        row["ts"] = time.time()
-                    payloads["vision"]["ts"] = time.time()
+                        row["ts"] = clock()
+                    payloads["vision"]["ts"] = clock()
                     for event, value in (
                         ("scene", payloads["scene"]),
                         ("vision", payloads["vision"]),
-                        ("ping", {"ts": time.time()}),
+                        ("ping", {"ts": clock()}),
                     ):
                         self.wfile.write(f"event: {event}\ndata: {json.dumps(value)}\n\n".encode())
                     self.wfile.flush()
@@ -262,9 +280,7 @@ class Handler(server.H):
             if code == 200:
                 view["here"] = {
                     p["id"]: {
-                        "cam": "front-room",
-                        "camera_name": "Front room",
-                        "since": time.time() - 500,
+                        **here(dataset.PET),
                         "track": p["photo"],
                     }
                     for p in view["pets"]
@@ -277,31 +293,26 @@ class Handler(server.H):
             view = {
                 **view,
                 "people": [
-                    {**p, "here_now": {"cam": "front-room", "camera_name": "Front room", "since": time.time() - 300}}
+                    {**p, "here_now": here(p["name"]) if p["name"] in dataset.HERE else None}
                     for p in view.get("people", [])
                 ],
             }
             return self._json(view)
         if path == "/live/happening":
-            now = time.time()
-            texts = (
-                ("Dana arrived with groceries", "arrival", "porch", ["Dana"]),
-                ("Alice put the kettle on", "activity", "kitchen", ["Alice"]),
-                ("Sam set the table for dinner", "activity", "front-room", ["Sam"]),
-            )
+            now = clock()
             return self._json(
                 {
                     "items": [
                         {
                             "id": f"demo-{n}",
-                            "ts": now - (3 - n) * 120,
+                            "ts": dataset._local(day(), *at),
                             "text": text,
                             "kind": kind,
                             "people": people,
                             "cam": cam,
                             "camera_name": cam.replace("-", " ").title(),
                         }
-                        for n, (text, kind, cam, people) in enumerate(texts)
+                        for n, (at, text, kind, cam, people) in enumerate(dataset.HAPPENING)
                     ],
                     "updated": now,
                 }
@@ -309,8 +320,8 @@ class Handler(server.H):
         if path == "/review/summary":
             import datetime as dt
 
-            day = dt.date.fromisoformat(json.loads((self.state / "demo" / "day.json").read_text())["day"])
-            start = dataset._local(day, 0)
+            review_day = dt.date.fromisoformat(json.loads((self.state / "demo" / "day.json").read_text())["day"])
+            start = dataset._local(review_day, 0)
             return self._json(
                 {
                     "start": start,
@@ -319,8 +330,8 @@ class Handler(server.H):
                     "status": "ready",
                     "blocks": [
                         {
-                            "start": dataset._local(day, entry.at),
-                            "end": dataset._local(day, entry.at) + 3600,
+                            "start": dataset._local(review_day, entry.at),
+                            "end": dataset._local(review_day, entry.at) + 3600,
                             "text": entry.text,
                             "tags": [],
                             "evidence": {"status": "unverified", "sources": []},
@@ -340,13 +351,12 @@ class Handler(server.H):
 
             waiting = {int(row["id"]) for row in faces.unknown_groups()}
             ids = json.loads((self.state / "demo" / "groups.json").read_text())
-            now = time.time()
             groups = [
                 {
                     "id": ids[n]["id"],
                     "label": f"Unnamed face {n + 1}",
-                    "count": 6 + n,
-                    "last_seen": now - n * 600,
+                    "count": len(ids[n]["shots"]),
+                    "last_seen": max(s["ts"] for s in ids[n]["shots"]),
                     "guess": {"name": name, "score": 76 - n * 9, "band": "maybe", "close": None},
                     "score": 76 - n * 9,
                     "band": "maybe",
@@ -380,7 +390,7 @@ class Handler(server.H):
                 return self._json({"error": "Invalid question size"}, 400)
             body = json.loads(self.rfile.read(length))
             question = str(body.get("question", ""))
-            now, key = time.time(), uuid.uuid4().hex
+            now, key = clock(), uuid.uuid4().hex
             job = {
                 "id": key,
                 "poll_url": f"/pack-ask/jobs/{key}",
@@ -431,6 +441,9 @@ def main() -> None:
     from liberational.dashboard import presence
 
     sys.addaudithook(offline)
+    from liberational.memory import reports
+
+    reports.at(cfg.path("paths.state")).now = clock
     pool = ThreadPoolExecutor(max_workers=1)
     presence._executor = pool
     port = int(sys.argv[1])
