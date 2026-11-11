@@ -74,13 +74,13 @@ at the terminal.
 ## Install with uv
 
 On any supported Linux or macOS machine with [uv](https://docs.astral.sh/uv/) installed, download a release's files for
-your platform into one directory (`gh release download v0.2.0 --repo liseman/liberation.al -D release` fetches all
+your platform into one directory (`gh release download v0.1.0 --repo liseman/liberation.al -D release` fetches all
 assets), check them, and install the tool:
 
 ```sh
 (cd release && sha256sum -c --ignore-missing SHA256SUMS)
 uv tool install --python 3.14 --find-links release \
-  --constraints release/liberational-pack-0.2.0-lock-linux-x86_64.txt \
+  --constraints release/liberational-pack-0.1.0-lock-linux-x86_64.txt \
   liberational-pack --with continuum-daemons
 pack-system install    # installs missing system packages, after asking
 pack-setup             # installs this machine's Python extras and fetches models
@@ -205,7 +205,28 @@ One section per version, newest last. The release workflow publishes a version's
 
 ## 0.1.0
 
-The first release: the application as wheels for Linux x86-64, Linux arm64, and macOS on Apple Silicon, installed
-with `uv tool install` and set up with `pack-setup`.
+The first release: one application (`pack-app`, or `pack-supervisor run` without a window), as wheels for Linux
+x86-64, Linux arm64, and macOS on Apple Silicon. Install from the apt repository, or with `uv tool install`, then
+`pack-setup`.
 
-An upgrade resets nothing: there is no earlier release to upgrade from.
+A fresh install resets nothing.
+
+A checkout from before the first public commit (2026-11-09) does not upgrade in place. Export what was taught
+(`pack-knowledge export`), set up fresh, and import the bundle. Recorded history is not carried.
+
+A checkout from 2026-11-09 or later, brought to this version, follows MIGRATING.md:
+
+- It runs as one application. `python -m liberational.services migrate` removes the earlier per-service units. A
+  dry run prints the plan and changes nothing.
+- It resets recorded history. The catalog is format 8, and the broker refuses an older catalog.
+  `pack-reset-catalog --keep-taught` prints the plan; `--yes` resets. The knowledge store, the face gallery, voice
+  references, and models stay.
+- A place's plan is a Pascal Editor scene. An older plan converts at commit `add5028c` with
+  `python -m liberational.spatial.plan_convert` (a dry run, then `--yes`) before this version is checked out. The
+  old line DSL, the text plan editor, the vendored floorplan library, `tools/import_owner_plan.py`, and
+  `pack-plan-convert` are gone. An unconverted plan is kept and is no longer shown.
+- Phone-walk import and the nightly camera re-registration are gone. `pack-reset-places` (a dry run, then
+  `--yes`) deletes the maps, splats, walks, camera registrations, and stored positions those jobs made. Corrected
+  plans stay.
+- Stored DINOv3 pet embeddings are not read. `tools/restore_pet_references.py` carries taught pet examples onto
+  DINOv2 before a restart. MIGRATING.md has the arguments.
