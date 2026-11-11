@@ -2046,6 +2046,7 @@ def _print_dry_run(state: Path, fixed: Sequence[str], hours: float) -> None:
             if aim is None
             else f"; tilted {aim.pitch:.1f} deg down, rolled {aim.roll:.1f}, from {aim.people} people walking"
             + ("" if aim.tall is None else f" who come out {aim.tall:.2f} m tall")
+            + spots.edge_note(aim)
         )
         lacks = "".join(f"; {LACKS[m]}" for m in row["missing"])
         view = ""

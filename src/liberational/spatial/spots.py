@@ -25,6 +25,26 @@ the spot's measured height: with the camera that high and that tilted, the peopl
 height (`Aim.tall`, within `TALL`), and a fit that doesn't is refused, since the height, the lens, or the tilt is
 then wrong and every point would be off.
 
+**The picture's straight edges** (`edges_in`, `up_from_edges`). A camera's frame holds the walls it looks at: a
+wall's floor line, the line its top makes, and the corners it shares with other walls are straight in the picture.
+The plan says which headings its walls run at (`headings`), so with the spot's facing each of those heading vectors,
+and the vertical, is known in the camera's axes: a straight edge's plane (through the camera) must hold one of them,
+which is what a candidate tilt and focal are scored by (each edge's miss of the nearest direction, cut off at
+`EDGE_TOL` degrees so furniture, shadows, and people pay no more than a wall's edge does). The focal is fitted with
+the tilt because the vanishing points' places depend on both: on the wide-lens camera that raised this, a plumb-line
+focal put the pitch at 6 to 13 degrees below level where the walkers put it at 17.8, and across focals of 0.22 to
+0.45 of the width the two cues never agreed. A picture whose edges are `EDGE_MIN` agreeing across `EDGE_SPAN` of the
+frame's width is evidence enough to fit from.
+
+**Which cue wins.** The walkers' tilt is what holds where the picture's edges can't be used (too few, too
+concentrated, or nothing on the plan's walls), and it is the check on the tilt the edges fit: the aim is the edges'
+tilt at a focal where the walkers, fitted on their own there, agree with it within `AGREE_DEG` (their roll only
+counts when they cross `ROLL_SPAN` of the view, so one strip of it can't outvote the picture) and the people come out
+a person's height (`TALL`). Focals between the lens's own and the one the edges fit are tried for that agreement,
+which is how a lens whose focal is off is found; the aim then keeps that focal (`Aim.focal`) and the pose casts its
+rays with it. No focal agreeing means the edges aren't a fit to be trusted: the walkers' tilt stands, and the aim
+says the edges didn't confirm it (`Aim.edges`, `Aim.confirmed`; `edge_note` says it in a dry run).
+
 Read only, on four live cameras on the Linux machine with 52 to 409 walking rows each: the heights' spread had one
 clear minimum per camera (1 to 8% of the median, against 10 to 50% a further 15 degrees off), within 2 degrees of
 where the planes alone put the pitch on the two cameras whose walkers crossed enough of the view to say, and the
@@ -78,6 +98,25 @@ ROLL = 30.0  # and degrees of roll either way
 ROLL_COST = 0.01  # the misfit a roll of ROLL must win back
 ROLL_SPAN = 0.3  # of the frame's width the walkers' feet must span (5th to 95th percentile) for a roll to be told
 TALL = (1.0, 2.2)  # metres: the median height people come out at must be in this for the aim to hold
+# The picture's straight edges (see the module docstring).
+EDGE_PIXELS = 320  # the width a picture is read at to find its straight edges
+CANNY = (40, 120)  # a pixel's gradient (0 to 255) that starts an edge of them, and that keeps one going
+EDGE_SHORT = 0.08  # of the frame's diagonal: a shorter straight edge is clutter, not a wall
+EDGE_DUP = 0.02  # of the diagonal: a straight edge this near a longer one on the same bearing is the same edge
+EDGE_DUP_DEG = 2.0  # degrees apart a longer edge's bearing has to be to be another edge
+EDGE_MIN = 8  # straight edges that agree with the plan's directions enough to fit a tilt (and a focal) from
+EDGE_SPAN = 0.35  # of the frame's width the agreeing edges must span (5th to 95th percentile of their middles)
+EDGE_TOL = 1.5  # degrees a straight edge may miss the plan direction it lies along and still agree
+HEADINGS = 3  # the plan's wall headings kept, the longest wall runs first (the vertical is always a direction too)
+HEADING_DEG = 5.0  # walls within this many degrees of each other are one heading
+HEADING_M = 2.0  # metres of wall a heading needs to count
+FLOOR_STEP = 0.5  # metres between the wall-floor points a picture is scored against
+FLOOR_NEAR_M = 0.4  # metres: closer than this to the spot, the floor is under the camera, not in its view
+FLOOR_FAR_M = 12.0  # metres: walls farther than this from the spot are too far to say where their floor lines are
+WALL_NEAR = 0.03  # of the frame a wall's floor line's point may land from a straight edge and still be seen there
+FOCAL_RANGE = (0.55, 1.95)  # how far either way a picture's edges may put the focal from the lens's, as its share
+FOCAL_STEPS = 12  # focals tried across that range before the search refines one
+AGREE_DEG = 2.5  # degrees between the edges' tilt and the walkers' at one focal for the edges to confirm the tilt
 HEAD, HIP = 17, 19  # halpe26
 REFINE_M, REFINE_DEG = 0.3, 5.0  # how far a map may move a camera from its owner's spot
 
@@ -87,7 +126,13 @@ class Aim:
     """A camera's fitted tilt: the world's up in the camera's axes (x right, y down, z forward), the size of the
     frames it was fitted from, how many walking people's rows went in, the median height they come out at with the
     spot's height (None with no height), and what it was fitted against (`basis`, so a changed spot or lens fits
-    again)."""
+    again).
+
+    `edges`, `edge_pitch`, and `edge_roll` are what the camera's picture's straight edges said (`up_from_edges`): how
+    many of them agreed with the plan's wall directions and the vertical, and the tilt they put the camera at. `focal`
+    is the focal (pixels of that frame) the tilt was fitted at when the edges fitted it, which the pose then casts its
+    rays with (None: the held lens's own); and `confirmed` says the walkers, fitted on their own at that focal, agree
+    with the tilt the aim holds. An aim fitted only from walkers has no edges and isn't confirmed."""
 
     up: tuple[float, float, float]
     width: int
@@ -96,16 +141,21 @@ class Aim:
     tall: float | None
     at: float
     basis: str
+    edges: int = 0
+    edge_pitch: float | None = None
+    edge_roll: float | None = None
+    focal: float | None = None
+    confirmed: bool = False
 
     @property
     def pitch(self) -> float:
         """Degrees the camera looks below level."""
-        return math.degrees(math.asin(max(-1.0, min(1.0, -self.up[2]))))
+        return _pitch_roll(self.up)[0]
 
     @property
     def roll(self) -> float:
         """Degrees it's rolled clockwise as seen from behind."""
-        return math.degrees(math.atan2(-self.up[0], -self.up[1]))
+        return _pitch_roll(self.up)[1]
 
 
 @dataclass(frozen=True)
@@ -141,6 +191,12 @@ def aims(state: Path) -> dict[str, Aim]:
                 tall,
                 float(row["at"]),
                 str(row["basis"]),
+                int(row.get("edges") or 0),
+                # a row from before the picture's edges were read has neither, and holds as it was
+                None if row.get("edge_pitch") is None else float(row["edge_pitch"]),
+                None if row.get("edge_roll") is None else float(row["edge_roll"]),
+                None if row.get("focal") is None else float(row["focal"]),
+                bool(row.get("confirmed") or False),
             )
         except KeyError, TypeError, ValueError:
             continue  # a row from another version: fitted again
@@ -226,6 +282,14 @@ def up_at(pitch: float, roll: float) -> np.ndarray:
     return np.array([-math.cos(p) * math.sin(r), -math.cos(p) * math.cos(r), -math.sin(p)])
 
 
+def _pitch_roll(up: Sequence[float] | np.ndarray) -> tuple[float, float]:
+    """Degrees an `up` in a camera's axes is pitched below level (`up_at`'s pitch) and rolled clockwise seen from behind
+    (`up_at`'s roll): the inverse of `up_at`."""
+    g = np.asarray(up, dtype=np.float64)
+    pitch = math.degrees(math.asin(max(-1.0, min(1.0, -float(g[2])))))
+    return pitch, math.degrees(math.atan2(-float(g[0]), -float(g[1])))
+
+
 def heights(up: Sequence[float] | np.ndarray, above: float, feet: np.ndarray, heads: np.ndarray) -> np.ndarray:
     """How tall each person comes out (metres) from a camera `above` the floor with that `up`: their feet where
     the foot ray meets the floor (at footprints.FOOT_M), their head where the head ray passes nearest the vertical
@@ -295,6 +359,319 @@ def up_from_people(feet: np.ndarray, heads: np.ndarray, roll: bool = True) -> tu
         return None
     x, y, z = (float(v) for v in up_at(best[1], best[2]))
     return (x, y, z)
+
+
+# The picture's straight edges: the cameras' frames hold the walls around them, and a wall's floor line, its top
+# line, and the corners between walls are straight (see the module docstring).
+
+
+@dataclass(frozen=True)
+class Room:
+    """What a place's plan says that a camera's picture can be fitted against: the directions its walls run at and the
+    vertical (`world`, (K, 3) in the plan's frame, the third axis the height above the floor), the points along the
+    wall-floor lines its spot should see (`floor`, (M, 3) plan metres at the floor), and where its spot puts the
+    eye."""
+
+    world: np.ndarray
+    floor: np.ndarray
+    eye: tuple[float, float, float]
+
+
+@dataclass(frozen=True)
+class Edges:
+    """What the straight edges of a camera's picture say about its tilt and focal, fitted against the plan's wall
+    directions and the vertical (`up_from_edges`)."""
+
+    pitch: float
+    roll: float
+    focal: float  # pixels, of the frame they were fitted from
+    agreed: int  # the straight edges that lie along a plan direction
+    spread: float  # of the frame's width the agreeing edges' middles span (5th to 95th percentile)
+    misfit: float  # degrees: the median miss of the agreeing edges
+
+    @property
+    def usable(self) -> bool:
+        """Whether the picture's edges are enough evidence to fit a tilt with: EDGE_MIN of them, across EDGE_SPAN of
+        the frame's width."""
+        return self.agreed >= EDGE_MIN and self.spread >= EDGE_SPAN
+
+
+def headings(text: str) -> tuple[float, ...]:
+    """The headings of a plan's walls (degrees clockwise from up the page, as a spot's yaw is), the longest wall runs
+    first, up to HEADINGS of them: walls within HEADING_DEG of each other are one heading, and each needs HEADING_M
+    metres of wall. () for a plan that has no rooms."""
+    try:
+        plan = plan_import.parse(text)
+    except plan_import.PlanError:
+        return ()
+    walls = plan_import.walls(plan)
+    runs = np.hypot(*(walls.b - walls.a).T)
+    along = (walls.b - walls.a)[runs > 0] / runs[runs > 0, None]
+    if not len(along):
+        return ()
+    bearing = np.degrees(np.arctan2(along[:, 0], -along[:, 1])) % 180.0
+    groups: list[list[tuple[float, float]]] = []  # (bearing, metres of wall) per heading
+    for way, length in zip(bearing.tolist(), runs[runs > 0].tolist(), strict=True):
+        for group in groups:
+            if _apart(way, group[0][0]) <= HEADING_DEG:
+                group.append((way, length))
+                break
+        else:
+            groups.append([(way, length)])
+    kept = []
+    for group in groups:
+        total = sum(length for _, length in group)
+        if total < HEADING_M:
+            continue
+        turns = np.radians([way for way, _ in group]) * 2.0  # bearings circle every 180 degrees
+        middle = math.degrees(math.atan2(np.sin(turns).mean(), np.cos(turns).mean()) / 2.0) % 180.0
+        kept.append((middle, total))
+    kept.sort(key=lambda pair: -pair[1])
+    return tuple(round(way, 3) for way, _ in kept[:HEADINGS])
+
+
+def _apart(a: float, b: float) -> float:
+    """How many degrees apart two bearings on a circle of 180 degrees are."""
+    gap = abs(a - b) % 180.0
+    return min(gap, 180.0 - gap)
+
+
+def edges_in(picture: Any) -> np.ndarray:
+    """The straight edges in a picture of a camera's frame, as (N, 4) fractions of the frame (u1, v1, u2, v2), the
+    longest first: read EDGE_PIXELS wide, its Canny edges' straight runs, each at least EDGE_SHORT of the frame's
+    diagonal long, with a run on the same bearing as a longer one and within EDGE_DUP of the diagonal of it dropped as
+    that edge again. (0, 4) with no picture (`cameras.recorded` has none for a camera whose frames weren't kept)."""
+    import cv2
+
+    if picture is None:
+        return np.zeros((0, 4))
+    img = np.asarray(picture)
+    if img.size == 0 or img.ndim not in (2, 3):
+        return np.zeros((0, 4))
+    if img.ndim == 3:
+        grey = cv2.cvtColor(np.ascontiguousarray(img, dtype=np.uint8), cv2.COLOR_BGR2GRAY)
+    else:
+        grey = np.ascontiguousarray(img, dtype=np.uint8)
+    h, w = grey.shape[:2]
+    scale = min(1.0, EDGE_PIXELS / float(max(w, 1)))
+    if scale < 1.0:
+        grey = cv2.resize(grey, (max(8, round(w * scale)), max(8, round(h * scale))), interpolation=cv2.INTER_AREA)
+    gh, gw = grey.shape[:2]
+    diagonal = math.hypot(gw, gh)
+    found = cv2.HoughLinesP(
+        cv2.Canny(cv2.GaussianBlur(grey, (5, 5), 0), CANNY[0], CANNY[1]),
+        1,
+        math.pi / 360.0,
+        threshold=max(10, round(0.05 * min(gw, gh))),
+        minLineLength=max(8, round(EDGE_SHORT * diagonal)),
+        maxLineGap=max(2, round(0.01 * diagonal)),
+    )
+    if found is None:
+        return np.zeros((0, 4))
+    runs = np.asarray(found, dtype=np.float64).reshape(-1, 4)
+    length = np.hypot(runs[:, 2] - runs[:, 0], runs[:, 3] - runs[:, 1])
+    kept: list[int] = []
+    for i in np.argsort(-length).tolist():
+        a, b = runs[i, :2], runs[i, 2:]
+        same = False
+        for j in kept:
+            c, d = runs[j, :2], runs[j, 2:]
+            middle = math.hypot(*((a + b) / 2.0 - (c + d) / 2.0))
+            if middle <= EDGE_DUP * diagonal and _apart(_bearing(a, b), _bearing(c, d)) <= EDGE_DUP_DEG:
+                same = True
+                break
+        if not same:
+            kept.append(i)
+    out = runs[sorted(kept, key=lambda i: -length[i])]
+    out[:, [0, 2]] /= gw
+    out[:, [1, 3]] /= gh
+    return out
+
+
+def _bearing(a: np.ndarray, b: np.ndarray) -> float:
+    """Degrees from the horizontal of the line from `a` to `b`, on a circle of 180 degrees."""
+    return math.degrees(math.atan2(float(b[1] - a[1]), float(b[0] - a[0]))) % 180.0
+
+
+def _world(headings: Sequence[float]) -> np.ndarray:
+    """The plan's directions a picture's straight edges may lie along, (K, 3) in the plan's frame (the third axis the
+    height above the floor): its wall `headings` along the floor, and the vertical."""
+    out = np.zeros((len(headings) + 1, 3))
+    for i, heading in enumerate(headings):
+        r = math.radians(heading)
+        out[i] = (math.sin(r), -math.cos(r), 0.0)
+    out[-1] = (0.0, 0.0, 1.0)
+    return out
+
+
+def room(text: str, spot: plan_import.Camera) -> Room:
+    """What `text`'s plan says a spot's picture can be fitted against (`Room`): the directions its walls run at
+    (`headings`), and the points along the floor lines of the walls the spot should see, every FLOOR_STEP metres:
+    FLOOR_NEAR_M to FLOOR_FAR_M from it, in front of its facing, and in its sight (`plan_import.in_sight`, so a wall
+    behind another isn't counted). A spot with no height or yaw sees no floor lines, and a plan that doesn't read has
+    neither."""
+    found = headings(text)
+    eye = (spot.at[0], spot.at[1], float(spot.height or 0.0))
+    if not found or spot.height is None or spot.yaw is None:
+        return Room(_world(found), np.zeros((0, 3)), eye)
+    try:
+        plan = plan_import.parse(text)
+    except plan_import.PlanError:
+        return Room(_world(found), np.zeros((0, 3)), eye)
+    walls = plan_import.walls(plan)
+    runs = []
+    for a, b in zip(walls.a, walls.b, strict=True):
+        t = np.linspace(0.0, 1.0, max(2, round(float(np.hypot(*(b - a))) / FLOOR_STEP) + 1))
+        runs.append(a[None, :] * (1.0 - t)[:, None] + b[None, :] * t[:, None])
+    if not runs:
+        return Room(_world(found), np.zeros((0, 3)), eye)
+    q = np.concatenate(runs)
+    r = math.radians(spot.yaw)
+    ahead = (q - np.asarray(spot.at)) @ np.array([math.sin(r), -math.cos(r)])
+    far = np.hypot(*(q - np.asarray(spot.at)).T)
+    seen = plan_import.in_sight(plan, plan_import.sight_walls(plan), spot.at, q)
+    kept = (far >= FLOOR_NEAR_M) & (far <= FLOOR_FAR_M) & (ahead > 0.0) & seen
+    return Room(_world(found), np.column_stack([q[kept], np.zeros(int(kept.sum()))]), eye)
+
+
+def _edge_normals(shape: places.CameraPose, edges: np.ndarray) -> np.ndarray:
+    """(N, 3) unit normals of the planes through the camera that hold each of `edges` ((N, 4) fractions of the frame):
+    a world line seen along the edge lies in that plane, so the plane holds the line's world direction."""
+    across = np.cross(rays(shape, edges[:, :2]), rays(shape, edges[:, 2:]))
+    return across / np.maximum(np.linalg.norm(across, axis=1), 1e-12)[:, None]
+
+
+def _edge_missed(normals: np.ndarray, turn: np.ndarray, world: np.ndarray) -> np.ndarray:
+    """(N,) degrees each of `normals`' planes misses the nearest of `world`'s directions by, the directions seen from a
+    camera `turn` turns: 0 when the plane holds one of them."""
+    off = np.abs(normals @ (world @ turn).T)  # (N, K): the sine of each miss
+    return np.degrees(np.arcsin(np.clip(off, 0.0, 1.0))).min(axis=1)
+
+
+def _near(points: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    """(M,) each of `points`' ((M, 2) fractions of the frame) distance to the nearest of `edges` ((N, 4) fractions)."""
+    starts, ends = edges[None, :, :2], edges[None, :, 2:]
+    along = ends - starts
+    reach = ((points[:, None, :] - starts) * along).sum(axis=-1) / np.maximum((along * along).sum(axis=-1), 1e-12)
+    nearest = starts + np.clip(reach, 0.0, 1.0)[..., None] * along
+    return np.hypot(*(points[:, None, :] - nearest).transpose(2, 0, 1)).min(axis=1)
+
+
+def _wall_missed(shape: places.CameraPose, turn: np.ndarray, room: Room, edges: np.ndarray) -> float:
+    """How badly the wall-floor lines a spot should see (`Room.floor`) fit the picture's straight edges: the mean,
+    over their points, of how far its tilt puts each from the nearest edge, squared and cut off at WALL_NEAR (so a
+    couch in front of a wall pays no more than a wall does), as a share of WALL_NEAR squared; a point the tilt puts
+    behind the camera or out of the frame pays the most, so a tilt that loses the walls it should see is no fit. 0
+    for a spot that should see no floor lines."""
+    if not len(room.floor):
+        return 0.0
+    camera = (room.floor - np.asarray(room.eye, dtype=np.float64)) @ turn  # plan metres to the camera's axes
+    depth = camera[:, 2]
+    near = np.full(len(camera), WALL_NEAR)  # what a point behind the camera or out of the frame pays
+    in_front = depth > 0.05
+    u = 0.5 + shape.focal * camera[in_front, 0] / depth[in_front] / shape.width
+    v = 0.5 + shape.focal * camera[in_front, 1] / depth[in_front] / shape.height
+    inside = (u >= 0.0) & (u <= 1.0) & (v >= 0.0) & (v <= 1.0)
+    if inside.any():
+        seen = _near(np.column_stack([u[inside], v[inside]]), edges)
+        near[np.flatnonzero(in_front)[inside]] = np.minimum(seen, WALL_NEAR)
+    return float(np.mean((near / WALL_NEAR) ** 2))
+
+
+def up_from_edges(
+    shape: places.CameraPose,
+    edges: np.ndarray,
+    yaw: float,
+    mirrored: bool,
+    room: Room,
+    focal: float | None = None,
+    start: tuple[float, float] | None = None,
+) -> Edges | None:
+    """The tilt that fits the straight edges of `shape`'s frames best, and the focal when `focal` is None. Every edge
+    is scored by how near one of `room.world`'s directions (the plan's wall headings and the vertical, in the plan's
+    frame) its plane holds, from a camera facing `yaw` with `mirrored`'s handedness, EDGE_TOL and further counting the
+    same (so clutter pays no more than a wall's edge does), each edge weighing how long it is, since a long edge's
+    bearing is surer than a short one's; and `_wall_missed` scores the wall-floor lines the spot should see, whose
+    places in the frame say where the focal and the pitch are, which their directions alone can't (a room seen
+    straight on leaves a pitch and focal that fit its edges equally well). Searched coarsely over every pitch from
+    PITCH[0] to PITCH[1], every roll within ROLL, and a focal from FOCAL_RANGE of `shape`'s, then finely about the
+    best; or about `start`, a pitch and roll to refine, and at `focal` alone. None with too few straight edges to
+    try."""
+    length = np.hypot(edges[:, 2] - edges[:, 0], edges[:, 3] - edges[:, 1]) if len(edges) else np.zeros(0)
+    edges = np.asarray(edges, dtype=np.float64).reshape(-1, 4)[length >= EDGE_SHORT]
+    length = length[length >= EDGE_SHORT]
+    if len(edges) < EDGE_MIN or not len(room.world):
+        return None
+    best = (math.inf, *(start or (30.0, 0.0)), float(focal if focal is not None else shape.focal))
+    focals = np.geomspace(*FOCAL_RANGE, FOCAL_STEPS) * shape.focal if focal is None else np.array([float(focal)])
+    stages = (
+        ((1.0, 5.0), (0.2, 1.0), (0.05, 0.2))
+        if start is not None
+        else ((5.0, None), (1.0, 5.0), (0.2, 1.0), (0.05, 0.2))
+    )
+    for step, reach in stages:
+        _, at_pitch, at_roll, _ = best
+        pitches = (
+            np.arange(PITCH[0], PITCH[1] + step, step)
+            if reach is None
+            else at_pitch + np.arange(-reach, reach + step / 2, step)
+        )
+        rolls = (
+            np.arange(-ROLL, ROLL + step, step)
+            if reach is None
+            else at_roll + np.arange(-reach, reach + step / 2, step)
+        )
+        for tried in focals:
+            shaped = replace(shape, focal=float(tried))
+            normals = _edge_normals(shaped, edges)
+            for pitch in pitches:
+                for roll in rolls:
+                    turn = _turn(yaw, mirrored, up_at(float(pitch), float(roll)))
+                    if turn is None:
+                        continue
+                    missed = _edge_missed(normals, turn, room.world)
+                    cost = float(np.average(np.minimum(missed, EDGE_TOL) ** 2, weights=length)) / EDGE_TOL**2
+                    cost += _wall_missed(shaped, turn, room, edges)
+                    if cost < best[0]:
+                        best = (cost, float(pitch), float(roll), float(tried))
+        focals = best[3] * np.array([0.94, 1.0, 1.06, 0.97, 1.03]) if focal is None else focals
+    turn = _turn(yaw, mirrored, up_at(best[1], best[2]))
+    if not math.isfinite(best[0]) or turn is None:
+        return None
+    missed = _edge_missed(_edge_normals(replace(shape, focal=best[3]), edges), turn, room.world)
+    agreed = missed <= EDGE_TOL
+    middles = np.column_stack([(edges[:, 0] + edges[:, 2]) / 2.0, (edges[:, 1] + edges[:, 3]) / 2.0])[agreed]
+    spread = float(np.ptp(np.percentile(middles[:, 0], [5, 95]))) if len(middles) else 0.0
+    return Edges(
+        best[1],
+        best[2],
+        best[3],
+        int(agreed.sum()),
+        spread,
+        round(float(np.median(missed[agreed])), 3) if agreed.any() else float(EDGE_TOL),
+    )
+
+
+def _focals(held: float, edges: float) -> tuple[float, ...]:
+    """The focals to fit a tilt with from a picture's edges and from its walkers: the edges' own, and four between it
+    and the lens's, so the two cues can meet somewhere other than at either one's own."""
+    if abs(edges - held) < 0.02 * held:
+        return (float(edges),)
+    return tuple(float(f) for f in np.linspace(held, edges, 5))
+
+
+def edge_note(aim: Aim) -> str:
+    """What a camera's picture's straight edges said about its tilt, after the aim a run fitted (`Aim`), for a reader
+    to print: that they confirmed it, that they say another tilt (so the walkers' stands), or that there were too few
+    of them to check it."""
+    if aim.confirmed:
+        return f"; its picture's {aim.edges} straight edges confirmed that tilt"
+    if aim.edge_pitch is None or not aim.edges:
+        return "; no straight edges in its picture to check its tilt against the plan's walls"
+    said = f"its picture's {aim.edges} straight edges say {aim.edge_pitch:.1f} deg down and {aim.edge_roll:.1f} rolled"
+    if aim.edges < EDGE_MIN:
+        return f"; {said}, too few of them to fit its tilt with"
+    return f"; {said}, which its walkers never matched, so their tilt stands"
 
 
 def walking(rows: Mapping[str, Any]) -> tuple[np.ndarray, np.ndarray]:
@@ -369,20 +746,92 @@ def aim(
     feet: np.ndarray,
     heads: np.ndarray,
     now: float,
+    edges: np.ndarray | None = None,
+    room: Room | None = None,
+    mirrored: bool = False,
 ) -> Aim | None:
-    """`camera`'s aim from its walking people's foot and head pixels (`walking`) in frames of `size` (width,
-    height); None with too few of them to fit."""
-    cam = _intrinsics(camera, spot.fov, held, *size)
-    foot_rays, head_rays = rays(cam, feet), rays(cam, heads)
+    """`camera`'s aim from its walking people's foot and head pixels (`walking`) in frames of `size` (width, height),
+    and, when a picture of it gave them, its straight `edges` (`edges_in`) scored against `room` (the plan's wall
+    headings, the vertical, and the wall-floor lines the spot should see; see the module docstring): the edges' tilt
+    and focal hold when the walkers at that focal agree with it, else the walkers' tilt stands. None with too few
+    people to fit."""
+    shape = _intrinsics(camera, spot.fov, held, *size)
+    foot_rays, head_rays = rays(shape, feet), rays(shape, heads)
     across = np.percentile(feet[:, 0], [5, 95]) if len(feet) else np.zeros(2)
-    up = up_from_people(foot_rays, head_rays, roll=float(across[1] - across[0]) >= ROLL_SPAN)
+    span = float(across[1] - across[0]) if len(feet) else 0.0
+    roll_said = span >= ROLL_SPAN  # walkers in one strip of the view can't tell a roll
+    up = up_from_people(foot_rays, head_rays, roll=roll_said)
     if up is None:
         return None
+    focal, confirmed = float(shape.focal), False
+    said = None
+    if room is not None and spot.yaw is not None and edges is not None and len(edges):
+        said = up_from_edges(shape, edges, spot.yaw, mirrored, room)
+        agreed: tuple[float, float, Edges] | None = None  # (how far the two cues are apart, focal, the edges' fit)
+        if said is not None and said.usable:
+            start = (said.pitch, said.roll)
+            for tried in _focals(shape.focal, said.focal):
+                shaped = replace(shape, focal=tried)
+                seen = up_from_edges(shape, edges, spot.yaw, mirrored, room, focal=tried, start=start)
+                walked = up_from_people(rays(shaped, feet), rays(shaped, heads), roll=roll_said)
+                if seen is None or walked is None:
+                    continue
+                if spot.height is not None:  # the edges' tilt there must leave the people a person's height
+                    came = heights(up_at(seen.pitch, seen.roll), spot.height, rays(shaped, feet), rays(shaped, heads))
+                    if not len(came) or not TALL[0] <= float(np.median(came)) <= TALL[1]:
+                        continue
+                pitched, rolled = _pitch_roll(walked)
+                apart = abs(pitched - seen.pitch) + (abs(rolled - seen.roll) if roll_said else 0.0)
+                if apart <= AGREE_DEG * (2.0 if roll_said else 1.0) and (
+                    agreed is None or abs(tried - said.focal) < abs(agreed[1] - said.focal)
+                ):
+                    agreed = (apart, tried, seen)  # the focal nearest the edges' own that the walkers agree with
+        if agreed is not None:
+            _, focal, said = agreed
+            tilted = up_at(said.pitch, said.roll)
+            up = (float(tilted[0]), float(tilted[1]), float(tilted[2]))
+            confirmed = True
     tall: float | None = None
     if spot.height is not None:
-        found = heights(up, spot.height, foot_rays, head_rays)
+        cast = rays(replace(shape, focal=focal), feet), rays(replace(shape, focal=focal), heads)
+        found = heights(up, spot.height, *cast)
         tall = round(float(np.median(found)), 3) if len(found) else None
-    return Aim(up, size[0], size[1], len(feet), tall, now, _basis(spot, held))
+    return Aim(
+        up,
+        size[0],
+        size[1],
+        len(feet),
+        tall,
+        now,
+        _basis(spot, held),
+        said.agreed if said is not None else 0,
+        None if said is None else said.pitch,
+        None if said is None else said.roll,
+        focal if confirmed else None,
+        confirmed,
+    )
+
+
+def _turn(yaw: float, mirrored: bool, up: np.ndarray) -> np.ndarray | None:
+    """The rotation (3, 3) from the camera's axes (x right, y down, z forward) into the plan's (x and y the plan's
+    metres, the third the height above the floor) of a spot facing `yaw` with `up` in its axes; None for a camera
+    looking straight up or down, whose facing no yaw says. The plan's frame is `mirrored`'s mirror image of the
+    camera's handedness (see the module docstring)."""
+    g = np.asarray(up, dtype=np.float64)
+    ahead = np.array([0.0, 0.0, 1.0]) - g[2] * g  # the camera's forward, laid level
+    size = float(np.linalg.norm(ahead))
+    if size < 1e-3:
+        return None
+    ahead = ahead / size
+    right = np.cross(ahead, g)  # the camera's axes are right-handed: right is forward cross up
+    r = math.radians(yaw)
+    d = (math.sin(r), -math.cos(r))
+    side = (d[1], -d[0]) if mirrored else (-d[1], d[0])  # the facing's right hand on the plan
+    out = np.empty((3, 3))
+    out[0] = d[0] * ahead + side[0] * right
+    out[1] = d[1] * ahead + side[1] * right
+    out[2] = g
+    return out
 
 
 def pose(spot: plan_import.Camera, found: Aim, mirrored: bool) -> tuple[float, ...] | None:
@@ -391,19 +840,11 @@ def pose(spot: plan_import.Camera, found: Aim, mirrored: bool) -> tuple[float, .
     down, whose facing no yaw says."""
     if spot.height is None or spot.yaw is None:
         return None
-    g = np.asarray(found.up, dtype=np.float64)
-    ahead = np.array([0.0, 0.0, 1.0]) - g[2] * g  # the camera's forward, laid level
-    if float(np.linalg.norm(ahead)) < 1e-3:
+    turn = _turn(spot.yaw, mirrored, np.asarray(found.up, dtype=np.float64))
+    if turn is None:
         return None
-    ahead /= np.linalg.norm(ahead)
-    right = np.cross(ahead, g)  # the camera's axes are right-handed: right is forward cross up
-    r = math.radians(spot.yaw)
-    d = (math.sin(r), -math.cos(r))
-    side = (d[1], -d[0]) if mirrored else (-d[1], d[0])  # the facing's right hand on the plan
     out = np.eye(4)
-    out[0, :3] = d[0] * ahead + side[0] * right
-    out[1, :3] = d[1] * ahead + side[1] * right
-    out[2, :3] = g
+    out[:3, :3] = turn
     out[:3, 3] = (spot.at[0], spot.at[1], spot.height)
     return tuple(float(x) for x in out.ravel())
 
@@ -452,6 +893,8 @@ def read(state: Path, found: Mapping[str, Aim] | None = None) -> dict[str, Spot]
             refined = None
             if matrix is not None and aimed is not None:
                 shape = _intrinsics(spot.id, spot.fov, own, aimed.width, aimed.height)
+                if aimed.focal is not None:  # the focal its picture's edges fitted: the rays are cast at that one
+                    shape = replace(shape, focal=aimed.focal)
                 posed = replace(shape, pose=matrix, at=aimed.at)
                 row = stored_refined.get(spot.id)
                 if (
@@ -493,17 +936,19 @@ def frame_size(camera: str, t: float) -> tuple[int, int] | None:
 
 
 def fit(state: Path, now: float, sizes: Sizes | None = None, save: bool = True) -> dict[str, Aim]:
-    """Fit an aim for each camera with an owner spot that lacks only its tilt (`read`), from its walking people up
-    to `now`, and keep it (unless `save` is False: a dry run). Returns every aim that holds afterwards. A camera with
-    too few people walking in view is left for a later run, and said so."""
+    """Fit an aim for each camera with an owner spot that lacks only its tilt (`read`), from its walking people and
+    its recorded picture's straight edges up to `now`, and keep it (unless `save` is False: a dry run). Returns every
+    aim that holds afterwards. A camera with too few people walking in view is left for a later run, and said so."""
     stored = aims(state)
     intrinsics = lens.held(state)
-    plans = {
-        c.id: c
-        for held in places.places(state)
-        if held.plan_source == "owner" and held.plan
-        for c in plan_import.spots(held.plan)
-    }
+    plans: dict[str, plan_import.Camera] = {}
+    texts: dict[str, str] = {}  # each camera's plan, which its picture's edges are scored against
+    for held in places.places(state):
+        if held.plan_source != "owner" or not held.plan:
+            continue
+        for c in plan_import.spots(held.plan):
+            plans[c.id] = c
+            texts[c.id] = held.plan
     for camera, spot in read(state, stored).items():
         if "tilt" not in spot.missing:
             continue
@@ -512,17 +957,29 @@ def fit(state: Path, now: float, sizes: Sizes | None = None, save: bool = True) 
             LOG.info("%s: no recorded picture to size its frames by, so its tilt isn't fitted yet", camera)
             continue
         feet, heads = people(state, camera, now)
-        found = aim(camera, plans[camera], intrinsics.get(camera), size, feet, heads, now)
+        found = aim(
+            camera,
+            plans[camera],
+            intrinsics.get(camera),
+            size,
+            feet,
+            heads,
+            now,
+            edges=edges_in(cameras.recorded(camera, now)),
+            room=room(texts[camera], plans[camera]),
+            mirrored=spot.mirrored,
+        )
         if found is None:
             LOG.info("%s: %d people seen walking, too few to work out its tilt (%d needed)", camera, len(feet), AIM_MIN)
             continue
         LOG.info(
-            "%s: tilted %.1f degrees down, rolled %.1f, from %d people walking; they come out %s m tall",
+            "%s: tilted %.1f degrees down, rolled %.1f, from %d people walking; they come out %s m tall%s",
             camera,
             found.pitch,
             found.roll,
             found.people,
             "?" if found.tall is None else f"{found.tall:.2f}",
+            edge_note(found),
         )
         stored[camera] = found
     if save:
