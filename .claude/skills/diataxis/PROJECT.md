@@ -13,8 +13,8 @@ documentation maintainer, stop here and write that section instead.
 
 | Kind | Where | Documents today |
 |---|---|---|
-| Tutorial | `docs/TUTORIAL.md`, and `README.md` from "Install" to "Name people" | `docs/TUTORIAL.md` (the demo household, safe to repeat), then the README's path for a real install |
-| How-to guide | `MIGRATING.md`, `CONTRIBUTING.md`, and task documents in `docs/` | `MIGRATING.md`, `CONTRIBUTING.md`, `docs/RELEASES.md` (install and make a release), `docs/RUNNING.md`, `docs/CAMERAS.md`, `docs/ZONES.md`, `docs/ACTIVITIES.md`, `docs/OBJECTS.md`, `docs/REMOTE.md`, `docs/TAUGHT-STATE.md`, `docs/NAMING.md`, `docs/PLAN-EDITOR.md`, `docs/PLACES.md`, `docs/INGEST.md`, `docs/BLUETOOTH.md`, `docs/NETWORK.md`, `docs/PROFILING.md`, `docs/WORKERS.md`, `docs/MEASUREMENT.md` |
+| Tutorial | `docs/TUTORIAL.md`, and `docs/INSTALL.md` from "Install" to "Name people" | `docs/TUTORIAL.md` (the demo household, safe to repeat), then the install guide's path for a real install |
+| How-to guide | `MIGRATING.md`, `CONTRIBUTING.md`, and task documents in `docs/` | `MIGRATING.md`, `CONTRIBUTING.md`, `docs/INSTALL.md` (from a clone), `docs/RELEASES.md` (install and make a release), `docs/RUNNING.md`, `docs/CAMERAS.md`, `docs/ZONES.md`, `docs/ACTIVITIES.md`, `docs/OBJECTS.md`, `docs/REMOTE.md`, `docs/TAUGHT-STATE.md`, `docs/NAMING.md`, `docs/PLAN-EDITOR.md`, `docs/PLACES.md`, `docs/INGEST.md`, `docs/BLUETOOTH.md`, `docs/NETWORK.md`, `docs/PROFILING.md`, `docs/WORKERS.md`, `docs/MEASUREMENT.md` |
 | Reference | The declaring file first, then `docs/` | `config/defaults.toml` (settings), `services/services.toml` (services), `mise.toml` (tasks), tool docstrings, `docs/COMPONENTS.md` (every service and state file), `docs/VISION-STREAMS.md`, `docs/STREAMS.md`, `docs/CONTINUUM-GATEWAY.md`, `docs/CONTINUUM-BROKER.md`, `docs/CONTINUUM-STORAGE.md`, `docs/STORAGE.md`, `docs/CONVENTIONS.md` |
 | Explanation | `docs/`, one document per area | `MANIFESTO.md`, `docs/ARCHITECTURE.md`, `docs/CONTINUUM.md`, `docs/CONTINUUM-CAPTURE.md`, `docs/CONTINUUM-SDK.md`, `docs/SERVICES.md`, `docs/VISION.md`, `docs/PEOPLE.md`, `docs/DOMAIN-MODEL.md`, `docs/ANSWERS.md`, `docs/DASHBOARD.md`, `docs/SPATIAL.md`, `docs/ROADMAP.md`, `docs/history/` |
 
@@ -41,6 +41,21 @@ never add an empty folder or a placeholder page.
   heading. If you cannot confirm something, leave it out.
 - **A moved or renamed section takes its links with it.** Search the whole repository (`docs/`, the root documents,
   `src/`, `tools/`, `tests/`, `frontend/`, `continuum/`, `config/`, and `services/`) for the old path and anchor.
+
+## Screenshots
+
+- **Demo household only.** Every picture comes from `pack-demo`, in headless Chromium on the machine itself. Never
+  from a real install, and never a page that shows anything of the machine's own (a real camera's name counts).
+  Look at each picture before committing it.
+- **One command takes them again:** `.venv/bin/python tools/doc_screenshots.py` (its docstring has the options). The
+  pictures are the `SHOTS` table in `tools/doc_screenshots.mjs`: add or change one there, never by hand.
+- **One look.** 1440 by 900, the light scheme, and a dark twin only where a page shows well in it (use `<picture>`
+  with `prefers-color-scheme`). Files live in `docs/images/` as `demo-<what it shows>.png`, each under a few hundred
+  kB. The privacy check allows media only under that name, so a picture that isn't the demo household's has nowhere to
+  go.
+- **Alt text says what the picture shows**, in a sentence. A caption only where it adds something.
+- **A picture where words leave the reader guessing**, not on every page. The README is the tour; a how-to guide
+  gets one where the screen is the point.
 
 ## House style
 

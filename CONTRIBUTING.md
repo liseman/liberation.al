@@ -6,7 +6,7 @@ for where it is going.
 
 ## Setup
 
-Follow [Install](README.md#install) and [Configure](README.md#configure) in the README. The pack runs on Linux with
+Follow [Install](docs/INSTALL.md#install) and [Configure](docs/INSTALL.md#configure) in the install guide. The pack runs on Linux with
 an NVIDIA GPU and on macOS with Apple Silicon.
 
 | Declared in | What |

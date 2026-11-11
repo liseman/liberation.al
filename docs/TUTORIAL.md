@@ -10,7 +10,7 @@ Everyone here is invented. The demo keeps its data in a temporary directory of i
 
 ## Before we start
 
-- Finish "Install" in the [README](../README.md#install), down to `mise run continuum-release`. The demo needs no
+- Finish "Install" in the [install guide](INSTALL.md#install), down to `mise run continuum-release`. The demo needs no
   camera, no microphone, no `pack.toml`, and no running Ollama.
 - Open a terminal in the clone.
 
@@ -154,7 +154,7 @@ has the same pages, filled from its cameras and microphones.
 
 ## Next steps
 
-- Make it yours: [Configure](../README.md#configure) and [First run](../README.md#first-run) in the README.
+- Make it yours: [Configure](INSTALL.md#configure) and [First run](INSTALL.md#first-run) in the install guide.
 - Why the Journal reads as it does: [Answers](ANSWERS.md).
 - How people, voices, faces, and pets are named and corrected: [People](PEOPLE.md).
 - How a place gets its plan, and how people are placed on it: [Spatial memory](SPATIAL.md).
