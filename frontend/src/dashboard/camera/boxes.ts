@@ -1,5 +1,6 @@
 // Boxes drawn by the page over a camera picture: faces with names, pets, and notable objects. The picture itself is plain
-// (vision/live.py sends the boxes as data), so they can be smoothed, faded, and mirrored with readable labels.
+// (the gateway sends them as data in its overlay frames, decoded by player/overlays.ts; Review reads the same
+// detections back from the records see/ writes), so they can be smoothed, faded, and mirrored with readable labels.
 //
 // Each update can carry the wall time its frame was captured; boxes are drawn on every animation frame a little
 // behind the newest update, interpolated between the updates on either side by capture time (not arrival time, which

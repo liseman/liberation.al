@@ -19,6 +19,10 @@
 // camera sees, with depth. A picker over the view chooses the camera, the view opens from where that camera stands,
 // and a line says how the cloud was sized and when it was made, or why a camera has none yet (status.ts). One camera
 // at a time: clouds of different cameras are never drawn together, since nothing relates them.
+//
+// No producer writes a map or a splat at present (`memory/places.SHOWN_PRODUCERS` is empty), so what the server sends
+// is a camera's own cloud and the view draws it as points: the splat states said below are reached once a producer
+// writes one, and the code for them is kept for it.
 import { Anchor, Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import {

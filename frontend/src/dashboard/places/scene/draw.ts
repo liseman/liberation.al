@@ -1,7 +1,8 @@
 // A place's plan drawn from its Pascal scene, as a small SVG: rooms with their names, walls at their thickness
 // with doors and windows in them, the camera spots, and our objects and unexplored areas. This is the everyday
 // Places view, so it is a few kilobytes of our own code and loads nothing of the editor. Paths are drawn over it
-// through `surface` (paths/PlacePaths.tsx).
+// through `surface` (paths/PlacePaths.tsx). A place's row in the list needs only how many rooms its plan has and
+// their area, so `summarise` reads that without building the SVG: one plan is drawn, the one being shown.
 //
 // The plan frame is the scene's x and z: metres, x east, y south on the page.
 import type { Scene, SceneNode } from '../../../plan-editor/protocol';
@@ -133,8 +134,15 @@ function outline(value: Record<string, unknown>): Pt[] {
   ];
 }
 
-/** The plan of `scene` as an SVG titled `name`, or null for a scene with nothing to draw. */
-export function drawScene(scene: Scene, name: string): SceneDrawing | null {
+/** A plan's rooms as polygons, its walls, its camera spots, and its unexplored areas, with every point they hold:
+ *  what a drawing starts from, and all a summary needs. Null for a scene with nothing to draw. */
+function laidOut(scene: Scene): {
+  zones: { id: string; name: string; poly: Pt[] }[];
+  walls: { node: SceneNode; a: Pt; b: Pt; thickness: number }[];
+  cameras: Record<string, Spot>;
+  areas: Pt[][];
+  all: Pt[];
+} | null {
   const storey = level(scene);
   if (!storey) return null;
   const zones = under(scene, storey, 'zone')
@@ -147,17 +155,10 @@ export function drawScene(scene: Scene, name: string): SceneDrawing | null {
   const walls = under(scene, storey, 'wall')
     .map(w => ({ node: w, a: point(w.start), b: point(w.end), thickness: num(w.thickness) ?? 0.1 }))
     .filter((w): w is { node: SceneNode; a: Pt; b: Pt; thickness: number } => w.a !== null && w.b !== null);
-  const ours = records(scene);
   const cameras = spots(scene);
-  const areas = Object.values(record(ours.unexplored))
+  const areas = Object.values(record(records(scene).unexplored))
     .map(v => outline(record(v)))
     .filter(p => p.length >= 3);
-  const objects = Object.values(record(ours.objects))
-    .map(v => ({
-      label: typeof record(v).label === 'string' ? (record(v).label as string) : '',
-      poly: outline(record(v)),
-    }))
-    .filter(o => o.poly.length >= 3);
   const all: Pt[] = [
     ...zones.flatMap(z => z.poly),
     ...walls.flatMap(w => [w.a, w.b]),
@@ -165,6 +166,33 @@ export function drawScene(scene: Scene, name: string): SceneDrawing | null {
     ...areas.flat(),
   ];
   if (all.length === 0) return null;
+  return { zones, walls, cameras, areas, all };
+}
+
+/** What a plan holds: how many rooms, and their floor area on wall centrelines (m²). */
+const summaryOf = (zones: readonly { poly: Pt[] }[]): { rooms: number; area: number } => ({
+  rooms: zones.length,
+  area: zones.reduce((sum, zone) => sum + centre(zone.poly).area, 0),
+});
+
+/** What a place's list row says of its plan: how many rooms it has, and their floor area (m²). All it needs, and
+ *  cheap: no SVG is built. Null for a scene with nothing to draw, as `drawScene` is. */
+export function summarise(scene: Scene): { rooms: number; area: number } | null {
+  const laid = laidOut(scene);
+  return laid && summaryOf(laid.zones);
+}
+
+/** The plan of `scene` as an SVG titled `name`, or null for a scene with nothing to draw. */
+export function drawScene(scene: Scene, name: string): SceneDrawing | null {
+  const laid = laidOut(scene);
+  if (!laid) return null;
+  const { zones, walls, cameras, areas, all } = laid;
+  const objects = Object.values(record(records(scene).objects))
+    .map(v => ({
+      label: typeof record(v).label === 'string' ? (record(v).label as string) : '',
+      poly: outline(record(v)),
+    }))
+    .filter(o => o.poly.length >= 3);
   const minX = Math.min(...all.map(p => p[0])) - MARGIN;
   const minY = Math.min(...all.map(p => p[1])) - MARGIN;
   const width = (Math.max(...all.map(p => p[0])) + MARGIN - minX) * PX_PER_M;
@@ -240,8 +268,7 @@ export function drawScene(scene: Scene, name: string): SceneDrawing | null {
   return {
     svg,
     surface: { toScreen, rooms: zones },
-    rooms: zones.length,
-    area: zones.reduce((sum, zone) => sum + centre(zone.poly).area, 0),
+    ...summaryOf(zones),
     cameras,
     unexplored: areas.length > 0,
   };

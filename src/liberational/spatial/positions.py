@@ -1540,12 +1540,12 @@ def behind_walls(counts: Mapping[tuple[str, str], int]) -> str:
 Basis = dict[str, list[list[float] | None]]  # each camera's REFERENCE pixels' plan points; None for no floor point
 
 
-def _basis(state: Path, held: places.Place, at: float) -> Basis:
+def _basis(where: _Places, held: places.Place, at: float) -> Basis:
     """Where `held`'s cameras put people at time `at`: the plan point each REFERENCE pixel of each camera lands on,
     placed exactly as the placer places a person's footprint (`_Places.place`, in the frame the place's plan is drawn
     in). It moves when a registration changes a camera's pose, its lens, the floor, or the plan's frame, and not when
-    a new revision only carries the same registration over."""
-    where = _Places(state)
+    a new revision only carries the same registration over. `where` is one read of the places, shared by every place
+    the caller asks about: the spots and the owner plans are the same read for each of them."""
     frame = where.revision(held.id, held.plan_revision) if held.plan_revision is not None else None
     out: Basis = {}
     for camera in sorted(c for c, p in where.cams.items() if p == held.id):
@@ -1610,7 +1610,8 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
     counts = {"records": 0, "pieces": 0, "replaced": 0, "behind_walls": 0}
     behind_wall: collections.Counter[tuple[str, str]] = collections.Counter()
     held = {p.id: p for p in places.places(state)}
-    lacking = {c: s.missing for c, s in spots.read(state).items() if s.missing}
+    where = _Places(state)  # one read of the places, for the spots and every place's basis
+    lacking = {c: s.missing for c, s in where.spots.items() if s.missing}
     if lacking:
         LOG.info(
             "cameras with a spot on a plan that can't place anyone yet: %s",
@@ -1618,9 +1619,10 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
         )
     if not places.camera_places(state):
         LOG.info("no camera has a spot on a plan or a pose in a map: no footprint is placed until one does")
-    first = _marks(state).get("placed_to") is None
-    was: dict[str, Basis] = _marks(state).get("basis") or {}
-    now = {place: _basis(state, p, upto) for place, p in held.items()}
+    marks = _marks(state)
+    first = marks.get("placed_to") is None
+    was: dict[str, Basis] = marks.get("basis") or {}
+    now = {place: _basis(where, p, upto) for place, p in held.items()}
     basis: dict[str, Basis] = {}
     for place in sorted(now):
         if not first and place in was and _moved(was[place], now[place]):
@@ -1632,7 +1634,7 @@ def advance(state: Path, upto: float, chunk_s: float = CHUNK_S) -> dict[str, int
             # What its records were placed through stays the measure (with any camera new since), so refits of a few
             # centimetres a night add up to a move, where a basis renewed each night would never see one.
             basis[place] = {**now[place], **was.get(place, {})} if not first else now[place]
-    marks = _marks(state)
+    marks = _marks(state)  # read again: `place_again` above writes the marks it leaves a place's redo at
     # Once a place is marked behind (or there is nothing to redo), its records and its basis agree: a run that stops
     # part way goes on from the mark, without finding the place moved again.
     marks["basis"] = basis
