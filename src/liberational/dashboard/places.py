@@ -49,6 +49,8 @@
     POST /places/scene/spot/undo {place, camera, record}
                                        take that back: the plan version it replaced holds again, and the camera
                                        is a moved camera once more (`undo_spot`)
+    GET /places/scene?...&flat=0       either of those with every point where its cloud has it: by default the floor
+                                       and matched walls of a cloud fitted to its room are drawn flat on the plan's
     GET /places/map?place=&revision=[&camera=]
                                        that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written. With
@@ -184,10 +186,15 @@ def map_file(state: Path, place: str, revision: str, camera: str | None = None) 
     if places.get(state, place) is None:
         return None
     if camera is not None:
-        from liberational.spatial import camera_clouds  # numpy: only the 3D view needs it
+        from liberational.spatial import camera_clouds, cloud_scene  # numpy: only the 3D view needs it
 
         store = camera_clouds.Store(camera_clouds.root(state))
         cloud = store.current(camera)
+        if cloud is not None and revision.startswith(FLAT):  # its cloud fitted to the room, drawn flat
+            placed = _fitted(state, place, camera)
+            if placed is None or FLAT + cloud_scene.own_key(placed) != revision:
+                return None
+            return cloud_scene.drawn_own(store, placed, cloud)
         return store.file(cloud) if cloud is not None and cloud.id == revision else None
     rev = _map_revision(state, place, revision)
     return places.root(state) / place / rev.map if rev and rev.map else None
@@ -260,14 +267,28 @@ def camera_views(state: Path, place: str) -> list[dict[str, Any]]:
     return out
 
 
-def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any], views: list[dict[str, Any]]) -> Reply:
+FLAT, RAW = "flat-", "r"  # what marks the revision of a camera's own flat drawing, and of a scene's raw one
+
+
+def _fitted(state: Path, place: str, camera: str) -> Any:
+    """`camera` as it is placed in `place`'s scene, when its cloud is fitted to the room there; else None."""
+    held = places.get(state, place)
+    if held is None:
+        return None
+    return next((p for p in _scene_of(state, held).cameras if p.camera == camera and p.fitted and p.placed), None)
+
+
+def _camera_scene(
+    state: Path, place: str, camera: str, learning: dict[str, Any], views: list[dict[str, Any]], flat: bool = True
+) -> Reply:
     """The scene of one camera's own cloud, in the cloud's level frame (spatial/camera_clouds.py): its points, the
     floor at z = 0, and the camera where it stands in it. No plan is laid on it and no splat goes with it: the cloud
     is that camera's view alone, not the place's map. `view` says what the cloud was levelled by, and the camera's
-    tilt and roll by that."""
+    tilt and roll by that. A cloud fitted to its room (spatial/cloud_align.py) is given at the room's size, and with
+    `flat` its floor and matched walls drawn flat (`view.fit` and `view.flat` say so)."""
     import numpy as np
 
-    from liberational.spatial import camera_clouds, cloud_align
+    from liberational.spatial import camera_clouds, cloud_align, cloud_scene
 
     store = camera_clouds.Store(camera_clouds.root(state))
     cloud = store.current(camera)
@@ -279,8 +300,15 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
     except FileNotFoundError:  # replaced since it was read
         return 200, {**base, "revision": None, "view": {"camera": camera}}
     tilt, roll = cloud_align.tilt_roll(np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4))
+    placed = _fitted(state, place, camera)
+    drawn_flat = flat and placed is not None
+    revision, stood = cloud.id, list(cloud.pose)
+    if drawn_flat:
+        revision = FLAT + cloud_scene.own_key(placed)
+        size = cloud_scene.drawn_own(store, placed, cloud).stat().st_size
+        stood = [float(v) for v in cloud_scene.own_pose(placed, cloud).ravel()]
     pose = {
-        "pose": list(cloud.pose),
+        "pose": stood,
         "focal": cloud.focal,
         "width": cloud.width,
         "height": cloud.height,
@@ -288,9 +316,9 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
     }
     return 200, {
         **base,
-        "revision": cloud.id,
+        "revision": revision,
         "at": cloud.at,
-        "map": "/places/map?" + urlencode({"place": place, "revision": cloud.id, "camera": camera}),
+        "map": "/places/map?" + urlencode({"place": place, "revision": revision, "camera": camera}),
         "map_format": "ply",
         "map_bytes": size,
         "splat": None,
@@ -307,6 +335,8 @@ def _camera_scene(state: Path, place: str, camera: str, learning: dict[str, Any]
             "level": cloud.levelled,
             "tilt_deg": round(tilt, 1),
             "roll_deg": round(roll, 1),
+            "fit": None if placed is None else placed.fit,
+            "flat": drawn_flat,
         },
     }
 
@@ -322,11 +352,14 @@ def _scene_of(state: Path, held: places.Place) -> Any:
     return cloud_scene.scene(camera_clouds.Store(camera_clouds.root(state)), held.id, spots, rooms)
 
 
-def _all_cameras_scene(state: Path, held: places.Place, learning: dict[str, Any], views: list[dict[str, Any]]) -> Reply:
+def _all_cameras_scene(
+    state: Path, held: places.Place, learning: dict[str, Any], views: list[dict[str, Any]], flat: bool = True
+) -> Reply:
     """The scene of every camera's cloud placed in the place (spatial/cloud_scene.py), in the plan's metres: the
     clouds' points as one file, each point saying whose it is, the plan under them, each placed camera where it
     stands, and `combined`: how every camera is placed, or why it isn't, and what each pair of cameras' pictures said
-    of each other. `revision` is None while no camera is placed."""
+    of each other. `revision` is None while no camera is placed. With `flat`, the floor and matched walls of each
+    cloud fitted to its room are drawn flat on the plan's; without, every point is where its cloud has it."""
     from liberational.spatial import camera_clouds, cloud_scene
 
     store = camera_clouds.Store(camera_clouds.root(state))
@@ -344,11 +377,12 @@ def _all_cameras_scene(state: Path, held: places.Place, learning: dict[str, Any]
     turned = -1.0 if not found.mirrored else 1.0  # the scene is right-handed; a page's y runs the other way
     return 200, {
         **base,
-        "revision": found.id,
+        "revision": found.id + ("" if flat else RAW),
         "at": max(c.at for c in clouds.values() if c is not None),
-        "map": "/places/map?" + urlencode({"place": held.id, "revision": found.id, "scene": "1"}),
+        "map": "/places/map?"
+        + urlencode({"place": held.id, "revision": found.id + ("" if flat else RAW), "scene": "1"}),
         "map_format": "ply",
-        "map_bytes": cloud_scene.drawn(store, found).stat().st_size,
+        "map_bytes": cloud_scene.drawn(store, found, flat).stat().st_size,
         "splat": None,
         "floor": [0.0, 0.0, 1.0, 0.0],
         "plan_transform": [1.0, 0.0, 0.0, 0.0, 0.0, turned, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
@@ -369,7 +403,10 @@ def scene_file(state: Path, place: str, revision: str) -> Path | None:
         return None
     store = camera_clouds.Store(camera_clouds.root(state))
     found = _scene_of(state, held)
-    return cloud_scene.drawn(store, found) if found.id == revision and any(p.placed for p in found.cameras) else None
+    flat = not revision.endswith(RAW)
+    if found.id != revision.removesuffix(RAW) or not any(p.placed for p in found.cameras):
+        return None
+    return cloud_scene.drawn(store, found, flat)
 
 
 def accept_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
@@ -433,7 +470,20 @@ def undo_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | 
     return 200, {"ok": True}
 
 
-def scene(state: Path, place: str, camera: str | None = None, combined: bool = False) -> Reply:
+def _update_clouds(state: Path, place: str) -> None:
+    """Stand up, square, and fit the stored clouds of `place`'s cameras where that is due (and of cameras with no
+    spot, which only stand up). A failure is logged and the scene is shown as it is."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    store = camera_clouds.Store(camera_clouds.root(state))
+    try:
+        if store.folder.is_dir():
+            cloud_scene.update(state, store, place)
+    except Exception:  # the view must open on what there is
+        logs.get("dashboard").exception("the cameras' clouds weren't brought up to date")
+
+
+def scene(state: Path, place: str, camera: str | None = None, combined: bool = False, flat: bool = True) -> Reply:
     """GET /places/scene: what the 3D view draws for a place, all in its map's frame (metres). While the place has an
     owner's plan, that is the plan, whatever the map: `plan_source` is "owner", and no machine plan is given in its
     place. It's laid on the map only when it's drawn in this revision's frame (`plan_transform`, with `plan_aligned`
@@ -445,21 +495,26 @@ def scene(state: Path, place: str, camera: str | None = None, combined: bool = F
 
     What there is meanwhile is each camera's own cloud (`camera_views`, always given as `views`). With `camera`, the
     scene is that camera's cloud (`_camera_scene`); with none, and no map of the place, it's the first camera's that
-    has one, so the view opens on something. `view` names the camera whose cloud the scene is."""
+    has one, so the view opens on something. `view` names the camera whose cloud the scene is.
+
+    Before a cloud is shown, the stored clouds of the place's cameras are brought up to date (spatial/cloud_scene.py
+    `update`: stood up, squared, and fitted to the plan), which needs no picture and no model, so it doesn't wait
+    for Learn surroundings to be on. `flat` draws the floor and matched walls of fitted clouds flat."""
     held = places.get(state, place)
     if held is None:
         return 404, {"error": "no such place"}
     learning = _learning()
+    _update_clouds(state, place)
     views = camera_views(state, place)
     if combined:
-        return _all_cameras_scene(state, held, learning, views)
+        return _all_cameras_scene(state, held, learning, views, flat)
     if camera is not None:
-        return _camera_scene(state, place, camera, learning, views)
+        return _camera_scene(state, place, camera, learning, views, flat)
     rev = _map_revision(state, place)
     if rev is None or rev.map is None:
         first = next((v["camera"] for v in views if v["cloud"]), None)
         if first is not None:
-            return _camera_scene(state, place, first, learning, views)
+            return _camera_scene(state, place, first, learning, views, flat)
         return 200, {"place": place, "revision": None, "learning": learning, "views": views}
     by_id = {r.id: r for r in places.revisions(state, place)}
     drawn = by_id.get(held.plan_revision or "")
@@ -887,7 +942,9 @@ def _get_places(h: H) -> None:
 @routes.get("/places/scene")
 def _get_places_scene(h: H) -> None:
     q = h._query()
-    code, reply = scene(h.state, q.get("place", ""), q.get("camera") or None, combined=q.get("all") == "1")
+    code, reply = scene(
+        h.state, q.get("place", ""), q.get("camera") or None, combined=q.get("all") == "1", flat=q.get("flat") != "0"
+    )
     return h._json(reply, code)
 
 

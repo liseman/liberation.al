@@ -237,6 +237,12 @@ changed). A cloud made earlier that found no floor is stood up by its walls once
 service starting, with no new picture. A camera that has not moved keeps its cloud when a later one, from a dark
 picture for instance, would be worse. It needs no setting.
 
+A cloud whose walls can be matched to walls of your plan is fitted to the room: resized and slid so its walls land
+on the plan's, the plan's dimensions being the measurement. The 3D view then draws its floor and those walls flat
+("Flat walls and floor", on by default; clear it to see every point where the cloud has it). Stored clouds are stood
+up, squared, and fitted when the 3D view is opened, so Learn surroundings does not have to be on to see them. Your
+spots and plan are not changed. It needs no setting.
+
 `pack-reset-places` deletes the clouds with the rest of what the machine made; they are made again.
 
 ### One application instead of a service per daemon

@@ -19,8 +19,8 @@ The new cloud replaces the camera's cloud, unless it is the worse of the two and
 A look that gave no better cloud is remembered with the cloud, so the same view isn't tried again.
 
 **Square to the plan.** Every `SQUARE_EVERY_S` a camera that has a cloud is checked (`square`): a cloud made before
-walls were used to level one is stood up by them, and the cloud's squaring to the owner's plan
-(spatial/cloud_scene.py `align`) is made again when the cloud, the camera's spot, or the plan is another. It needs
+walls were used to level one is stood up by them, and the cloud's squaring and fit to the owner's plan
+(spatial/cloud_scene.py `align`) are made again when the cloud, the camera's spot, or the plan is another. It needs
 no picture and no model, so it runs in the dark and with people about. Making it takes ten seconds
 or so (most of it loading the model), so it runs on a thread of its own, one cloud at a time, and the sampler's
 looks carry on meanwhile.
@@ -204,6 +204,8 @@ def for_service(
         )
 
     def square(camera: str) -> object:
+        from liberational.spatial import rig
+
         folder = Path(str(state))
         cloud_scene.relevel(store, camera)
         return cloud_scene.align(
@@ -211,6 +213,7 @@ def for_service(
             camera,
             cloud_scene.spots_of(folder),
             lambda place, mirrored: cloud_scene.plan_rooms(folder, place, mirrored),
+            rig.load().heights(),
         )
 
     return Clouds(
