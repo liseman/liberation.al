@@ -277,7 +277,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   />
                 ) : !place.example && shown === 'map' ? (
                   <Suspense fallback={<BlockSkeleton label="the 3D view" />}>
-                    <CloudView key={place.id} place={place.id} />
+                    <CloudView key={place.id} place={place.id} onEditPlan={() => setEditing(true)} />
                   </Suspense>
                 ) : (
                   <>

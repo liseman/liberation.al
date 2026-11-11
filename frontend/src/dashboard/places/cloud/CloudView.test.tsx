@@ -1,6 +1,6 @@
 // The 3D view's splat states, with the viewer itself stood in for (jsdom can't draw): what the page says and what
 // it asks the viewer to draw in each, and that none of them is left to the console (#246).
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HttpResponse, http } from 'msw';
 import { beforeEach, expect, it, vi } from 'vitest';
@@ -15,19 +15,24 @@ vi.mock('./scene', () => ({ build, ABOVE: '@above' }));
 
 /** What the stood-in viewer was asked to show, newest last, and how its splat's load ends. */
 let shown: Parameters<Built['show']>[0][] = [];
+/** The cameras the stood-in viewer was asked to look from. */
+let lookedFrom: string[] = [];
 let splatLoaded: () => Promise<void> = () => Promise.resolve();
 /** The splat's own load is only followed for a viewer built around one, as scene.ts settles it at once without. */
 type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | View | null];
 
 beforeEach(() => {
   shown = [];
+  lookedFrom = [];
   splatLoaded = () => Promise.resolve();
   build.mockReset();
   build.mockImplementation(
     async (...args: BuildArgs): Promise<Built> => ({
       view: () => LOOKING,
       home: () => {},
-      lookFrom: () => {},
+      lookFrom: name => {
+        lookedFrom.push(name);
+      },
       show: s => {
         shown.push(s);
       },
@@ -568,7 +573,8 @@ it('shows every camera placed in one scene from above, each saying how it is pla
     ],
     [{ a: 'hall', b: 'porch', state: 'tightened', off_m: 0.34, off_deg: 0.5, measured: null, latest: null }],
   );
-  renderPage(<CloudView place="p1" />);
+  const editPlan = vi.fn();
+  renderPage(<CloudView place="p1" onEditPlan={editPlan} />);
   await toAll();
   await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
   expect(asked.at(-1)?.get('all')).toBe('1');
@@ -577,10 +583,26 @@ it('shows every camera placed in one scene from above, each saying how it is pla
     await screen.findByText(/adjusted against porch by what their pictures share: 16 cm and 2° from the spot/),
   ).toBeTruthy();
   expect(screen.getByText(/Not in the scene: it has no spot on your plan/)).toBeTruthy();
-  expect(screen.getByText(/hall and porch see the same space and are adjusted/)).toBeTruthy();
-  expect(
-    screen.getByText(/a relief of what it alone sees, standing where its camera is: not a whole room/),
-  ).toBeTruthy();
+  // what the pair's pictures said is detail of its two cameras' rows
+  expect(screen.getAllByText(/hall and porch see the same space and are adjusted/)).toHaveLength(2);
+  expect(screen.getByText('Each camera shows only what it sees, so expect gaps and seams.')).toBeTruthy();
+  // each row leads with its state in a word, and the camera that needs a spot says so and opens the plan editor
+  const rows = screen.getAllByRole('listitem');
+  expect(rows.map(row => within(row).getByText(/^(Placed|Adjusted|Moved|Not placed|No spot)$/).textContent)).toEqual([
+    'Adjusted',
+    'Adjusted',
+    'No spot',
+  ]);
+  await userEvent.click(within(rows[2] as HTMLElement).getByRole('button', { name: 'Set its spot' }));
+  expect(editPlan).toHaveBeenCalledTimes(1);
+  // the sentence behind the word opens under the row
+  const more = within(rows[0] as HTMLElement).getByRole('button', { name: 'Details of hall' });
+  expect(more.getAttribute('aria-expanded')).toBe('false');
+  await userEvent.click(more);
+  expect(more.getAttribute('aria-expanded')).toBe('true');
+  // one list of cameras: looking from one is the row's own action
+  await userEvent.click(within(rows[0] as HTMLElement).getAllByRole('button', { name: 'Look from' })[0] as HTMLElement);
+  expect(lookedFrom).toEqual(['hall']);
   expect(screen.getByLabelText("Show yard's points")).toBeDisabled(); // nothing of it to show
   expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull(); // the picker is One camera's
 });
@@ -591,30 +613,49 @@ it("hides a camera's points when its box is cleared, and the points outside the 
   await toAll();
   await waitFor(() => expect(build).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(shown.at(-1)?.inside).toBe(true)); // left out by default, and the box says so
-  expect(screen.getByLabelText('Only inside the plan')).toBeChecked();
+  expect(screen.getByLabelText(/^Only inside the plan/)).toBeChecked();
   expect([...(shown.at(-1)?.hidden ?? [])]).toEqual([]);
   await userEvent.click(screen.getByLabelText("Show porch's points"));
   await waitFor(() => expect([...(shown.at(-1)?.hidden ?? [])]).toEqual([1]));
-  await userEvent.click(screen.getByLabelText('Only inside the plan'));
+  await userEvent.click(screen.getByLabelText(/^Only inside the plan/));
   await waitFor(() => expect(shown.at(-1)?.inside).toBe(false));
   expect(build).toHaveBeenCalledTimes(2); // nothing was loaded or built again
 });
 
-it("offers a moved camera's measured spot, and saves it only when it is taken", async () => {
+it("offers to move a moved camera's spot, asks first, and can take it back", async () => {
   serveAll([placedRow('hall', { how: 'moved', shift_m: 0.5, turn_deg: 35.2, suggest: [3.4, -0.9, 212.4] })]);
   const posted: object[] = [];
+  const undone: object[] = [];
   server.use(
     http.post('/places/scene/spot', async ({ request }) => {
       posted.push((await request.json()) as object);
-      return HttpResponse.json({ ok: true, spot: { at: [3.4, -0.9], yaw: 212.4 } });
+      return HttpResponse.json({ ok: true, spot: { at: [3.4, -0.9], yaw: 212.4 }, previous: 'plan-v1' });
+    }),
+    http.post('/places/scene/spot/undo', async ({ request }) => {
+      undone.push((await request.json()) as object);
+      return HttpResponse.json({ ok: true });
     }),
   );
   renderPage(<CloudView place="p1" />);
   await toAll();
   expect(await screen.findByText(/This camera was moved: by its pictures, 50 cm and 35° from its spot/)).toBeTruthy();
+  expect(screen.getByText('Moved')).toBeTruthy();
+  // it changes the owner's plan, so it asks first, saying what changes and that the earlier version stays
+  await userEvent.click(screen.getByRole('button', { name: 'Move its spot' }));
+  const asking = await screen.findByRole('dialog');
+  expect(within(asking).getByText("Move hall's spot on your plan?")).toBeTruthy();
+  expect(
+    within(asking).getByText(
+      "It moves 50 cm and turns 35 degrees to where its pictures now put it. The plan's earlier version stays in Versions.",
+    ),
+  ).toBeTruthy();
   expect(posted).toEqual([]);
-  await userEvent.click(screen.getByRole('button', { name: 'Use this as its spot' }));
+  await userEvent.click(within(asking).getByRole('button', { name: 'Move its spot' }));
   await waitFor(() => expect(posted).toEqual([{ place: 'p1', camera: 'hall' }]));
+  // done, and how to take it back
+  expect(await screen.findByText("Moved hall's spot on your plan.")).toBeTruthy();
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  await waitFor(() => expect(undone).toEqual([{ place: 'p1', camera: 'hall', record: 'plan-v1' }]));
 });
 
 it('says so when no camera can be placed, with why for each', async () => {

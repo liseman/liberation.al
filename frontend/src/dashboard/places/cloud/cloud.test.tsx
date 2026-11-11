@@ -21,7 +21,18 @@ import {
 } from './geometry';
 import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
-import { learningNote, loadingText, pairLine, placedLine, planNote, splatNote, viewNote, viewWhy } from './status';
+import {
+  learningNote,
+  loadingText,
+  moveSpotQuestion,
+  pairLine,
+  placedLine,
+  placedState,
+  planNote,
+  splatNote,
+  viewNote,
+  viewWhy,
+} from './status';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -509,6 +520,25 @@ const pairOf = (state: ScenePair['state'], more: Partial<ScenePair> = {}): Scene
   measured: null,
   latest: null,
   ...more,
+});
+
+it.each([
+  ['spot', 'Placed', 'plain'],
+  ['adjusted', 'Adjusted', 'plain'],
+  ['moved', 'Moved', 'warn'],
+  ['moved_against', 'Moved', 'warn'],
+  ['moved_unplaced', 'Not placed', 'warn'],
+  ['no_spot', 'No spot', 'plain'],
+  ['no_facing', 'No spot', 'plain'],
+] as const)("names a camera's state in a word, and marks the ones that want the owner: %s", (how, label, tone) => {
+  expect(placedState(how)).toEqual({ label, tone });
+});
+
+it("says what moving a camera's spot changes before it is done", () => {
+  expect(moveSpotQuestion(placedAs('moved', { shift_m: 0.31, turn_deg: 37.2 }), 'Kitchen')).toEqual({
+    title: "Move Kitchen's spot on your plan?",
+    body: "It moves 31 cm and turns 37 degrees to where its pictures now put it. The plan's earlier version stays in Versions.",
+  });
 });
 
 it('says what an overlapping pair of cameras came to, and nothing for a pair that shares no space', () => {

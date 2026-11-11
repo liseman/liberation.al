@@ -39,7 +39,7 @@ import type { Scene } from '../api';
 import { collisionMesh, FLOOR_MARGIN, glb, glbUrl } from './collision';
 import { type Quat, toViewerUp, turned } from './frame';
 import { coverFov, frustum, heightColour, heightOf, planOutline, planWalls, robustRange, type V3 } from './geometry';
-import { pointIndices, tinted } from './layers';
+import { pointIndices, tinted, tintOf } from './layers';
 import type { Cloud } from './load';
 
 /** How the points are coloured: their own colours, their height above the floor, or their own with their camera's
@@ -339,9 +339,11 @@ export async function build(
 
   // Each camera's view: lines from its centre to the four corners of its image, and the image's edge.
   const views: V3[] = [];
-  for (const cam of Object.values(data.cameras ?? {})) {
+  const viewOf: Record<string, V3[]> = {};
+  for (const [name, cam] of Object.entries(data.cameras ?? {})) {
     const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
-    views.push(o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a);
+    viewOf[name] = [o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a];
+    views.push(...viewOf[name]);
   }
   views.forEach(grow);
 
@@ -412,7 +414,7 @@ export async function build(
   const kept = typeof opening === 'string' ? null : opening;
   // From above: over the middle of everything, high enough to take it all in, a hair off straight down so the
   // viewer's orbit has a way up.
-  const lift = Math.max(3, radius * 2.2);
+  const lift = Math.max(4, radius * 3.2); // far enough that the whole plan is in view, whatever the pane's shape
   const above = {
     position: inViewer([
       onFloor[0] + up[0] * lift - across[0] * 0.02 * lift,
@@ -563,7 +565,17 @@ export async function build(
     pointMaterial.setParameter('view_size', [Math.max(1, host.clientWidth), Math.max(1, host.clientHeight)]);
   app.on('update', sized);
 
-  const cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
+  // In a scene of several cameras' clouds each camera's view is drawn in its own colour (layers.ts), whatever the
+  // points are coloured by, so the colour beside its name always points at something.
+  const order = data.combined?.cameras.map(c => c.camera);
+  let cameras: Entity;
+  if (order) {
+    cameras = new Entity('cameras', app);
+    for (const [name, segments] of Object.entries(viewOf)) {
+      const [r, g, b] = tintOf(Math.max(0, order.indexOf(name)));
+      cameras.addChild(lines(device, app, `camera-${name}`, segments, [r / 255, g / 255, b / 255]));
+    }
+  } else cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
   overlays.addChild(cameras);
   const plan = lines(device, app, 'plan', outline, [0xe8 / 255, 0x59 / 255, 0x0c / 255]);
   overlays.addChild(plan);

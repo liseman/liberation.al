@@ -297,7 +297,14 @@ export interface Scene {
 /** Take the spot the scene suggests for a camera that moved: its spot on the owner's plan is moved and turned to
  *  it, saved as a new version of the plan. */
 export const acceptSpot = (place: string, camera: string) =>
-  request<{ ok: true; spot: { at: [number, number]; yaw: number } }>('/places/scene/spot', { place, camera });
+  request<{ ok: true; spot: { at: [number, number]; yaw: number }; previous: string | null }>('/places/scene/spot', {
+    place,
+    camera,
+  });
+
+/** Take that back: the plan version it replaced (`record`) holds again, and the camera is a moved one once more. */
+export const undoSpot = (place: string, camera: string, record: string) =>
+  request<{ ok: true }>('/places/scene/spot/undo', { place, camera, record });
 
 /** How often the 3D view asks for the scene again while it's open: a learned map gets a newer splat every so
  *  often while learning is on, and the view draws it without a reload. With learning off it asks seldom, to notice

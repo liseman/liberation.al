@@ -1005,6 +1005,21 @@ def test_a_moved_cameras_suggested_spot_is_saved_only_when_the_owner_takes_it(tm
     assert (after["how"], after["suggest"]) == ("spot", None)  # placed from the spot it now has
 
 
+def test_taking_an_accepted_spot_back_restores_the_plan_and_the_camera_is_a_moved_one_again(tmp_path, spotted):
+    place, store = spotted
+    moved_camera(tmp_path, store)
+    reply = view.accept_spot({"place": place, "camera": "hall"}, True, tmp_path, now=T + 120)[1]
+    undo = {"place": place, "camera": "hall", "record": reply["previous"]}
+    assert view.undo_spot(undo, False, tmp_path)[0] == 403
+    assert view.undo_spot(undo, True, tmp_path, now=T + 180)[0] == 200
+    assert plan_of(tmp_path, place) == SPOTTED  # the plan as it was, on top as a new version
+    cameras = view.scene(tmp_path, place, combined=True)[1]["combined"]["cameras"]
+    hall = next(c for c in cameras if c["camera"] == "hall")
+    # not left at its old spot: it still stands where its pictures put it, and the spot is offered again
+    assert hall["how"] == "moved" and hall["suggest"] == pytest.approx([1.0, 2.0, 125.0], abs=0.01)
+    assert view.undo_spot({**undo, "record": "no-such-version"}, True, tmp_path)[0] == 400
+
+
 def test_a_spot_is_only_accepted_for_a_camera_that_has_one_suggested(tmp_path, spotted):
     place, _ = spotted
     assert view.accept_spot({"place": place, "camera": "porch"}, True, tmp_path)[0] == 400

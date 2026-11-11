@@ -46,6 +46,9 @@
                                        take the spot the scene suggests for a camera that moved: that camera's spot
                                        on the owner's plan is moved and turned to it, saved as a new version of the
                                        plan (`accept_spot`); nothing is saved until this is asked
+    POST /places/scene/spot/undo {place, camera, record}
+                                       take that back: the plan version it replaced holds again, and the camera
+                                       is a moved camera once more (`undo_spot`)
     GET /places/map?place=&revision=[&camera=]
                                        that revision's map file (a point cloud, PLY), with byte ranges, an ETag, and
                                        caching for good: a revision's files never change once written. With
@@ -389,11 +392,38 @@ def accept_spot(body: Mapping[str, Any], control: bool, state: Path, now: float 
         plan = plan_scene.with_spot(held.plan, camera, (offered[0], offered[1]), offered[2])
     except KeyError, plan_scene.SceneError:
         return 400, {"ok": False, "error": "that camera has no spot on the plan to move"}
+    history = places.plan_history(state, place)
     places.correct_plan(state, place, plan, now=now, base=held.plan_revision)
     spot = cloud_scene.spots_of(state).get(camera)
     if spot is not None:
         cloud_scene.accept(store, camera, spot.basis)  # its picture now is the one it's placed with
-    return 200, {"ok": True, "spot": {"at": [offered[0], offered[1]], "yaw": offered[2]}}
+    return 200, {
+        "ok": True,
+        "spot": {"at": [offered[0], offered[1]], "yaw": offered[2]},
+        # the version this one replaced, for Undo (POST /places/scene/spot/undo)
+        "previous": history[-1].id if history else None,
+    }
+
+
+def undo_spot(body: Mapping[str, Any], control: bool, state: Path, now: float | None = None) -> Reply:
+    """POST /places/scene/spot/undo: take back a spot accepted from the scene. The plan version it replaced
+    (`record`) holds again, written on top as a new version (`places.restore_plan`), and the camera is once more one
+    that moved from the picture it was placed with: it isn't left at its old spot."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    if not control:
+        return 403, {"ok": False, "error": "plans can only be corrected from this machine (Remote teaching is off)"}
+    place, camera, record = body.get("place"), body.get("camera"), body.get("record")
+    if not isinstance(place, str) or not isinstance(camera, str) or not isinstance(record, str):
+        return 400, {"ok": False, "error": "send the place's id, the camera, and the plan version to put back"}
+    if places.get(state, place) is None:
+        return 404, {"ok": False, "error": "no such place"}
+    try:
+        places.restore_plan(state, place, record, now=now)
+    except (KeyError, ValueError) as e:
+        return 400, {"ok": False, "error": str(e)}
+    cloud_scene.take_back(camera_clouds.Store(camera_clouds.root(state)), camera)
+    return 200, {"ok": True}
 
 
 def scene(state: Path, place: str, camera: str | None = None, combined: bool = False) -> Reply:
@@ -917,6 +947,14 @@ def _post_places_scene_spot(h: H, body: Any) -> None:
     if not h._same_origin_json():
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, o = accept_spot(body, h._can_teach(), h.state)
+    return h._json(o, code)
+
+
+@routes.post("/places/scene/spot/undo")
+def _post_places_scene_spot_undo(h: H, body: Any) -> None:
+    if not h._same_origin_json():
+        return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
+    code, o = undo_spot(body, h._can_teach(), h.state)
     return h._json(o, code)
 
 

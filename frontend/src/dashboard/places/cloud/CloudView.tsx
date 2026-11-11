@@ -141,11 +141,11 @@ class MapCrash extends Component<{ children: ReactNode; onRetry: () => void }, {
   }
 }
 
-export default function CloudView({ place }: { place: string }) {
+export default function CloudView({ place, onEditPlan }: { place: string; onEditPlan?: () => void }) {
   const [generation, setGeneration] = useState(0);
   return (
     <MapCrash key={generation} onRetry={() => setGeneration(n => n + 1)}>
-      <CloudMap place={place} />
+      <CloudMap place={place} onEditPlan={onEditPlan} />
     </MapCrash>
   );
 }
@@ -198,7 +198,7 @@ function Words({ text }: { text: string }) {
   );
 }
 
-function CloudMap({ place }: { place: string }) {
+function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => void }) {
   const webgl = useMemo(hasWebGL, []);
   // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
   const [picked, setPicked] = useState<string | null>(null);
@@ -409,6 +409,8 @@ function CloudMap({ place }: { place: string }) {
       }
       outside={beyond}
       inside={inside}
+      onLookFrom={name => built.current?.lookFrom(name)}
+      onEditPlan={onEditPlan}
     />
   );
   if (all && read && !read.revision)
@@ -459,6 +461,11 @@ function CloudMap({ place }: { place: string }) {
     setAttempt(n => n + 1);
   };
   const cams = Object.keys((drawn?.scene ?? data)?.cameras ?? {});
+  // How many points lie outside the plan among the cameras shown: what "Only inside the plan" leaves out.
+  const leftOut = (combined?.cameras ?? []).reduce(
+    (sum, c, i) => sum + (hiddenCameras.has(c.camera) ? 0 : (beyond[i] ?? 0)),
+    0,
+  );
   // Read the checkbox now. React clears currentTarget once this handler returns, then runs the state updater, so
   // reading it inside the updater throws and takes the whole view down. The same for every overlay.
   const onOverlay = (key: 'floor' | 'cameras' | 'plan') => (event: ChangeEvent<HTMLInputElement>) => {
@@ -546,7 +553,11 @@ function CloudMap({ place }: { place: string }) {
             {combined && (
               <Checkbox
                 size="xs"
-                label="Only inside the plan"
+                label={
+                  inside && leftOut
+                    ? `Only inside the plan (${leftOut.toLocaleString()} points left out)`
+                    : 'Only inside the plan'
+                }
                 checked={inside}
                 onChange={event => setInside(event.currentTarget.checked)}
               />
@@ -561,7 +572,9 @@ function CloudMap({ place }: { place: string }) {
             onClick={() => {
               // from outside, the camera's mark shows where it stands
               if (read?.view) setShow(current => ({ ...current, cameras: true }));
-              built.current?.home();
+              // the scene of all cameras starts over the plan: build the view again, which opens there
+              if (combined) setRebuild(n => n + 1);
+              else built.current?.home();
             }}
           >
             {read?.view ? 'See it from outside' : 'Back to the start'}
@@ -628,7 +641,7 @@ function CloudMap({ place }: { place: string }) {
             {plan}
           </Text>
         )}
-        {cams.length > 0 && !read?.view && (
+        {cams.length > 0 && !read?.view && !combined && (
           <Group gap="xs" mt="xs" wrap="wrap">
             <Text size="xs" c="dimmed">
               Look from
