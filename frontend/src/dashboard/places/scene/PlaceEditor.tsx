@@ -1,4 +1,4 @@
-// A place's plan in the plan editor (or its 3D view), with Save. The editor works on a Pascal scene: the place's
+// A place's plan in the plan editor, with Save. The editor works on a Pascal scene: the place's
 // own (GET /places/plan/scene), or an empty one for a place with no plan yet, which is how a plan is drawn from
 // nothing. Saving writes the owner's plan (POST /places/plan), so every save is a version in the place's plan
 // history. Those versions open from a Versions button beside Save (Versions.tsx), so the editor keeps the card's
@@ -7,7 +7,7 @@
 import { Alert, Badge, Button, Group, Popover, Text } from '@mantine/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import type { PlanView, Scene } from '../../../plan-editor/protocol';
+import type { Scene } from '../../../plan-editor/protocol';
 import { HttpError, messageOf } from '../../../shared/http';
 import { confirm } from '../../lib/confirm';
 import { momentWords } from '../../lib/format';
@@ -32,13 +32,11 @@ export const roomsIn = (scene: Scene): number => Object.values(scene.nodes).filt
 
 export function PlaceEditor({
   place,
-  view: shown,
   scheme,
   onSaved,
   onUnsaved,
 }: {
   place: Place;
-  view: PlanView;
   scheme: 'light' | 'dark';
   onSaved?: () => void;
   /** Whether the editor holds changes that haven't been saved, each time that changes. */
@@ -145,8 +143,6 @@ export function PlaceEditor({
             ) : (
               `The stored plan can't be opened, so this starts a new one. ${messageOf(stored.error)}`
             )
-          ) : shown === '3d' ? (
-            'The plan in 3D.'
           ) : (
             'Draw rooms and walls, and put doors and windows in them.'
           )}
@@ -210,9 +206,8 @@ export function PlaceEditor({
         </Alert>
       )}
       <PlanFrame
-        key={`${place.id}-${shown}-${viewing?.id ?? 'now'}-${opened}`}
+        key={`${place.id}-${viewing?.id ?? 'now'}-${opened}`}
         scene={scene}
-        view={shown}
         scheme={scheme}
         cameras={place.example ? [] : houseCameras()}
         look={viewing !== null}

@@ -76,11 +76,17 @@ def test_capture_back_up_during_a_restart_says_recording():
     assert (now.headline, now.recording) == ("Running and recording", True)
 
 
-def test_a_service_waiting_to_restart_is_not_named_in_the_window(caplog):
+def test_a_service_waiting_to_restart_is_not_named_in_the_window_and_is_said_once(caplog, monkeypatch):
+    monkeypatch.setattr(app_window, "_said_starting", ())
     services = status(continuum_capture="running", listen="activating", journal="activating")
-    with caplog.at_level("INFO", logger="liberational.app"):
+    with caplog.at_level("DEBUG", logger="liberational.app"):
         assert "Restarting:" not in app_window.summary(RUNNING, services).detail
-    assert any("services still starting: journal, listen" in msg for msg in caplog.messages)
+        app_window.summary(RUNNING, services)  # the next refresh, a second later, with the same two services
+    still = [r for r in caplog.records if "services still starting" in r.getMessage()]
+    assert [(r.levelname, r.getMessage()) for r in still] == [
+        ("INFO", "services still starting: journal, listen"),
+        ("DEBUG", "services still starting: journal, listen"),
+    ]
 
 
 @pytest.mark.parametrize(

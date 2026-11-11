@@ -110,7 +110,14 @@ class Run:
         self.dry = dry  # a dry run counts: it moves no mark
         self.settle = settle or (lambda: asyncio.sleep(FREE_SETTLE_S))
         self.path = state / MARKS
-        self.marks: dict[str, int] = json.loads(self.path.read_text()) if self.path.exists() else {}
+        # A stream's mark is an int sequence the broker takes, so anything else in a hand-edited or truncated file is
+        # dropped rather than fed to query_by_seq (and the whole nightly age-out killed). Marks are rewritten by _save.
+        saved = json_state.read(self.path, {})
+        self.marks: dict[str, int] = {
+            str(stream): mark
+            for stream, mark in (saved.items() if isinstance(saved, dict) else ())
+            if isinstance(stream, str) and isinstance(mark, int) and not isinstance(mark, bool)
+        }
         self.counts: dict[str, int] = {}
 
     def _save(self) -> None:

@@ -1,8 +1,9 @@
 // Reading what the 3D view draws, by format, so one viewer grows into whatever the maps become. A place map is
 // a point cloud in PLY (spatial/ply.py: x, y, z, red, green, blue, and its own counts, which this skips, but for
 // two a scene of several cameras' clouds has: whose each point is, and whether it lies outside the plan). A
-// revision can also have a 3D Gaussian splat (spatial/splats.py), served as SOG (spatial/sog.py), which
-// PlayCanvas reads itself (scene.ts). Nothing here touches the GPU, so it's tested without one.
+// revision can also have a 3D Gaussian splat, served as SOG (spatial/sog.py), which PlayCanvas reads itself
+// (scene.ts): no producer writes one today (`memory/places.SHOWN_PRODUCERS` is empty), so that path waits for one.
+// Nothing here touches the GPU, so it's tested without one.
 
 /** The formats the view can draw now. */
 export const FORMATS = ['ply'] as const;

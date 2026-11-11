@@ -516,7 +516,7 @@ export class ReviewEngine {
         )
       : dataEdges(this.entries, this.allSegs(), this.spans);
     if (!ed) return;
-    const t = chunk && day ? this.preferredTime(day, chunk) : (latestVideo(this.segs, this.wall()) ?? ed[1] - 1);
+    const t = chunk && day ? this.preferredTime(day, chunk) : (latestVideo(this.segs) ?? ed[1] - 1);
     const span = Math.min(this.view.t1 - this.view.t0, 3600);
     this.setView(t - span * 0.7, t + span * 0.3, true);
     this.seek(t);
@@ -604,7 +604,7 @@ export class ReviewEngine {
       grouped[s.cam]?.push(s);
     }
     const edges = dataEdges(data.entries, segments, data.spans);
-    return latestVideo(grouped, this.wall()) ?? (edges ? edges[1] - 1 : dayBounds(day).t0);
+    return latestVideo(grouped) ?? (edges ? edges[1] - 1 : dayBounds(day).t0);
   }
 
   /** Keep decoded timeline rows bounded to the visible window; QueryClient owns the reusable day cache. */
@@ -786,9 +786,7 @@ export class ReviewEngine {
     this.home = { ...this.view };
     const fromStart = this.playFromStartOnLoad;
     this.playFromStartOnLoad = false;
-    const t = fromStart
-      ? (ed?.[0] ?? null)
-      : (this.t ?? latestVideo(this.segs, this.wall()) ?? (ed ? ed[1] - 1 : null)); // a time in the link wins
+    const t = fromStart ? (ed?.[0] ?? null) : (this.t ?? latestVideo(this.segs) ?? (ed ? ed[1] - 1 : null)); // a time in the link wins
     if (t == null) {
       this.t = null;
       this.lastUi = 0;
@@ -2289,7 +2287,7 @@ export class ReviewEngine {
       this.set({ camera: undefined, cameraIntent: (this.S.cameraIntent ?? 0) + 1 });
     }
     if (hp.play) this.playOnLoad = true;
-    if (JSON.stringify(hp.people ?? []) !== JSON.stringify(this.S.people)) this.selectPeople(hp.people ?? []);
+    if (!sameSet(hp.people ?? [], this.S.people ?? [])) this.selectPeople(hp.people ?? []);
     if (hp.day && hp.day !== this.S.day) {
       this.landing = false;
       if (!this.deps.embedded && this.loaded != null) {
@@ -2367,7 +2365,7 @@ export class ReviewEngine {
         if (this.t != null) this.seek(this.t);
       } else if (hp.day && hp.t == null) {
         // A link to a day with no moment opens it as a pick does: afresh, at its newest video.
-        if (JSON.stringify(hp.people ?? []) !== JSON.stringify(this.S.people)) this.selectPeople(hp.people ?? []);
+        if (!sameSet(hp.people ?? [], this.S.people ?? [])) this.selectPeople(hp.people ?? []);
         this.deps.reload?.(hp.day);
         this.pickDay(hp.day);
       } else if (hp.person || hp.day || hp.t != null) this.onHash();

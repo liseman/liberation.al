@@ -43,8 +43,6 @@ export function chipColors(chips: readonly Chip[], sel: ReadonlySet<string>): Re
 /** How long a chip was around in all: "45 s", "12 min", "2 h 5 min" (lib/format's secondsText). */
 export const duration = secondsText;
 
-export const KIND_NAME: Record<string, string> = { person: 'People', object: 'Objects', event: 'Events' };
-
 /** A chip's tooltip: how many times, how long in all (left out when the chip doesn't measure time, like a camera's
  *  "came into view" chip, whose spans are only padded so the moment plays), and its first note, which can say how
  *  sure the estimate is. */

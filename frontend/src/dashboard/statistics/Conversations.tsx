@@ -1,6 +1,7 @@
 // Conversations: who talks and when (lines by person and hour of day), how much each day, the words that come up
 // week by week, and who talks with whom (one exchange is two people's lines within a minute of each other).
 import { Group, Stack, Text, Title } from '@mantine/core';
+import { plural } from '../lib/format';
 import type { Conversations as Data } from './api';
 import { useReport } from './api';
 import {
@@ -43,8 +44,6 @@ export function finding(data: Data): string {
   const talk = `Most talk happens around ${hourName(peak)}, and ${top.name} says the most (${top.lines} lines).`;
   return pair ? `${talk} ${pair.a_name} and ${pair.b_name} talk with each other most.` : talk;
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** One word's rise and fall, week by week (a suggested report). */
 function WordView({ data, word }: { data: Data; word: string }) {

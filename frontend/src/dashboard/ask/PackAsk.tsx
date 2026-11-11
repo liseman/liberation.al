@@ -28,6 +28,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from 'react';
 import { messageOf } from '../../shared/http';
 import { researchQuery, startResearch } from '../inbox/api';
+import { plural } from '../lib/format';
 import { PageError } from '../lib/page';
 import { href, linkClick, useRoute } from '../router';
 import classes from './ask.module.css';
@@ -69,8 +70,6 @@ export function thin(result: unknown): { kind: 'none' | 'thin'; why: string } | 
 }
 
 export const DEEP_HELP = 'Takes longer and looks deeper. The report arrives in the Inbox.';
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** When research is usually ready: the median of this machine's recent reports, else the usual half hour. */
 export function readyWords(typical: number | null | undefined): string {

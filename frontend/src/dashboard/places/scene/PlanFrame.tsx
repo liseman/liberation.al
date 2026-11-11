@@ -1,14 +1,14 @@
-// A place's plan in Pascal Editor: its 2D editor or its 3D view, in an iframe on the editor's own page
-// (plan-editor/index.html, src/plan-editor/). The iframe is what keeps the editor out of every other page: nothing of it
-// is imported here, so it is fetched only when this is shown, and its styles stay inside its own document.
+// A place's plan in Pascal Editor's 2D editor, in an iframe on the editor's own page (plan-editor/index.html,
+// src/plan-editor/). The iframe is what keeps the editor out of every other page: nothing of it is imported here, so it
+// is fetched only when this is shown, and its styles stay inside its own document. The page itself also knows the 3D
+// and split views (`PlanView`, protocol.ts), which nothing at this end asks for.
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { editorUrl, type FromEditor, type Open, ours, type PlanView, type Scene } from '../../../plan-editor/protocol';
+import { editorUrl, type FromEditor, type Open, ours, type Scene } from '../../../plan-editor/protocol';
 import { BlockSkeleton } from '../../lib/loading';
 import classes from '../places.module.css';
 
 export function PlanFrame({
   scene,
-  view,
   scheme,
   cameras,
   look = false,
@@ -16,7 +16,6 @@ export function PlanFrame({
 }: {
   /** The scene to open. A later one is ignored: the editor holds the plan from then on, and remounting opens another. */
   scene: Scene;
-  view: PlanView;
   scheme: 'light' | 'dark';
   /** The house's cameras, for the editor to offer the ones with no spot on the plan yet. */
   cameras?: { id: string; name: string }[];
@@ -66,8 +65,8 @@ export function PlanFrame({
         ref={frame}
         className={classes.planFrame}
         style={{ '--plan-top': `${top}px` } as CSSProperties}
-        title={view === '3d' ? 'The plan in 3D' : 'Plan editor'}
-        src={editorUrl(import.meta.env.BASE_URL, view, scheme, look)}
+        title="Plan editor"
+        src={editorUrl(import.meta.env.BASE_URL, '2d', scheme, look)}
       />
     </>
   );

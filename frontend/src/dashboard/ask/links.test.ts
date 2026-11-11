@@ -6,7 +6,9 @@ describe('safeHref', () => {
     ['/review#t=1700000000', '/review#t=1700000000'],
     ['/review.html?day=2026-10-20', '/review.html?day=2026-10-20'],
     ['/calls/audio/x.wav', '/calls/audio/x.wav'],
-    ['/camera/query?cam=cam0', '/camera/query?cam=cam0'],
+    ['/audio/levels', '/audio/levels'],
+    ['/audio/range?start=1&end=2', '/audio/range?start=1&end=2'],
+    ['/audio/spans?day=2026-10-20', '/audio/spans?day=2026-10-20'],
     ['#day=2026-10-23', '#day=2026-10-23'],
     ['#t=1700000000&day=2026-10-23', '#t=1700000000&day=2026-10-23'],
   ])('keeps the dashboard link %s', (value, expected) => {
@@ -23,6 +25,9 @@ describe('safeHref', () => {
     '/review x',
     '/review\\x',
     '/review\u0000',
+    '/audio', // no route: only /audio/levels, /audio/range, and /audio/spans exist
+    '/recordings', // no such page
+    '/camera/query?cam=cam0', // the camera gateway is another origin (server.py gives the page its port)
     '#x',
     '#t=<b>',
     'review#t=1',

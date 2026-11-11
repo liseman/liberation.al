@@ -42,8 +42,8 @@ export function ago(ts: number | null | undefined, now = Date.now() / 1000): str
   return `${Math.round(s / 86400)} d ago`;
 }
 
-/** "1 voice", "3 voices". */
-export const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+/** "1 voice", "3 voices"; many defaults to the word with an s. */
+export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 /** A word or phrase with a capital first letter: "front camera" reads "Front camera". */
 export const capitalize = (s: string): string => (s[0]?.toUpperCase() ?? '') + s.slice(1);

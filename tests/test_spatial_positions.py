@@ -1258,6 +1258,27 @@ def test_with_no_camera_posed_in_any_map_the_placer_places_nothing_and_says_so(t
     assert "no camera has a spot on a plan or a pose in a map" in caplog.text
 
 
+def test_advance_reads_the_places_once_however_many_places_it_checks(tmp_path, monkeypatch):
+    home(tmp_path)
+    places.revise(
+        tmp_path, None, producer="test", cameras={"cam1": LEVEL}, floor=FLOOR, plan=PLAN,
+        plan_transform=TO_PLAN, map_bytes=b"y", map_format="ply", now=T - 50,
+    )  # fmt: skip
+    assert len(places.places(tmp_path)) == 2
+    monkeypatch.setattr(P, "_piece", lambda *args, **kwargs: [])  # nothing to place: only the check itself
+    made = []
+    real = P._Places
+
+    class Counting(real):
+        def __init__(self, *args, **kwargs):
+            made.append(1)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(P, "_Places", Counting)
+    P.advance(tmp_path, T + 60, chunk_s=P.BACKFILL_S)
+    assert len(made) == 1  # the spots and the owner plans are read once, not once per place
+
+
 def test_the_placer_writes_a_footprint_placed_and_a_read_gives_it_back(tmp_path, vision):
     place = home(tmp_path)
     foot(vision, T)

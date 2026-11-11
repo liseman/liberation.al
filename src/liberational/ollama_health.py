@@ -38,7 +38,9 @@ VLM_NUM_CTX = 4096
 # longer text to fit (truncate), so an entry over it is embedded by its start, not refused.
 EMBEDDING_NUM_CTX = 2048
 
-START = "start it (e.g. systemctl enable --now ollama)"
+# The pack runs Ollama as one of its own services (services.toml), not as the system's ollama.service: the
+# advice names the command that works in both modes (the supervisor, or the rendered unit on an older install).
+START = "start it with `pack-services start ollama`, or check its log in Settings"
 TAGS_CACHE_S = 300.0
 
 

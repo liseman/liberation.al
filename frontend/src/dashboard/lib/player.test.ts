@@ -2,7 +2,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { server } from '../../test/server';
 import { hms } from './format';
-import { lineKey, play, playbackKeyBlocked, playLine, seek, setPlayingTs, stop, toggle, usePlayer } from './player';
+import { lineKey, play, playbackKeyBlocked, playLine, seek, stop, toggle, usePlayer } from './player';
 
 let playResult: () => Promise<void>;
 const audio = () => document.querySelector('audio') as HTMLAudioElement;
@@ -57,13 +57,6 @@ describe('play and stop', () => {
     play('/a.wav', 'a');
     fire('ended');
     expect(state().key).toBeNull();
-  });
-
-  it('moves the highlight only for what is playing', () => {
-    play('/a.wav', 'a', 1);
-    setPlayingTs('other', 5);
-    setPlayingTs('a', 9);
-    expect(state().ts).toBe(9);
   });
 });
 

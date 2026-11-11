@@ -36,13 +36,18 @@ function serverMessage(data: unknown): string | null {
 const isBinary = (body: unknown): body is Blob | ArrayBuffer | ArrayBufferView =>
   body instanceof Blob || body instanceof ArrayBuffer || ArrayBuffer.isView(body);
 
-function bodyInit(body: unknown): Pick<RequestInit, 'method' | 'headers' | 'body'> {
-  if (body === undefined) return {};
+/** request()'s method: POST when it carries a body and GET when it doesn't, unless the caller names one. */
+function requestMethod(body: unknown, method?: string): string {
+  return method ?? (body === undefined ? 'GET' : 'POST');
+}
+
+function bodyInit(body: unknown, method: string): Pick<RequestInit, 'method' | 'headers' | 'body'> {
+  if (body === undefined) return method === 'GET' ? {} : { method };
   if (isBinary(body)) {
     const type = body instanceof Blob && body.type ? body.type : 'application/octet-stream';
-    return { method: 'POST', headers: { 'Content-Type': type }, body: body as BodyInit };
+    return { method, headers: { 'Content-Type': type }, body: body as BodyInit };
   }
-  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
 /** A GET that got no answer within TIMEOUT_MS. The server may still be working on it. */
@@ -151,6 +156,8 @@ async function backUp(url: string, deadline: number, signal?: AbortSignal): Prom
  * shows as a slow load (with the page's last data still up) rather than an error. A GET answered "starting" (503,
  * isStarting) is asked again after each BACKOFF_MS step, within the same RECOVER_MS. A POST is never sent twice,
  * since it may have reached the server. `recover` false skips the wait, for a caller that polls /health itself.
+ * `method` names one other than the body-implied GET or POST (a DELETE, say); it is not retried either, so pass
+ * `recover` false with it.
  */
 export async function request<T>(
   url: string,
@@ -158,14 +165,15 @@ export async function request<T>(
   signal?: AbortSignal,
   priority: ReadPriority = 'page',
   recover = true,
+  onlyMethod?: string,
 ): Promise<T> {
   // Every request is timed for the page's log: a failed or slow one is reported, and each joins the trace of
   // the navigation that waited on it. Only its path is kept.
-  const method = body === undefined ? 'GET' : 'POST';
+  const method = requestMethod(body, onlyMethod);
   const started = performance.now();
   requestStarted();
   try {
-    const data = await retried<T>(url, body, signal, priority, recover);
+    const data = await retried<T>(url, body, signal, priority, recover, method);
     requestEnded(url, method, 200, performance.now() - started);
     return data;
   } catch (e) {
@@ -214,13 +222,14 @@ async function retried<T>(
   signal: AbortSignal | undefined,
   priority: ReadPriority,
   recover: boolean,
+  method: string,
 ): Promise<T> {
   const deadline = Date.now() + RECOVER_MS;
   for (let step = 0; ; step++) {
     try {
-      return await send<T>(url, body, signal, priority);
+      return await send<T>(url, body, signal, priority, method);
     } catch (e) {
-      if (!recover || body !== undefined || signal?.aborted) throw e;
+      if (!recover || method !== 'GET' || signal?.aborted) throw e;
       if (isStarting(e)) {
         const pause = BACKOFF_MS[Math.min(step, BACKOFF_MS.length - 1)] ?? 0;
         if (Date.now() + pause >= deadline) throw e;
@@ -236,13 +245,14 @@ async function retried<T>(
 /**
  * Send one request: GET url, or POST body when there is one, and return the parsed JSON response. A Blob (for example a WAV
  * recording) or other binary body is sent as is with its own type; anything else is sent as JSON. signal cancels
- * it, and a GET also gives up after TIMEOUT_MS.
+ * it, and a GET also gives up after TIMEOUT_MS. A named method replaces that GET or POST.
  */
 async function send<T>(
   url: string,
   body: unknown,
   signal: AbortSignal | undefined,
   priority: ReadPriority,
+  method: string,
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -252,7 +262,7 @@ async function send<T>(
   signal?.addEventListener('abort', cancel);
   let release: (() => void) | undefined;
   try {
-    if (body === undefined) {
+    if (method === 'GET') {
       release = await readSlot(controller.signal, priority);
       // Only reads get a deadline, as getJSON had; a POST can wait on the server's own work, like a service restart.
       // The deadline is the server's: it starts once this read has a slot, so a page that asks for many at once
@@ -262,7 +272,11 @@ async function send<T>(
         controller.abort();
       }, TIMEOUT_MS);
     }
-    const response = await fetch(url, { cache: 'no-store', signal: controller.signal, ...bodyInit(body) });
+    const response = await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+      ...bodyInit(body, method),
+    });
     let data: unknown = null;
     try {
       data = await response.json(); // the deadline holds while the body arrives
