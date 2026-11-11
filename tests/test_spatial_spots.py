@@ -217,6 +217,39 @@ def test_an_aim_kept_before_the_pictures_edges_were_read_still_holds(tmp_path):
     assert (kept.edges, kept.edge_pitch, kept.edge_roll, kept.focal, kept.confirmed) == (0, None, None, None, False)
     assert (kept.pitch, kept.roll) == pytest.approx((20.0, 2.0), abs=0.01)
 
+
+def test_the_dry_run_says_whether_a_pictures_edges_confirmed_a_cameras_tilt(tmp_path, capsys, monkeypatch):
+    up = spots.up_at(18.0, 0.0)
+    aim = spots.Aim(
+        (float(up[0]), float(up[1]), float(up[2])),
+        SIZE[0],
+        SIZE[1],
+        120,
+        1.65,
+        T,
+        "basis",
+        edges=40,
+        edge_pitch=18.2,
+        edge_roll=0.3,
+        confirmed=True,
+    )
+    row = {
+        "camera": "cam0",
+        "place": None,
+        "by": "spot",
+        "footprints": 0,
+        "placed": 0,
+        "in_a_room": 0,
+        "people_placed": 0,
+        "behind_wall": None,
+        "missing": [],
+        "aim": aim,
+    }
+    monkeypatch.setattr(P, "dry_run", lambda state, cams, now, hours: [row])
+    P._print_dry_run(tmp_path, ["cam0"], 24.0)
+    assert "40 straight edges confirmed that tilt" in capsys.readouterr().out
+
+
 def test_too_few_walkers_fit_no_tilt():
     feet, heads, _ = walkers(25.0, n=spots.AIM_MIN - 1)
     assert spots.aim("cam0", plan_import.Camera("cam0", (0.0, 0.0), 2.0, 0.0), HELD, SIZE, feet, heads, T) is None
