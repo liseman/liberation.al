@@ -61,6 +61,18 @@ Open the status menu in the dashboard's header and choose **Pause all cameras**,
 camera's name. Capture stops a paused camera within about a second and records nothing from it until it is resumed.
 The others keep running.
 
+## Say how it is mounted
+
+Add `mount` to a fixed camera's `[[device]]`:
+
+```toml
+mount = { height_m = 1.5, outdoor = false }
+```
+
+`height_m` is the camera's height above the floor, measured to its lens. `outdoor = true` marks a camera that looks
+outdoors. A camera carried on a moving rig takes `rig`, `at`, `turn`, and `hfov_deg` instead
+([config/devices.example.toml](../config/devices.example.toml) has an example).
+
 ## Put it on a place's plan
 
 A fixed camera places the people it sees once it has a spot on its place's plan: where it is, its height, and which
