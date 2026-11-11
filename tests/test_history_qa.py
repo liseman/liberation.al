@@ -95,7 +95,7 @@ def test_parse_reads_the_camera_number():
 @pytest.mark.parametrize(
     ("question", "message"),
     [
-        ("camera banana yesterday", "actual camera ID"),
+        ("camera banana yesterday", "Which camera"),
         ("camera1 yesterday at 25", "clock time"),
         pytest.param("who was here at 13pm", "clock time like 3pm", id="13pm"),
         pytest.param("who was here at 0am", "clock time like 3pm", id="0am"),
@@ -176,7 +176,7 @@ def test_between_two_clocks_reads_the_hour_the_pm_names():
         pytest.param("what did Dana say since 3 this afternoon", "in the future", id="future-part"),
         pytest.param("what did Dana say since 3pm this morning", "isn't this morning", id="wrong-half"),
         pytest.param("what did Dana say since 25", "clock time like 3pm", id="bad-clock"),
-        pytest.param("what did Dana say since 9am on 2026-10-20", "single time window", id="with-date"),
+        pytest.param("what did Dana say since 9am on 2026-10-20", "one stretch of time", id="with-date"),
     ],
 )
 def test_since_a_clock_refuses_what_it_cannot_read(question, message):
@@ -185,19 +185,20 @@ def test_since_a_clock_refuses_what_it_cannot_read(question, message):
 
 
 @pytest.mark.parametrize(
-    "question",
+    ("question", "words"),
     [
-        pytest.param("what did we talk about in March", id="a-month-name"),
-        pytest.param("what did Dana say since Monday", id="since-weekday"),
-        pytest.param("what did Dana say before 5pm", id="before-clock"),
-        pytest.param("what did Dana say two weeks ago", id="ago"),
-        pytest.param("what did Dana say over the past three weeks", id="past-weeks"),
-        pytest.param("what did Dana say on Friday", id="weekday"),
+        pytest.param("what did we talk about in March", "March 2026", id="a-month-name"),
+        pytest.param("what did Dana say since Monday", "since 2026-10-19", id="since-weekday"),
+        pytest.param("what did Dana say two weeks ago", "the week starting 2026-10-09", id="weeks-ago"),
+        pytest.param("what did Dana say over the past three weeks", "last 3 weeks", id="past-weeks"),
+        pytest.param("what did Dana say on Friday", "2026-10-23", id="weekday"),
+        pytest.param(
+            "what did Dana say before 5pm", 'all your recordings ("before 5" wasn\'t read as a time)', id="unread"
+        ),
     ],
 )
-def test_parse_still_refuses_time_phrases_it_cannot_read(question):
-    with pytest.raises(ValueError, match="Unsupported time phrase"):
-        h.parse(question, NOW)
+def test_parse_reads_open_ended_phrases_and_falls_back_to_the_whole_history(question, words):
+    assert h.parse(question, NOW)["window"] == words
 
 
 @pytest.mark.parametrize(
@@ -837,7 +838,7 @@ def test_a_part_of_the_day_names_its_day_in_the_window():
     [
         pytest.param("who was here this evening", "hasn't started yet", id="not-started-yet"),
         pytest.param("who was here tonight", "hasn't started yet", id="tonight-at-noon"),
-        pytest.param("camera1 last 2 hours in the evening", "single time window", id="with-a-duration"),
+        pytest.param("camera1 last 2 hours in the evening", "one stretch of time", id="with-a-duration"),
     ],
 )
 def test_a_part_of_the_day_that_cant_be_read_is_refused(question, message):
@@ -970,11 +971,15 @@ def test_natural_time_words_constrain_the_actual_read_window(question, first, la
         "between 2 and 4 and 6",
     ],
 )
-def test_unreadable_time_words_are_answered_explicitly_without_evidence(state, phrase):
+def test_unreadable_time_words_say_what_they_need_or_read_the_whole_history(state, phrase):
+    """Never a guess at a narrower window: either what to ask instead (a notice, not repeated as a warning) or the
+    whole history, with its words saying the time wasn't read."""
     result = h.collect(f"who was here {phrase}", state, now=NOW)
-    assert result["evidence"] == []
-    assert "time" in result["answer"].lower()
-    assert result["warnings"]
+    if result.get("needs"):
+        assert result["evidence"] == []
+        assert result["needs"] not in result["warnings"]
+    else:
+        assert result["query"]["window"].startswith("all your recordings (")
 
 
 def test_relative_night_uses_question_time_not_the_dashboard_selection():
@@ -1018,7 +1023,7 @@ def test_unresolvable_dst_clocks_are_refused_instead_of_shifted(question):
 
 
 def test_an_invalid_spelled_date_is_refused_not_dropped():
-    with pytest.raises(ValueError, match="calendar date"):
+    with pytest.raises(ValueError, match="date doesn't exist"):
         h.parse("what did Dana say on February 30", NOW)
 
 
@@ -1028,11 +1033,11 @@ def test_a_clock_window_never_reads_after_question_time():
     assert query["end"] == NOW
 
 
-@pytest.mark.parametrize("question", ["what did Dana say before 5pm", "what did Dana say on Friday"])
-def test_unsupported_time_still_routes_to_an_explicit_history_refusal(state, question):
-    result = h.collect(question, state, now=NOW)
-    assert "Unsupported time phrase" in result["answer"]
-    assert not result["evidence"]
+def test_an_unread_time_is_answered_over_the_whole_history_not_refused(state):
+    result = h.collect("what did Dana say before 5pm", state, now=NOW)
+    assert "needs" not in result
+    assert result["query"]["window"].startswith("all your recordings (")
+    assert (result["query"]["start"], result["query"]["end"]) == (0.0, NOW)
 
 
 @pytest.mark.parametrize("clock", ["3am", "3"])
@@ -1215,3 +1220,118 @@ def test_speech_about_retired_actions_still_reads_the_transcript(state, topic):
     assert result["query"]["kind"] == "transcript"
     assert any(topic in evidence["quote"] for evidence in result["evidence"])
     assert "being rebuilt" not in str(result.get("answer"))
+
+
+# Open-ended and whole-history time phrases (open_window), and the fallback for a phrase that isn't read.
+
+WHOLE = (0.0, NOW, "all your recordings")
+
+
+def local_day(day: str) -> float:
+    return dt.datetime.fromisoformat(day).replace(tzinfo=LA).timestamp()
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected"),
+    [
+        pytest.param("since recording started", WHOLE, id="since-recording-started"),
+        pytest.param("since the beginning", WHOLE, id="since-the-beginning"),
+        pytest.param("ever", WHOLE, id="ever"),
+        pytest.param("of all time", WHOLE, id="all-time"),
+        pytest.param("in total", WHOLE, id="in-total"),
+        pytest.param("so far", WHOLE, id="so-far"),
+        pytest.param("since 2026-10-03", (local_day("2026-10-03"), NOW, "since 2026-10-03"), id="since-a-date"),
+        pytest.param("since October 3", (local_day("2026-10-03"), NOW, "since 2026-10-03"), id="since-a-spelled-date"),
+        pytest.param("since October", (local_day("2026-10-01"), NOW, "since 2026-10-01"), id="since-a-month"),
+        pytest.param("since last Monday", (local_day("2026-10-19"), NOW, "since 2026-10-19"), id="since-last-weekday"),
+        pytest.param(
+            "in September", (local_day("2026-09-01"), local_day("2026-10-01"), "September 2026"), id="in-a-month"
+        ),
+        pytest.param(
+            "in November", (local_day("2025-11-01"), local_day("2025-12-01"), "November 2025"), id="the-last-november"
+        ),
+        pytest.param("over the last 3 weeks", (NOW - 21 * 86400, NOW, "last 3 weeks"), id="last-n-weeks"),
+        pytest.param("the past two months", (NOW - 60 * 86400, NOW, "last 2 months"), id="past-n-months"),
+        pytest.param(
+            "between October 3 and October 5",
+            (local_day("2026-10-03"), local_day("2026-10-06"), "between 2026-10-03 and 2026-10-05"),
+            id="between-two-dates",
+        ),
+        pytest.param("on Friday", (local_day("2026-10-23"), NOW, "2026-10-23"), id="a-weekday"),
+        pytest.param("around tea time", None, id="not-a-range"),
+    ],
+)
+def test_open_ended_phrases_resolve_to_their_ranges(phrase, expected):
+    assert h.open_window(phrase, NOW) == expected
+
+
+def test_this_year_comes_from_the_form_and_no_time_at_all_is_the_whole_history():
+    start, end, words, _ = h.window_of(question.Reading(day="this year"), NOW)
+    assert (start, end, words) == (local_day("2026-01-01"), NOW, "this year")
+    assert h.window_of(question.Reading(), NOW) == (*WHOLE, None)
+
+
+def test_a_phrase_that_isnt_a_time_is_read_as_the_whole_history_and_says_so():
+    words = h.window_of(question.Reading(other_time="around tea time"), NOW)
+    assert words == (0.0, NOW, 'all your recordings ("around tea time" wasn\'t read as a time)', None)
+
+
+# How many times someone said a word: counted in every line of the window.
+
+SAID = "How many times did Sam say garden since recording started"
+
+
+def said(t: float, text: str, speaker: str = "Sam") -> dict[str, Any]:
+    return dict(ts_start=t, speaker=speaker, text=text)
+
+
+@pytest.mark.parametrize(
+    ("asked", "words"),
+    [
+        (SAID, "garden"),
+        ("how often has Sam said 'no worries' this week", "no worries"),
+        ("how many times did Dana say the word thanks?", "thanks"),
+        ("who was here today", None),
+    ],
+)
+def test_said_words_finds_what_a_count_question_counts(asked, words):
+    assert h.said_words(asked) == words
+
+
+def test_a_said_count_reads_the_whole_history_and_names_its_range(state, readings):
+    months_ago = NOW - 90 * 86400
+    transcripts(
+        state,
+        [
+            said(months_ago, "The garden needs water."),
+            said(YESTERDAY, "Garden, garden, always the garden."),
+            said(YESTERDAY + 60, "I like the garden too.", speaker="Dana"),  # not Sam
+            said(NOW - 60, "Gardens are a lot of work."),  # a plain form of the word
+        ],
+    )
+    readings[SAID] = question.Reading(
+        source="speech", measure="count", people=("Sam",), other_time="since recording started"
+    )
+    r = ask(state, SAID)
+    assert r["paths"] == ["said-count"]
+    assert r["query"]["window"] == "all your recordings"
+    assert r["answer"].startswith('Sam said "garden" 5 times in all your recordings, the last time on ')
+    assert r["evidence"][0]["text"] == "Gardens are a lot of work."
+    assert "needs" not in r
+
+
+def test_a_said_count_with_no_time_counts_everything_and_zero_is_an_answer(state, readings):
+    asked = "how many times did Sam say banana"
+    transcripts(state, [said(YESTERDAY, "No fruit here.")])
+    readings[asked] = question.Reading(source="speech", measure="count", people=("Sam",))
+    r = ask(state, asked)
+    assert r["answer"] == 'Sam didn\'t say "banana" in all your recordings, as far as the transcript heard.'
+    assert r["evidence"] == []
+
+
+def test_what_a_question_needs_is_a_notice_not_an_answer_with_a_warning(state, readings):
+    asked = "what did Dana say last week at 3pm"
+    readings[asked] = question.Reading(people=("Dana",), day="last week", clock="3pm")
+    r = ask(state, asked)
+    assert r["needs"] == r["answer"] == h.COMBINED
+    assert h.COMBINED not in r["warnings"]
