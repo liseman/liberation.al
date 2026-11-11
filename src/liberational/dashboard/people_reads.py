@@ -11,8 +11,6 @@ GET /health                 the dashboard is up, and how far the People warm-up 
 import copy
 import threading
 import time
-import urllib.parse
-import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -287,7 +285,7 @@ def _get_people_references(h: H) -> None:
                 {
                     "references": references.listing(
                         context.STATE,
-                        urllib.parse.parse_qs(urllib.parse.urlsplit(h.path).query).get("person", [""])[0],
+                        h._query().get("person", ""),
                     )
                 }
             )

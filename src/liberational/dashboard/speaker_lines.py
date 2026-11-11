@@ -25,6 +25,7 @@ from liberational.dashboard import (
     people_reads,
     roster_read,
     routes,
+    shell_status,
     transcript_lines,
     unnamed_groups,
 )
@@ -140,6 +141,16 @@ def log_mark() -> tuple[int, ...]:
     except Exception as e:  # the broker is down: nothing changed that a client could be told of
         LOG.error(f"log_mark: {e!r}")
         return ()
+
+
+LOG_MARK_S = 2.0  # how often the live feed asks for the mark: a label changes only when the owner gives one
+
+
+def log_mark_shared() -> tuple[int, ...]:
+    """`log_mark`, read once for every live feed open at the same moment within LOG_MARK_S. It takes the registry's
+    lock (and refreshes the streams) and reads the review revision (a knowledge-store transaction), and each open page
+    asked it twice a second; a label now shows at most LOG_MARK_S later."""
+    return shell_status.shared(("log_mark", str(context.STATE)), LOG_MARK_S, log_mark)
 
 
 def latest_for_speaker(sid: int) -> dict[str, Any] | None:

@@ -17,7 +17,6 @@ pinned choices, in their order, under "people".
 from __future__ import annotations
 
 import json
-import urllib.parse
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -284,9 +283,9 @@ def handle(handler: H, view: reports.Reports | None = None) -> bool:
         if route == "layout":
             return _reply(handler, 200, {"reports": layout(view.store), "kinds": kinds(), "built_in": list(BUILT_IN)})
         if route == "report":
-            query = urllib.parse.parse_qs(urllib.parse.urlsplit(handler.path).query)
-            kind = (query.get("kind") or [""])[0]
-            arg = (query.get("arg") or [None])[0] or None
+            query = handler._query()
+            kind = query.get("kind") or ""
+            arg = query.get("arg") or None
             if kind == HEALTH:
                 return _reply(handler, 200, report_health.view(view.store))
             if kind not in reports.REPORTS:

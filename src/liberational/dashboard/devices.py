@@ -34,7 +34,6 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, urlsplit
 
 from liberational import config as cfg
 from liberational import logs
@@ -608,7 +607,7 @@ def handle(handler: H) -> bool:
             handler._json(privacy.view(handler._can_control()))
             return True
         if path == "/devices/camera-controls":
-            camera = parse_qs(urlsplit(handler.path).query).get("camera", [""])[0]
+            camera = handler._query().get("camera", "")
             code, reply = camera_controls.view(camera, handler._can_control())
             handler._json(reply, code)
             return True

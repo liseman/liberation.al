@@ -420,7 +420,7 @@ def _get_audio_range(h: H) -> None:
         return h._json({"error": str(ex)}, 500)
     # Browsers fetch media with Range requests and give up on a plain 200 (Review's room audio never loaded,
     # with networkState stuck at 2); _media answers 206 like /clip does.
-    return h._media(wav, "audio/wav", {"Cache-Control": "no-store"})
+    return h._media(wav, "audio/wav")
 
 
 @routes.get("/audio/spans")
