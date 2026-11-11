@@ -61,7 +61,12 @@ pets are drawn on the plan where the cameras saw them. The 3D view shows what on
 
 <img alt="Statistics: a daily clock of who was around, hour by hour, with stretches nothing was recorded hatched" src="docs/images/demo-statistics.png">
 
-The dashboard also has **Review** (a day's video and transcript) and **Ask** (questions answered from the record).
+**Ask** answers a question from the record, from any page. A harder question can go to Deep research, whose report
+arrives in the Inbox.
+
+<img alt="Ask open over Live: the question Who came by yesterday?, and its answer that Dana stopped by with groceries and came back for dinner" src="docs/images/demo-ask.png">
+
+The dashboard also has **Review**: a day's video, timeline, and transcript.
 
 ## What you need
 

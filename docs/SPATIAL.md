@@ -87,7 +87,10 @@ where its camera stands ([The scene of all cameras](#the-scene-of-all-cameras)).
   (`mount.height_m`) checks the find: a plane that would put the camera far from that height (a sofa seat, with the
   floor out of sight) isn't its floor, and is passed over.
 - **Its frame.** The cloud is level: z is up, the floor is z = 0, and the camera stands above the origin, looking
-  along +y. With no floor found the camera is taken to be upright and the lowest points stand in for the floor.
+  along +y. It is levelled by its own floor. With no floor in view its walls say which way is up (a wall is
+  vertical), and the lowest points stand in for the floor. With neither, the camera is taken to be upright.
+- **Which cloud is kept.** A view looks different by night. For a camera that has a spot and hasn't moved, a new
+  cloud that is worse than the one it has (no floor against a floor, or far fewer points) doesn't replace it.
 - **Where it is kept.** `state/camera_clouds/<camera>/` holds the camera's one cloud, the picture it was made from,
   and its record, and `notes.json` beside the folders says why a camera's last try made none. `pack-reset-places`
   deletes them.
@@ -116,6 +119,13 @@ camera's. Its frame is the owner's plan, in metres. Three things decide where a 
    pictures and placed from the first that registers. If none does, the camera leaves the scene and says it was
    moved and isn't placed, until its spot is set again or a picture registers. A moved camera's cloud is never left
    at its old spot.
+
+**Squared to the plan.** Between the first and second steps, a cloud's own walls say how its camera really faces,
+better than a facing set by hand. A camera placed from its spot is turned, and slid where its walls have clear
+counterparts, so that its walls run along the plan's. The move is rigid and bounded, is kept beside the cloud, and
+holds only while the cloud, the spot, and the plan are the same; nothing of the owner's is written. A camera squared
+this way holds its place: a pair's measurement no longer moves it, and between two squared cameras the measurement is
+only a check.
 
 **When a match is confident.** It is measured, not judged. Each direction must be sure of at least 3 percent of the
 pixels in the other's frame, the matcher must find at least 15 percent of them one way or the other, and the two
