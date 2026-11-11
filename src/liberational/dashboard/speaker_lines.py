@@ -686,7 +686,7 @@ def _post_speakers_refine_undo(h: H, body: Any) -> None:
     if not h._can_teach():
         return h._json({"ok": False, "error": "labels can only be undone from this machine"}, 403)
     if h.headers.get_content_type() != "application/json" or (
-        origin and origin != "http://" + (h.headers.get("Host") or "")
+        origin and origin not in (f"http://{h.headers.get('Host') or ''}", f"https://{h.headers.get('Host') or ''}")
     ):
         return h._json({"ok": False, "error": "same-origin JSON only"}, 403)
     code, o = speakers_refine_undo(body)

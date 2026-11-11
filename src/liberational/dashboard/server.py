@@ -481,6 +481,11 @@ def remote_camera_history() -> bool:
     return bool(cfg.get("dashboard.remote_camera_history"))
 
 
+def remote_control() -> bool:
+    """dashboard.remote_control, read per request so a Settings change applies without a restart."""
+    return bool(cfg.get("dashboard.remote_control"))
+
+
 def fill(s: str) -> str:
     """An HTML page with the assistant and owner names filled in, and NAMES for its scripts (with the cameras and
     whether dashboard.hotkeys is on)."""
@@ -699,6 +704,32 @@ class H(http.server.BaseHTTPRequestHandler):
         )
 
     def _can_control(self) -> bool:
+        """Local, and addressed to a loopback name, so a DNS-rebound page can't reach the service controls; or, with
+        dashboard.remote_control on, a request from a device on the tailnet (_tailnet) that passed the dashboard
+        password and, unless it only reads, came from this dashboard's own page. Never without a password."""
+        return self._can_control_here() or (
+            bool(DASH_PASSWORD) and remote_control() and self._tailnet() and self._same_origin()
+        )
+
+    def _tailnet(self) -> bool:
+        """Proxied in by Tailscale Serve from a signed-in device on the tailnet, not from the internet over Funnel.
+        Serve connects from loopback, drops any Tailscale-User-* headers a client sent, then names the tailnet user;
+        a Funnel request gets no user and is marked Tailscale-Funnel-Request."""
+        return (
+            self.client_address[0] in ("127.0.0.1", "::1")
+            and bool(self.headers.get("Tailscale-User-Login"))
+            and not self.headers.get("Tailscale-Funnel-Request")
+        )
+
+    def _same_origin(self) -> bool:
+        """A read, or a write whose Origin is absent (not a browser) or names this Host over http or https, so another
+        site's page can't post it with the browser's saved password."""
+        if self.command in ("GET", "HEAD"):
+            return True
+        origin, host = self.headers.get("Origin"), self.headers.get("Host") or ""
+        return not origin or origin in (f"http://{host}", f"https://{host}")
+
+    def _can_control_here(self) -> bool:
         """Local, and addressed to a loopback name, so a DNS-rebound page can't reach the service controls."""
         raw = self.headers.get("Host") or ""
         if not raw:

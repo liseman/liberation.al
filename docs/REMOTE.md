@@ -37,8 +37,8 @@ and 8765 is `ports.dashboard`.
 | Look at Live, Review, the Journal, Known, and Reports | Yes | Yes |
 | Review's "what the cameras saw" (captions and face names) | Yes | Only with `dashboard.remote_camera_history` on |
 | Teach: names, faces, voices, pets, zones, transcript fixes, and activity answers | Yes | Only with `dashboard.remote_teaching` on |
-| Settings, services, devices, ingest, and the Learn surroundings switch | Yes | No: the page shows them read only |
-| Say who the owner is | Yes | No |
+| Settings, services, devices, pausing cameras and microphones, ingest, and the Learn surroundings switch | Yes | Only over Tailscale Serve with `dashboard.remote_control` on; otherwise read only |
+| Say who the owner is | Yes | Only over Tailscale Serve with `dashboard.remote_control` on |
 
 ## Allow teaching from another device
 
@@ -52,6 +52,26 @@ and 8765 is `ports.dashboard`.
 2. Teach from the dashboard's own page on the other device. A request from any other page is refused.
 
 It never works without a dashboard password. `dashboard.remote_camera_history` is turned on the same way.
+
+## Allow everything from your tailnet
+
+`dashboard.remote_control` lets a device on your tailnet do everything the machine itself can: change Settings,
+start and stop services, pause cameras and microphones, and the rest.
+
+1. Serve the dashboard to the tailnet with Tailscale Serve (`tailscale serve --https=<port> http://127.0.0.1:8765`).
+   A request counts only when Serve names the signed-in tailnet user (the `Tailscale-User-Login` header). A request
+   from the internet over Funnel never does, even on the same port, and neither does a plain `http://<host>:8765/`.
+
+2. Turn it on in `pack.toml`, or in Settings on the machine itself:
+
+   ```toml
+   [dashboard]
+   remote_control = true
+   ```
+
+Every request still needs the dashboard password, and a change must come from the dashboard's own page. It never
+works without a password. Devices owned by a tag rather than a person get no user header from Serve, so they stay read
+only.
 
 ## Get video over HTTPS on a tailnet
 
