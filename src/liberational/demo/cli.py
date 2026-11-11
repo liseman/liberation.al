@@ -6,7 +6,8 @@ Makes a demo directory (DIR, or a new one under the system's temporary directory
 and the pack's config file into it, starts a private Continuum broker on its state directory, seeds the dataset in
 demo/dataset.py, and runs the dashboard on PORT. Without --port it is 8780, a port no service of the pack uses, so the
 demo runs beside an open application; when 8780 is taken, a free port the pack doesn't use instead, and the address
-line says which. A --port that is taken is refused at once. Ctrl-C stops the dashboard, broker, and private playback gateway. The demo runs no models:
+line says which. That line is printed once the dashboard answers, so a script may open it at once. A --port that is
+taken is refused at once. Ctrl-C stops the dashboard, broker, and private playback gateway. The demo runs no models:
 Ask uses prepared answers, and the demo HTTP process refuses outbound network connections and subprocesses.
 Room illustrations, recordings, portraits, and point clouds are generated locally at each start.
 
@@ -16,6 +17,7 @@ launcher refuses a DIR inside it.
 
 import argparse
 import datetime as dt
+import http.client
 import os
 import shutil
 import signal
@@ -27,7 +29,7 @@ import time
 import tomllib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
 
 from liberational import config as cfg
 
@@ -227,6 +229,21 @@ def start_broker(root: Path, env: Mapping[str, str], output: IO[bytes] | None = 
     return process
 
 
+def gateway_command(env: Mapping[str, str], port: int) -> list[str]:
+    """The private playback gateway's command, listening on `port`: it is given the broker's socket explicitly,
+    because it would otherwise look for one under the state directory, where a long demo directory's socket path is
+    too long for a socket and the broker listens in a short temporary one instead."""
+    return [
+        str(cfg.program("continuum-gateway")),
+        "--state-dir",
+        env["PACK_PATHS_STATE"],
+        "--broker-socket",
+        env["CONTINUUM_SOCKET"],
+        "--listen",
+        f"127.0.0.1:{port}",
+    ]
+
+
 def start_vector_worker(env: Mapping[str, str], output: IO[bytes] | None = None) -> subprocess.Popen[bytes]:
     """Starts a vector worker on the demo's broker, which indexes the journal's text as it is written, so a journal
     search finds the demo's entries (the meaning index needs embeddings, which the demo doesn't make)."""
@@ -276,11 +293,34 @@ def wait_for_index(day: dt.date, timeout: float = 60.0) -> None:
         time.sleep(0.2)
 
 
+def wait_for_http(port: int, process: subprocess.Popen[bytes], timeout: float = 60.0) -> None:
+    """Waits until the dashboard answers `/health` on `port`; raises SystemExit if it exits or takes longer than
+    `timeout`. The address line is printed only after this, so a script that opens it at once is never refused."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                connection.request("GET", "/health")
+                if connection.getresponse().status == 200:
+                    return
+            finally:
+                connection.close()
+        except (OSError, http.client.HTTPException):
+            pass
+        if process.poll() is not None:
+            raise SystemExit(f"pack-demo: the dashboard exited ({process.returncode}) before it listened")
+        if time.monotonic() > deadline:
+            raise SystemExit(f"pack-demo: the dashboard didn't listen on port {port} within {timeout:.0f} s")
+        time.sleep(0.05)
+
+
 def _interrupt(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
-def stop(process: subprocess.Popen[bytes]) -> None:
+def stop(process: subprocess.Popen[Any]) -> None:
+    """Stops a child of this launcher, whether it was started with byte streams or text ones."""
     if process.poll() is None:
         process.send_signal(signal.SIGTERM)
         try:
@@ -306,27 +346,22 @@ def run(root: Path, port: int, dashboard_args: Sequence[str] = ()) -> int:
     try:
         subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--seed-here", "--media"], env=env, check=True)
         (root / SEEDED).write_text("pack-demo\n")
-        gateway = subprocess.Popen(
-            [
-                str(cfg.program("continuum-gateway")),
-                "--state-dir",
-                env["PACK_PATHS_STATE"],
-                "--listen",
-                f"127.0.0.1:{gateway_port}",
-            ],
-            env=env,
-            cwd=root,
-        )
-        print(f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})", flush=True)
+        gateway = subprocess.Popen(gateway_command(env, gateway_port), env=env, cwd=root)
         try:
             dashboard = subprocess.Popen(
                 [sys.executable, "-m", "liberational.demo.server", str(port), *dashboard_args], env=env
             )
             try:
+                wait_for_http(port, dashboard)
+                print(
+                    f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})",
+                    flush=True,
+                )
                 return dashboard.wait()
             except KeyboardInterrupt:
-                stop(dashboard)
                 return 0
+            finally:
+                stop(dashboard)
         finally:
             stop(gateway)
     finally:
