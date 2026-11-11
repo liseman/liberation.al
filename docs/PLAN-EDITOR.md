@@ -27,6 +27,8 @@ The editor has a **Plan** panel (its levels and rooms), **Build**, and **Cameras
    wherever walls close a shape.
 2. To put a door or a window in a wall, pick **Door** or **Window** under **Add to rooms** and click the wall.
 
+![The plan editor: the room and wall tools on the left, the plan on the right, and Versions, Discard changes, and Save plan above it](images/demo-plan-editor.png)
+
 The drawing tools and gestures are those of the editor this page is built on. This project adds the **Build** and
 **Cameras** panels, and keeps the tools a home's plan needs: rooms, walls, doors, and windows.
 

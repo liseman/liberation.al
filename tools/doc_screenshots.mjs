@@ -69,6 +69,16 @@ const SHOTS = [
       await click(page, page.getByRole('button', { name: 'Show', exact: true }).first(), SETTLE_MS);
     },
   },
+  {
+    name: 'demo-pet-remove-selected',
+    steps: async page => {
+      await open(page, '/pets');
+      await click(page, page.getByText('Rex', { exact: true }).first(), SETTLE_MS);
+      await click(page, page.getByRole('button', { name: 'Show', exact: true }).first(), SETTLE_MS);
+      await click(page, page.getByRole('checkbox').first()); // the grey tile, listed first
+      await page.getByRole('button', { name: /Remove 1 selected/ }).scrollIntoViewIfNeeded();
+    },
+  },
   { name: 'demo-places-plan', steps: page => open(page, '/places') },
   {
     name: 'demo-plan-editor',

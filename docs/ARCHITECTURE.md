@@ -1,9 +1,9 @@
 # Architecture
 
-The Liberational Pack is a wearable ambient assistant. It listens through microphones, watches through cameras, keeps
-a local record of what was said and seen, learns who people are, and answers questions out loud. Speech recognition,
-speech synthesis, captioning, speaker and face recognition, and the language model all run on the machine you carry.
-Hosted services are optional. [MANIFESTO.md](../MANIFESTO.md) says why.
+The Liberational Pack is a private memory for a household. It listens through microphones, watches through cameras,
+keeps a local record of what was said and seen, learns who people are, and answers questions about it. Speech
+recognition, speech synthesis, captioning, speaker and face recognition, and the language model all run on a
+computer in the home. Hosted services are optional. [MANIFESTO.md](../MANIFESTO.md) says why.
 
 This document is the map: what the parts are, how data flows between them, where the code lives, and which document
 has the detail. [COMPONENTS.md](COMPONENTS.md) is the reference: every service, port, and state file. Both describe
