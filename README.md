@@ -127,8 +127,9 @@ This is version 0.1.0 of a research project. It runs every day in its developers
   each version's [release notes](docs/RELEASES.md#notes) say what it resets.
 - It needs a capable machine: an NVIDIA GPU on Linux, or Apple Silicon. There is no macOS installer package, and no
   phone app.
-- The 3D view is optional and set up by hand. It shows one camera's view at a time and does not join cameras into
-  a map of a place. The model behind it is licensed for non-commercial use.
+- The 3D view is optional and set up by hand. It shows what each camera sees, one camera at a time or every camera
+  placed on your plan; it does not blend them into one model of a place. The model behind it is licensed for
+  non-commercial use.
 - Recognition is only as good as what you taught it, and a count covers only what the cameras were looking at.
   Answers say when there is a gap.
 - The wearable in the [original plan](docs/history/plan-2026-10.md) is not built. It runs on a computer with

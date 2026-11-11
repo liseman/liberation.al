@@ -51,11 +51,11 @@ up on the machine ([the steps](../MIGRATING.md#each-cameras-own-point-cloud)); w
 
 ![The 3D view of the demo household's front-room camera: the room as a cloud of points, with the camera picker above and the colour, point size, and floor controls below](images/demo-3d-view.png)
 
-One camera is shown at a time. Clouds of different cameras are not joined into one map of the place.
+**One camera** shows that camera's cloud by itself. **All cameras** puts every camera's cloud where its camera stands
+on your plan ([See every camera's cloud in one scene](#see-every-cameras-cloud-in-one-scene)).
 
-The line under the view says how many points the cloud has, when it was made, and how it was sized. "Approximate
-size" means the cloud's scale is the model's guess. To pin it, give the camera its mounting height
-([Say how it is mounted](CAMERAS.md#say-how-it-is-mounted)); that works when a floor is in the camera's view.
+The line beside the picker says how many points the cloud has and when it was made. "Approximate size" means the
+distances are the model's own estimate, which can be a tenth off or more.
 
 When a camera has no cloud, the view says why:
 
@@ -71,6 +71,38 @@ When a camera has no cloud, the view says why:
 | This camera's lens calibration can't be used | Calibrate the lens again ([Cameras](CAMERAS.md#calibrate-a-wide-lens)) |
 
 A cloud is made again when the camera's view changes.
+
+## See every camera's cloud in one scene
+
+1. Give each camera a spot with a facing on your plan
+   ([Give a camera a spot on the plan](#give-a-camera-a-spot-on-the-plan)).
+2. In the 3D view, switch from **One camera** to **All cameras**.
+
+Each camera's cloud is drawn where its camera stands on your plan. The clouds are separate layers and are never
+blended: each camera shows only what it sees, so expect gaps and seams. Under the view is a row for each camera:
+
+- The checkbox shows or hides its points.
+- The colour is its outline in the scene, and its points' tint when the points are coloured **By camera**.
+- **Look from** moves the view to where the camera stands.
+- The arrow at the end opens the details: how the camera was placed, what its pictures share with another camera's,
+  and how many of its points fall outside your plan's rooms.
+
+The word on each row says how the camera is placed:
+
+| It says | Meaning | Do this |
+|---|---|---|
+| Placed | Placed from its spot on your plan | Nothing |
+| Adjusted | Placed from its spot, then adjusted against another camera that sees the same space, by what their pictures share. The details say how far from the spot | Nothing |
+| Moved | The camera was moved, and its cloud followed to where its pictures now put it | Press **Move its spot** to move the spot on your plan there. It asks first, and says how far the spot moves and turns. **Undo** on the message that follows puts the spot back, and the plan's earlier version stays in Versions |
+| Not placed | The camera was moved, and its picture matches neither its old one nor another camera's | Set its spot again in the plan editor |
+| No spot | It has no spot on your plan, or its spot has no facing | Press **Set its spot**, which opens the plan editor |
+
+**Only inside the plan** leaves out the points that fall outside your plan's rooms, and says how many.
+
+Two cameras are adjusted against each other only when their pictures clearly show the same space. When they see some
+of it but their pictures don't agree well enough, they are placed from their spots only. When their pictures put
+them far from where their spots do, the details say that one of the two spots is off, and nothing is moved. Pictures
+taken at night often don't match, so a pair is first adjusted in daylight; the adjustment then stays.
 
 ## Give a camera a spot on the plan
 
