@@ -107,6 +107,17 @@ const SHOTS = [
     },
   },
   {
+    name: 'demo-ask',
+    steps: async page => {
+      await live(page);
+      await click(page, page.getByRole('button', { name: /Ask/ }).first(), SETTLE_MS);
+      const box = page.getByPlaceholder('Ask about your recordings');
+      await box.fill('Who came by yesterday?');
+      await box.press('Enter');
+      await page.waitForTimeout(9000); // the demo's prepared answer
+    },
+  },
+  {
     name: 'demo-activities',
     steps: async page => {
       await open(page, '/activities');

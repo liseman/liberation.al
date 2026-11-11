@@ -25,12 +25,14 @@ reading.
 
 ## Ask
 
-`memory/ask.py` (`pack-ask`, and `POST /pack-ask/jobs` on the dashboard) runs each question in a worker subprocess.
+`memory/ask.py` (`pack-ask`, and `POST /pack-ask/jobs` on the dashboard) runs each question in a worker subprocess:
+it collects evidence, then answers from it with the local model. There is one Ask, opened the same way from every
+page ([How to ask the pack a question](ASK.md)). Opened from Review, it adds the day Review shows as a hint. Ask
+answers only from the pack's own records: no question goes to an outside model.
 
-- **Scope `history`** (the default): collect evidence, then answer from it with the local model. Review's Ask adds
-  the selected day.
-- **Scope `general`**: no evidence is collected. Live's Friends and Everyone modes use it, so remote agents receive
-  only the question.
+A question is answered quickly by default. With `deep` set on the request, the same route hands it to research
+([Research](#research)). Both replies carry `reach`: the search rounds at most, the time they may take, the sources
+they can read, and the model that writes the answer, so neither path claims more than it searches.
 
 Evidence gathering (`memory/recall.py`, on by `recall.enabled`) is a loop of up to `recall.max_rounds` rounds. Each
 round the local model searches the journal, a person's facts, the transcript, captions, visits, or recorded frames.
@@ -111,7 +113,8 @@ Background model calls yield to a voice turn through `voice_turn.wait_quiet()`, 
 ## Research
 
 `pack-research` (`memory/research.py`) runs an Ask question slowly: more search rounds (`research.max_rounds`), a
-long answer budget, one job at a time at idle priority. It waits while an instant Ask question runs
+long answer budget, one job at a time at idle priority. A question reaches it only through Ask, with Deep research
+on. It waits while an instant Ask question runs
 (`state/ask/busy/`). Each finished job is a report in the Inbox with its citations. Jobs live in `state/research/`.
 
 ## The voice turn
