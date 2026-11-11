@@ -238,11 +238,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # protoc for LanceDB's build (continuum-vector); PipeWire's headers and libclang for continuum-capture.
+      # protoc and its bundled .proto files (libprotobuf-dev) for LanceDB's build (continuum-vector); PipeWire's headers and libclang for continuum-capture.
       - name: Install system packages
         run: |
           sudo apt-get update -q
-          sudo apt-get install -yq --no-install-recommends protobuf-compiler libpipewire-0.3-dev libclang-dev pkg-config
+          sudo apt-get install -yq --no-install-recommends protobuf-compiler libprotobuf-dev libpipewire-0.3-dev libclang-dev pkg-config
 
       # continuum-py's PyO3 build needs a Python to build against.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
