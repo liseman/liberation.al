@@ -241,10 +241,6 @@ fn plan_mac_camera(
 /// # Errors
 ///
 /// The device's error.
-pub fn open_camera(node: &str, device: &Device) -> std::io::Result<(Box<dyn Camera>, Opened)> {
-    open_camera_with_share(node, device, None)
-}
-
 fn open_camera_with_share(
     node: &str,
     device: &Device,

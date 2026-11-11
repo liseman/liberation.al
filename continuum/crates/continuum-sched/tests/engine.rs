@@ -57,7 +57,6 @@ fn manifest(producer: &str, caps: Vec<Capability>) -> Manifest {
 fn catalog() -> FakeCatalog {
     let mut cat = FakeCatalog::new();
     cat.add_stream(CAM, StreamKind::Sensor, true, 30.0)
-        .set_live_edge(CAM, Some(NOW))
         .add_stream(CROP, StreamKind::Derived, true, 30.0)
         .add_stream(EMBED, StreamKind::Derived, true, 30.0)
         .add_stream(POSE, StreamKind::Derived, true, 30.0)
@@ -593,44 +592,40 @@ fn an_unknown_lease_or_promise_is_an_error_not_a_panic() {
     assert!(engine.on_ingest(&cat, IngestRef { id: uuid(1), stream: CAM, range: iv(0, 1) }, NOW).is_empty());
 }
 
-const MS: u64 = 1_000_000;
-
 #[test]
-fn the_live_edge_lagging_now_is_not_a_gap() {
-    // The normal state: sealed batches a little behind, the live edge a few ms behind now.
+fn a_quote_says_which_past_part_it_can_no_longer_get() {
+    // The normal state: sealed batches a little behind now, nothing reported past them.
     let mut engine = Engine::new(Profile::linux_dual_3090());
-    let (crop, _) = fleet(&mut engine);
-    let edge = NOW - 20 * MS;
+    fleet(&mut engine);
     let mut cat = FakeCatalog::new();
     cat.add_stream(CAM, StreamKind::Sensor, true, 30.0)
-        .set_live_edge(CAM, Some(edge))
         .add_stream(CROP, StreamKind::Derived, true, 30.0)
         .add_stream(EMBED, StreamKind::Derived, true, 30.0)
-        .cover(CAM, iv(NOW - 10 * S, NOW - 500 * MS), StorageTier::Tier0Hot);
+        .cover(CAM, iv(NOW - 10 * S, NOW), StorageTier::Tier0Hot);
 
-    // A derived range reaching now: the ring covers up to the edge, the sliver after it is awaited, then computed.
+    // A derived range whose sensor data exists needs no capture: one compute step over it.
     let out = engine.query(&cat, query(1, CROP, iv(NOW - S, NOW), QueryMode::QuoteIfMissing), NOW);
-    let QueryDecision::Quoted { quote, .. } = out.decision else { panic!("{:?}", out.decision) };
-    assert_eq!(quote.status, QuoteStatus::AwaitingCaptureAndCompute);
+    let QueryDecision::Quoted { covered, quote } = out.decision else { panic!("{:?}", out.decision) };
+    assert!(covered.is_empty(), "a derived stream holds no payloads of its own");
+    assert_eq!(quote.status, QuoteStatus::RequiresCompute);
     let kinds: Vec<_> = quote.plan.steps.iter().map(|s| (s.kind, s.stream)).collect();
-    assert_eq!(kinds, vec![(StepKind::Capture, CAM), (StepKind::Compute, CROP)]);
-    assert_eq!(quote.plan.steps[0].range, iv(edge, NOW));
-    assert_eq!(quote.plan.steps[1].capability, Some(crop));
+    assert_eq!(kinds, vec![(StepKind::Compute, CROP)]);
+    assert_eq!(quote.plan.steps[0].range, iv(NOW - S, NOW));
     assert!(quote.unavailable.is_empty());
 
-    // A sensor query across the edge: the tail is reported present, only what is past the edge is quoted.
+    // A sensor query across what is missing: only the part ahead of now is quoted.
     let out = engine.query(&cat, query(1, CAM, iv(NOW - S, NOW + S), QueryMode::QuoteIfMissing), NOW);
     let QueryDecision::Quoted { covered, quote } = out.decision else { panic!("{:?}", out.decision) };
     assert_eq!(covered.len(), 1);
-    assert_eq!(covered[0].interval, iv(NOW - S, edge));
-    assert_eq!(quote.missing, vec![iv(edge, NOW + S)]);
+    assert_eq!(covered[0].interval, iv(NOW - S, NOW));
+    assert_eq!(quote.missing, vec![iv(NOW, NOW + S)]);
     assert_eq!(quote.status, QuoteStatus::AwaitingCapture);
 
     // A query that also reaches into a real past gap says what is gone and quotes the rest.
     let out = engine.query(&cat, query(1, CAM, iv(NOW - 100 * S, NOW + S), QueryMode::QuoteIfMissing), NOW);
     let QueryDecision::Quoted { quote, .. } = out.decision else { panic!("{:?}", out.decision) };
     assert_eq!(quote.unavailable, vec![iv(NOW - 100 * S, NOW - 10 * S)]);
-    assert_eq!(quote.missing, vec![iv(edge, NOW + S)]);
+    assert_eq!(quote.missing, vec![iv(NOW, NOW + S)]);
 
     // A derived range that needs sensor data from the gap can't be made, and says which stream.
     let out = engine.query(&cat, query(1, CROP, iv(NOW - 50 * S, NOW - 49 * S), QueryMode::QuoteIfMissing), NOW);

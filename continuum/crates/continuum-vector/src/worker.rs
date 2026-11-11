@@ -452,7 +452,7 @@ impl SearchWorker {
             .map_err(|e| WorkerError::Client(format!("committing job {}: {e}", job.job_id)))
     }
 
-    /// An input's bytes: inline, or copied out of the shared memory slot the broker pinned for the job.
+    /// An input's bytes: inline, or copied out of the shared memory slot the broker pinned for this session.
     fn bytes_of(&self, item: &Item) -> Result<Vec<u8>, String> {
         match &item.locator {
             Some(StorageLocator::Inline { bytes }) => Ok(bytes.clone()),
@@ -463,7 +463,9 @@ impl SearchWorker {
                 }
                 let range = span_in(*offset, *length, mapped.len())
                     .ok_or_else(|| format!("slot at {offset}+{length} is outside arena {arena}"))?;
-                // SAFETY: the range is inside the mapping (checked above), and the broker pins the slot for the job.
+                // SAFETY: the range is inside the mapping (checked above), and the broker pinned the slot for this
+                // session for a few seconds when it wired the dispatch. A worker slow enough to read it after that
+                // pin expired can see the slot reused, so this copy is a snapshot, not a guarantee.
                 let slice = unsafe { std::slice::from_raw_parts(mapped.base_ptr().add(range.start), range.len()) };
                 Ok(slice.to_vec())
             }

@@ -4026,6 +4026,11 @@ async fn a_query_reaching_now_on_a_ring_stream_returns_the_unsealed_tail_too() {
     assert_eq!((tail.ring(), tail.arena().unwrap(), tail.arena_generation()), (index, name.as_str(), generation));
     assert_eq!(tail.ring_offset(), ring.ctrl_offset);
     assert!(!r.complete(), "the tail isn't indexed yet");
+    // `missing` still names the span the tail covers: `complete` and the tail are what tell a reader that those
+    // bytes are readable now rather than gone (docs/CONTINUUM-BROKER.md, "the live edge").
+    let missing: Vec<(u64, u64)> =
+        r.missing().map(|m| m.iter().map(|t| (t.start_ns(), t.end_ns())).collect()).unwrap_or_default();
+    assert_eq!(missing, vec![(101_000, 400_000)]);
     // A reader can copy the tail's records straight from the ring.
     let mut reader = arena.carved_ring_reader(&ring, continuum_shm::ReadFrom::Oldest).unwrap();
     let mut out = [0u8; 1_440];

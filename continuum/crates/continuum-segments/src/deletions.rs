@@ -11,7 +11,6 @@
 use std::fs::File;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::SystemTime;
 
 use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray, Int64Array, RecordBatch, StringArray};
 use arrow_select::filter::filter_record_batch;
@@ -282,9 +281,7 @@ fn forget_matching(
         cameras: cams.unwrap_or_default().iter().map(|&c| c.to_owned()).collect(),
         t0,
         t1,
-        at_ns: SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)),
+        at_ns: continuum_core::utc_now_ns(),
         column: column.map(|(c, _)| c.to_owned()),
         value: column.map(|(_, v)| v.to_owned()),
     })?;
