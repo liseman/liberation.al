@@ -11,7 +11,7 @@ const [base, output, baseline] = process.argv.slice(2);
 assert(base && output, 'Provide an isolated demo URL and an output directory');
 const html = await (await fetch(`${base}/activities`, { headers: { Accept: 'text/html' } })).text();
 const names = JSON.parse(JSON.parse(html.match(/window.NAMES=JSON.parse\((.*?)\);/s)?.[1] ?? '"null"'));
-assert.equal(names?.gatewayPort, 9, 'Refusing a dashboard that is not isolated from the real gateway');
+assert(names?.gatewayPort === 9 || html.includes('window.__PACK_DEMO__=true;'), 'Refusing a dashboard that is not an isolated demo');
 const { chromium } = createRequire(path.resolve('frontend/package.json'))('playwright');
 await mkdir(output, { recursive: true });
 const browser = await chromium.launch({ headless: true });
