@@ -8,7 +8,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from types import ModuleType
 from typing import Any
@@ -47,7 +47,7 @@ ROOM_TAIL = 20000  # room lines read for People: the newest this many
 
 
 def _room_lines(
-    raw: list[dict[str, Any]] | None = None,
+    raw: Sequence[dict[str, Any]] | None = None,
     view: transcript_view.View | None = None,
     *,
     named_lines: list[dict[str, Any]] | None = None,
@@ -151,7 +151,7 @@ def _owner_keys() -> set[str]:
 
 
 def people_roster(
-    raw: list[dict[str, Any]] | None = None,
+    raw: Sequence[dict[str, Any]] | None = None,
     view: transcript_view.View | None = None,
     speakers: list[dict[str, Any]] | None = None,
     *,
