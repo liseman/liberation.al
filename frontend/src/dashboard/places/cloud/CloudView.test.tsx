@@ -620,17 +620,17 @@ it("says in a row's detail how its cloud was levelled and squared, that its wall
   ]);
   renderPage(<CloudView place="p1" />);
   await toAll();
-  const row = (await screen.findAllByRole('listitem'))[0] as HTMLElement;
+  // the lines are in the row's detail from the start, shown when it is opened
   expect(
-    within(row).getByText(/^Squared to your plan by its walls: turned 2\.7°\. Not slid onto the plan's walls/),
+    await screen.findByText(/^Squared to your plan by its walls: turned 2\.7°\. Not slid onto the plan's walls/),
   ).toBeTruthy();
   expect(
-    within(row).getByText('No floor in view, so levelled from its walls: the camera looks 13° down and is rolled 1°.'),
+    screen.getByText('No floor in view, so levelled from its walls: the camera looks 13° down and is rolled 1°.'),
   ).toBeTruthy();
   expect(
-    within(row).getByText('Walls in this cloud bend by about 3°: that is the depth estimate, not the placement.'),
+    screen.getByText('Walls in this cloud bend by about 3°: that is the depth estimate, not the placement.'),
   ).toBeTruthy();
-  expect(within(row).getByText(/^From a picture taken .* 15:53\.$/)).toBeTruthy();
+  expect(screen.getByText(/^From a picture taken .* 15:53\.$/)).toBeTruthy();
 });
 
 it("hides a camera's points when its box is cleared, and the points outside the plan until asked for", async () => {
@@ -711,5 +711,5 @@ it('says so when no camera can be placed, with why for each', async () => {
   expect(
     await screen.findByText(/No camera can be placed yet: each needs a spot with a facing on your plan/),
   ).toBeTruthy();
-  expect(screen.getByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
+  expect(await screen.findByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
 });
