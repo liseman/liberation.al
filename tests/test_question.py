@@ -539,5 +539,7 @@ def test_ranges_the_form_cant_hold_go_whole_to_the_range_reader(asked, fields, w
 
 def test_a_clock_range_stays_a_clock_range():
     asked = "what did Dana say between 2 and 4pm"
-    r = question.from_reply(reply(time_phrase="between 2 and 4pm", time_kind="calendar", clock="2", clock_end="4pm"), asked)
+    r = question.from_reply(
+        reply(time_phrase="between 2 and 4pm", time_kind="calendar", clock="2", clock_end="4pm"), asked
+    )
     assert (r.other_time, r.clock, r.clock_end) == ("", "2", "4pm")
