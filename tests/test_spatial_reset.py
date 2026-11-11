@@ -63,6 +63,22 @@ def test_a_dry_run_lists_what_goes_and_what_stays_and_changes_nothing(house, cap
     assert "not listed until mapped again (no corrected plan of yours): Office" in keep
 
 
+def test_a_dry_run_measures_each_target_once(house, monkeypatch):
+    state, _, _ = house
+    measured = []
+    real = reset.size
+
+    def counting(path):
+        measured.append(path)
+        return real(path)
+
+    monkeypatch.setattr(reset, "size", counting)
+    found = reset.plan(state)
+    said = reset.describe(found)
+    assert len(measured) == len(set(measured)) == len(found.targets)  # no folder walked twice
+    assert any(line.startswith("  total ") for line in said)
+
+
 def test_a_reset_deletes_the_machines_state_and_keeps_the_place_the_owners_plan_holds(house):
     state, kept, gone = house
     reset.run(reset.plan(state))

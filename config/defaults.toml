@@ -889,7 +889,7 @@ max_sensors = 8
 aggregate_seconds = 5.0
 # Pending native identifiers and payload-match fingerprints at most. Capacity loss is explicit in coverage.
 max_devices = 1024
-# Combined sightings, unconfirmed candidates, and coverage records per second (3 through 500).
+# Combined sightings and coverage records per second (3 through 500).
 max_records_per_second = 50
 # Local BLE1 JSONL used only with source=replay; empty disables replay.
 replay_path = ""
