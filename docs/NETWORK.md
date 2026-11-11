@@ -33,8 +33,8 @@ poll, a host ARP/DHCP pass, or any Bluetooth link (`absence_is_not_inferred = tr
    uv run pack-network-devices --check
    ```
 
-4. Install or restart the `network-devices` service (`uv run pack-services install network-devices` when running OS
-   service units, or restart the supervisor).
+4. Start the `network-devices` service: with the application open, `uv run pack-supervisor reload` follows the
+   changed selection.
 
 ## Device links
 

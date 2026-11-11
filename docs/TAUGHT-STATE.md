@@ -75,8 +75,8 @@ derived from them should start again.
    uv run pack-reset-catalog --keep-taught --yes
    ```
 
-   It stops every service, deletes the machine-made data, turns on H.264 for the cameras in `config/devices.toml`
-   (`--camera NAME`, repeated, limits which), and starts the services that were running. If it stops partway, it
+   Run it with the application open. It stops every service, deletes the machine-made data, and starts the services
+   that were running. It leaves `config/devices.toml` and each camera's settings as they are. If it stops partway, it
    leaves everything stopped and says how to finish by hand.
 
 To keep each place's maps, plans, walks, and splats too, add `--keep-places` to both commands.
