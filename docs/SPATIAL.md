@@ -61,8 +61,9 @@ describes.
 
 A camera that stays put can't measure a room: nothing it sees shifts against anything else. What it can give is its
 own view with depth. So each camera chosen for Learn surroundings gets one point cloud, made from one picture of that
-camera and shown by itself (`spatial/camera_clouds.py`). Clouds of different cameras are never joined, and a cloud
-registers no camera: positions don't read it.
+camera (`spatial/camera_clouds.py`). Clouds of different cameras are never blended into one, and a cloud registers
+no camera: positions don't read it. The 3D view shows one camera's cloud by itself, or every camera's cloud placed
+where its camera stands ([The scene of all cameras](#the-scene-of-all-cameras)).
 
 - **Which picture** (`spatial/surroundings_clouds.py`). One with nobody in it: five sampled pictures in a row with no
   person or animal, all alike, give one clean picture, their per-pixel median. That is about 20 seconds of an empty
@@ -74,15 +75,71 @@ registers no camera: positions don't read it.
   unsure of are left out (bright windows, glass, and sky usually), and so are the pixels the camera burns its clock
   or name into (the device manifest's `masks`). A picture the model is unsure of over most of it, or one with no
   depth to speak of, gives no cloud, and the camera's earlier cloud stays.
-- **Its size.** The model's metres are approximate. A camera with a mounting height in the device manifest
-  (`mount.height_m`) and a floor in view is sized by it: the cloud is scaled so that the camera stands that high above
-  the floor it found. Any other cloud stays as the model gave it, and the 3D view says its size is approximate.
-- **Its frame.** The cloud is level: z is up, the floor is z = 0, and the camera stands above the origin.
-- **Where it is kept.** `state/camera_clouds/<camera>/` holds the camera's one cloud and its record, and `notes.json`
-  beside the folders says why a camera's last try made none. `pack-reset-places` deletes them.
+- **What is cleaned out.** Points that aren't on a surface the camera really saw: a pixel at a jump in depth, where
+  the model strings points between a near thing and the far one behind it; a surface seen so nearly edge-on that its
+  depth is a guess; and a small patch left standing alone. These are the sheets and streaks a cloud would show from
+  anywhere but its own camera.
+- **Its size.** The cloud stays in the model's own metres, and the 3D view says its size is approximate. A camera's
+  mounting height does not size it. The height reads the floor a metre or two from the camera, the walls are several
+  metres away, and the model's near and far depths don't share one scale, so sizing by the height puts the walls
+  farther off than the model's own metres do.
+- **Its floor.** The floor is the lowest big surface under the camera. A mounting height in the device manifest
+  (`mount.height_m`) checks the find: a plane that would put the camera far from that height (a sofa seat, with the
+  floor out of sight) isn't its floor, and is passed over.
+- **Its frame.** The cloud is level: z is up, the floor is z = 0, and the camera stands above the origin, looking
+  along +y. With no floor found the camera is taken to be upright and the lowest points stand in for the floor.
+- **Where it is kept.** `state/camera_clouds/<camera>/` holds the camera's one cloud, the picture it was made from,
+  and its record, and `notes.json` beside the folders says why a camera's last try made none. `pack-reset-places`
+  deletes them.
 
 A pass runs on a GPU and is skipped, with the reason, when none has 4 GB free. Nothing is made unless
 `spatial.pointmap_runtime` names where MASt3R-SLAM is set up ([Model runtimes](#model-runtimes)).
+
+## The scene of all cameras
+
+The 3D view's **All cameras** puts every camera's cloud of a place into one scene (`spatial/cloud_scene.py`). The
+clouds are placed, never blended: the scene is a list of clouds with a transform each, and every point stays its own
+camera's. Its frame is the owner's plan, in metres. Three things decide where a cloud goes, in this order.
+
+1. **The owner's spot.** A camera's spot on the plan says where it is and which way it faces. The cloud is level
+   already, so placing it is a turn about the vertical and a shift: the camera lands on its spot, facing its facing,
+   with the cloud's floor on the plan's. A camera with no spot, or a spot with no facing, is not in the scene.
+2. **A pair of cameras that see the same space.** When a camera's cloud is made, its picture is compared with the
+   pictures of up to five other cameras of the place, the nearest by their spots first, by MASt3R's two-picture
+   matching. A confident match says where one camera stands as seen from the other, and pulls the two towards what
+   the pictures say. Each stays near its own spot: the spots are the reference, a match weighs ten times a spot, and
+   the two cameras share the correction, so the scene stays on the plan.
+3. **A camera that was moved.** The picture a camera was first placed with at its spot is its anchor. Each new
+   picture is compared with it. One that registers within 0.3 m and 4 degrees hasn't moved, and becomes the anchor.
+   One that registers farther has moved: its cloud follows by what the pictures measured, and the new spot is offered
+   to the owner. One that doesn't register is looking at other space: it is tried against the other cameras'
+   pictures and placed from the first that registers. If none does, the camera leaves the scene and says it was
+   moved and isn't placed, until its spot is set again or a picture registers. A moved camera's cloud is never left
+   at its old spot.
+
+**When a match is confident.** It is measured, not judged. Each direction must be sure of at least 3 percent of the
+pixels in the other's frame, the matcher must find at least 15 percent of them one way or the other, and the two
+directions must agree within 8 degrees, within 0.25 m or a tenth of the distance, and within a tenth in scale.
+Cameras that look at different space share no pixel the model is sure of, so they fall well short.
+
+**The bound.** A match may move a camera at most 0.75 m and 20 degrees from its spot. One that would move it farther
+says that one of the two spots is off: the view says so, and nothing is moved.
+
+**Daylight.** A pair that matches in daylight often doesn't at night. While neither camera has moved and neither
+spot has changed, the last confident measurement stays in use, and a later look that isn't confident doesn't
+replace it.
+
+**What is written.** Nothing here changes a spot or the plan. The pairs' measurements are kept in
+`state/camera_clouds/pairs.json`, and each camera's folder holds its anchor (`anchor.json`, `anchor.png`) and, once
+its picture stopped matching the anchor, `moved.json`. A measurement made from another picture or another spot is not
+used. The spot offered for a moved camera is saved, as a new version of the plan, only when the owner accepts it; the
+anchor it replaced is set aside so that Undo puts the plan's earlier version and the anchor back. The scene's points
+are drawn on request into `state/camera_clouds/scenes/` and kept until the scene changes.
+
+**What a scene is good for.** Each camera's view standing in the right place, not a whole room. Clouds that overlap
+meet with a seam of tens of centimetres, and cameras that share no space are only as right as their spots. A point
+more than 0.3 m outside every room of the plan is marked, and the view leaves it out unless asked: a cloud's depth is
+the model's estimate, and can run through a wall.
 
 ## Positions
 
