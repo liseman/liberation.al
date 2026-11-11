@@ -95,6 +95,12 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
             assert read(scene["map"]).startswith(b"ply\n")
             groups = json.loads(read("/faces/unknown/groups"))["groups"]
             assert len(groups) == 2
+            strip = json.loads(read(f"/faces/unknown/{groups[0]['id']}/sightings"))
+            assert len(strip["sightings"]) == strip["total"] == 3
+            assert all(read(shot["url"]).startswith(b"\xff\xd8") for shot in strip["sightings"])
+            sightings = json.loads(read("/pets/sightings"))
+            assert sightings["photos_unavailable"] == sightings["videos_unavailable"] == 0
+            assert all(row["video_status"] == "ready" for rows in sightings["seen"].values() for row in rows)
             assert all(len(g["shots"]) == 3 for g in groups)
             assert len({read(shot["url"]) for g in groups for shot in g["shots"]}) == 6
             assert len(json.loads(read("/device-comings"))["devices"]) == 2

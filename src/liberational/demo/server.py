@@ -204,6 +204,51 @@ class Handler(server.H):
                 pass
             self.close_connection = True
             return
+        if path == "/pets/sightings":
+            from liberational.dashboard import pets as pet_view
+
+            code, view = pet_view.sightings(self.state)
+            if code == 200:
+                start = json.loads((self.state / "demo" / "day.json").read_text())["start"]
+                for rows in view["seen"].values():
+                    for n, row in enumerate(rows):
+                        row.update(
+                            cam="front-room",
+                            start=start + n * 3,
+                            end=start + n * 3 + 5,
+                            photo_ready=True,
+                            thumb_ready=True,
+                            video_status="ready",
+                            video_thumb="/demo/media/front-room.jpg",
+                        )
+                view.update(
+                    seen_pending={},
+                    seen_unavailable={},
+                    photos_pending=0,
+                    photos_unavailable=0,
+                    videos_pending=0,
+                    videos_unavailable=0,
+                )
+            return self._json(view, code)
+        if path.startswith("/faces/unknown/") and path.endswith("/sightings"):
+            from liberational.people import face_photos
+
+            group = int(path.split("/")[3])
+            q = self._query()
+            rows, total = face_photos.page_of(
+                group, max(0, int(q.get("offset", "0"))), min(60, max(1, int(q.get("limit", "60")))), self.state
+            )
+            known = {
+                s["id"]: s for g in json.loads((self.state / "demo" / "groups.json").read_text()) for s in g["shots"]
+            }
+            return self._json(
+                {
+                    "sightings": [known[r["id"]] for r in rows if r["id"] in known],
+                    "total": total,
+                    "shots_pending": 0,
+                    "shots_unavailable": 0,
+                }
+            )
         if path == "/pets/sightings/photo":
             from liberational.people import pet_recognition
 
