@@ -36,10 +36,10 @@ agreement, not measured accuracy.
 
 ## Spatial memory
 
-The open plan: a point cloud and a floorplan of every indoor place, cheap enough to run unattended
-([SPATIAL.md](SPATIAL.md)). While "Learn surroundings" is on, a place's map and splat are learned from frames the
-cameras see and refined as they see more. People and pets are drawn on the plan through each fixed camera's spot on
-the owner's plan, or through its place in the learned map.
+The open plan: a 3D map and a floorplan of every indoor place, cheap enough to run unattended
+([SPATIAL.md](SPATIAL.md)). The owner draws a place's plan and gives each fixed camera its spot on it, and people and
+pets are drawn on the plan through those spots. While "Learn surroundings" is on, pictures of each place are
+collected. Nothing makes a 3D map from them.
 
 What is open:
 

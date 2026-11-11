@@ -100,7 +100,7 @@ Runtime data is under `data/` in a checkout (gitignored) and, for an installed p
 | Knowledge store | `state/knowledge.sqlite3` | What the owner taught: people, names, pets, zones, ratings, device links, place plans, and remembered objects | Kept by `--keep-taught` |
 | Face gallery | `faces/` | Enrolled and learned face embeddings, negatives, photos, and unknown clusters | Kept by `--keep-taught` |
 | Voice reference | `voices/` | The owner's voice reference (`owner_ref.wav` and `owner_ref.txt`) | Kept by `--keep-taught` |
-| Places | `state/places/<place>/` | Machine-made maps, floorplans, splats, and camera poses per place | Until a reset |
+| Places | `state/places/<place>/` | Place revisions and placer state. The owner's plan of a place is in the knowledge store | Until a reset |
 | Vector index | `state/continuum/vector/` | LanceDB tables for face, voice, and journal search | Rebuilt from its streams |
 
 - **The video window.** `pack-video-window` runs nightly. It keeps a short clip, a still, and the caption of each
@@ -204,11 +204,11 @@ password. [ANSWERS.md](ANSWERS.md#the-voice-turn) has the turn.
 
 ## Places
 
-Spatial memory keeps a map and floorplan of each indoor place, made from what the cameras see, and
-`spatial/positions.py` places people and pets on the plan through each camera's pose: from the spot the owner gave
-it on the plan (`spatial/spots.py`), else from the map. The owner's names and plan corrections are taught state and
-supersede the machine's view. A camera with neither a spot nor a pose in a map places nobody, and the placer and
-the Places page say what each camera lacks.
+Spatial memory keeps the owner's plan of each indoor place, drawn in the plan editor, and `spatial/positions.py`
+places people and pets on it through each camera's pose: the spot the owner gave it on the plan
+(`spatial/spots.py`). The owner's names and plans are taught state. A camera with no pose places nobody, and the
+placer and the Places page say what each camera lacks. While "Learn surroundings" is on, `pack-surroundings` keeps
+pictures of each place.
 
 [SPATIAL.md](SPATIAL.md) explains how it works, and [PLACES.md](PLACES.md) is the guide to setting it up.
 
@@ -257,7 +257,7 @@ Models are declared in `config/defaults.toml` under `[models]` and fetched by `m
 | People and animals | RF-DETR Small, RTMPose halpe26, ST-GCN++, and optional MoViNet-A2 |
 | Animal checks | SigLIP 2 verification and DINOv2 ViT-S/14 appearance vectors |
 | Object masks | EdgeTAM, loaded on demand |
-| Places | MASt3R and gsplat (with Depth Anything 3), each in its own runtime, and MegaLoc |
+| Places | MegaLoc, to tell which pictures of a place are worth keeping (ONNX Runtime, CPU) |
 
 The system runs on Apple Silicon (MLX, Core ML, and VideoToolbox) and on Linux (CUDA, ONNX Runtime, and NVENC). MLX
 is thread-affine: a model is loaded and called on one thread. That is why `vision/vlm_server.py` is its own process,

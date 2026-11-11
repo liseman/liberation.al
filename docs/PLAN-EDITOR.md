@@ -2,7 +2,7 @@
 
 This guide shows you how to draw a place's plan (its rooms, walls, doors, and windows), give each camera a spot on it,
 and keep or undo your changes. Everything here is done on the dashboard's **Known** tab, under Places.
-[Spatial memory](SPATIAL.md#the-owners-plan-and-the-map) explains how a plan, a map, and the positions fit together.
+[Spatial memory](SPATIAL.md#what-a-place-is) explains how a plan and the positions fit together.
 
 ## Before you begin
 
@@ -12,7 +12,7 @@ and keep or undo your changes. Everything here is done on the dashboard's **Know
 
 ## Open the editor
 
-Open Known, then Places, and pick the place. A place with a plan shows a switch, **Plan** and **3D map**, that only
+Open Known, then Places, and pick the place. A place of your own shows a switch, **Plan** and **3D map**, that only
 changes how you look at it; neither changes the plan. Press **Edit plan** to change it.
 
 A place with no plan starts an empty one: draw rooms and walls from nothing. If a stored plan can't be read (it is in
@@ -61,8 +61,8 @@ view drawn as a cone, and a button in the list ("(no facing)" marks one without 
 - **To take a camera off the plan**, select it and press **Remove this spot**. It is listed under **Add a camera**
   again.
 
-A parked frame waiting on a height, a facing, or a view is cleared by filling in that field
-([Act on a parked frame](PLACES.md#act-on-a-parked-frame)).
+A camera that lacks a height, a facing, or a view places nobody until you fill in that field
+([Check what each camera places](PLACES.md#check-what-each-camera-places)).
 
 ## Save or discard your changes
 
@@ -94,5 +94,5 @@ way. A place in the examples has no versions, and nothing drawn on it is saved.
 
 ## Related
 
-- [Learn a place and see people on its plan](PLACES.md): learn the map, and act on a parked frame.
-- [Spatial memory](SPATIAL.md): what a plan is for, and why a spot outranks a map.
+- [Collect pictures of a place and see people on its plan](PLACES.md): collect pictures, and check what each camera places.
+- [Spatial memory](SPATIAL.md): what a plan is for, and why a spot outranks a registration.
