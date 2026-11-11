@@ -81,21 +81,6 @@ def paused_devices() -> dict[str, tuple[list[str], int]]:
     return out
 
 
-def _paused_text(paused: Mapping[str, tuple[Sequence[str], int]]) -> tuple[str, bool]:
-    """(what is paused, in words; whether every device there is, is paused)."""
-    parts, everything = [], bool(paused)
-    for kind, plural in (("camera", "cameras"), ("microphone", "microphones")):
-        names, total = paused.get(kind, ((), 0))
-        if total and len(names) == total:
-            parts.append(f"{plural} paused" if total > 1 else f"{kind} paused")
-        elif names:
-            parts.append(f"{len(names)} of {total} {plural} paused")
-            everything = False
-        elif total:
-            everything = False
-    return ", ".join(parts), everything and bool(parts)
-
-
 def _listed(items: Sequence[str]) -> str:
     """a; a and b; a, b, and c."""
     if len(items) < 3:
@@ -109,11 +94,14 @@ def _device_problem(kind: str, name: str) -> str:
     return f"The {name} microphone isn't sending audio."
 
 
-def _owner_pause_detail(paused: Mapping[str, tuple[Sequence[str], int]]) -> str:
-    """What is paused, in words for the owner (no counts of services)."""
+def _owner_pause_detail(paused: Mapping[str, tuple[Sequence[str], int]]) -> tuple[str, bool]:
+    """(what is paused, in words for the owner (no counts of services); whether every device there is, is paused)."""
     lines: list[str] = []
+    everything = bool(paused)
     for kind, plural in (("camera", "cameras"), ("microphone", "microphones")):
         names, total = paused.get(kind, ((), 0))
+        if len(names) != total:
+            everything = False
         if not names:
             continue
         if len(names) == total:
@@ -124,7 +112,7 @@ def _owner_pause_detail(paused: Mapping[str, tuple[Sequence[str], int]]) -> str:
         else:
             unit = f"{kind}s" if len(names) > 1 else kind
             lines.append(f"{_listed(list(names))} {unit} paused for privacy.")
-    return " ".join(lines)
+    return " ".join(lines), everything and bool(lines)
 
 
 # The names the window last said were still starting. A service waiting out its backoff reports "activating" for
@@ -167,7 +155,7 @@ def summary(
     _log_still_starting(daemons)
     if phase == STARTING:
         return Summary("Starting...", "Starting the services.", False, DOT_IDLE)
-    _text, everything = _paused_text(paused or {})
+    pause_line, everything = _owner_pause_detail(paused or {})
     if not capture and (status or {}).get("restarting"):
         # A restart someone asked for (Settings, a deploy): capture being down is planned, not a fault.
         return Summary(
@@ -180,8 +168,7 @@ def summary(
         why = "Recording is off." if CAPTURE not in services else "Recording isn't running yet."
         return Summary("Running, not recording", why, False, DOT_IDLE)
     if everything:
-        return Summary("Running, paused for privacy", _owner_pause_detail(paused or {}), False, DOT_IDLE)
-    pause_line = _owner_pause_detail(paused or {})
+        return Summary("Running, paused for privacy", pause_line, False, DOT_IDLE)
     resting = {name for names, _ in (paused or {}).values() for name in names}
     missing = [d for d in (status or {}).get("unregistered") or [] if d["name"] not in resting]
     if missing:
