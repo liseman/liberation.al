@@ -1463,8 +1463,9 @@ STREAMS[POSITIONS] = Stream(POSITIONS, POSITION_SCHEMA, position_row, position)
 # place, with the room and plan coordinates when they are known (`x`, `y` in the plan frame of the place revision
 # `place_revision` names; NaN for a room-only row), how sure, and which source said so ("fixed-camera", "rig-pose",
 # or "zone"). `path` groups rows into the line a view draws, and `seen_by` is the camera of a fixed-camera row (the
-# store keeps `camera` for the slot). The slot is the place and its writer (`positions.layer_slot`), so a read of
-# one place opens only that place's files.
+# store keeps `camera` for the slot). `uncertain` marks a foot on an occluding edge that may be metres off, and
+# `approximate` an animal put at the furniture in the room it was seen in rather than on the floor. The slot is the
+# place and its writer (`positions.layer_slot`), so a read of one place opens only that place's files.
 PLACED = "position.placed"
 PLACED_SCHEMA = [
     *SPAN,
@@ -1481,6 +1482,7 @@ PLACED_SCHEMA = [
     ("place_revision", "str?"),
     ("seen_by", "str?"),
     ("uncertain", "bool"),
+    ("approximate", "bool"),
 ]
 _PLACED_TEXT = ("entity", "track", "path", "room", "room_id")
 
@@ -1496,6 +1498,7 @@ def placed_row(r: Mapping[str, Any]) -> Row:
         "place_revision": None if r.get("revision") is None else str(r["revision"]),
         "seen_by": None if r.get("camera") is None else str(r["camera"]),
         "uncertain": bool(r.get("uncertain", False)),
+        "approximate": bool(r.get("approximate", False)),
     }
 
 
@@ -1510,6 +1513,7 @@ def placed(row: Mapping[str, Any], cam: str) -> Record:
         "revision": row["place_revision"],
         "camera": row["seen_by"],
         "uncertain": bool(row["uncertain"]),
+        "approximate": bool(row["approximate"]),
     }
 
 
