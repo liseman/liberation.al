@@ -89,7 +89,7 @@ def env(tmp_path, monkeypatch):
 
     e.chat_spec = journal.chat
 
-    def chat(system, user, model, num_predict, *, structured=False, max_chars=None, ids=()):
+    def chat(system, user, model, num_predict, *, structured=False, max_chars=None, ids=(), response_schema=None):
         e.calls.append(
             dict(
                 system=system,
@@ -344,6 +344,61 @@ def test_narration_accepts_third_person(text):
     assert journal.narration_clean(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Alice said, "I will bring my book."',
+        "Dana said 'I'm bringing my book.' Alice agreed.",
+        "“We finished our work,” said Sam.",
+        "Alice replied, ‘I’ll bring mine.’",
+    ],
+)
+def test_narration_accepts_quoted_first_person(text):
+    assert journal.narration_clean(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"I brought my book."',
+        "'I'm bringing my book.'",
+        'Alice said "I brought a book." Then I left.',
+        "Alice said 'I brought a book.' My bag was empty.",
+        'Alice said "I brought a book.',
+    ],
+)
+def test_quotes_do_not_hide_first_person_narration(text):
+    assert not journal.narration_clean(text)
+
+
+def test_generation_keeps_quoted_speech_at_the_end_of_an_entry(env):
+    env.replies[:] = [json.dumps({"text": 'Alice said "I will bring my book."', "source_ids": []})]
+    p = journal.Pass(env.state, NOW)
+    try:
+        text, _ = p.write(30, {"start": "10:00", "end": "10:00:30", "items": [], "sources": []}, set())
+    finally:
+        p.close()
+    assert text == 'Alice said "I will bring my book."'
+    assert len(env.calls) == 1
+
+
+def test_a_cut_quote_is_retried_instead_of_published_as_first_person(env):
+    env.replies[:] = [
+        json.dumps({"text": text, "source_ids": []})
+        for text in (
+            'Alice said "' + "I read my book. " * 80 + '"',
+            "Alice discussed her book.",
+        )
+    ]
+    p = journal.Pass(env.state, NOW)
+    try:
+        text, _ = p.write(30, {"start": "10:00", "end": "10:00:30", "items": [], "sources": []}, set())
+    finally:
+        p.close()
+    assert text == "Alice discussed her book."
+    assert len(env.calls) == 2
+
+
 @pytest.mark.parametrize("second, succeeds", [("Alice sat.", True), ("We sat.", False)])
 def test_first_person_gets_one_retry_and_is_never_stored(env, second, succeeds, caplog):
     env.replies[:] = [json.dumps({"text": t, "source_ids": []}) for t in ("I sat.", second)]
@@ -396,6 +451,129 @@ def test_rewrite_failure_keeps_original_and_recording_links(env, monkeypatch):
     )
     assert journal.rewrite_third_person(env.state, now=NOW)["failed"] == 1
     assert [(r["id"], r["text"]) for r in env.memory.entries(T0, NOW)] == [(old, original["text"])]
+
+
+def test_owner_only_rewrite_uses_schema_and_corrects_narrator_drift(env, monkeypatch):
+    model = create_autospec(
+        journal.summarize.llm,
+        side_effect=[
+            ('{"text":"I read my book."}', None),
+            ('{"text":"Alice read her book."}', None),
+        ],
+    )
+    monkeypatch.setattr(journal, "chat", env.chat_spec)
+    monkeypatch.setattr(journal.summarize, "llm", model)
+    assert journal.rewrite_prose({"text": "I read my book."}) == {"text": "Alice read her book."}
+    assert model.call_count == 2
+    first, second = model.call_args_list
+    assert first.kwargs["response_format"]["required"] == ["text"]
+    assert first.kwargs["response_format"]["additionalProperties"] is False
+    assert first.kwargs["temperature"] == 0
+    assert "I sat becomes Alice sat" in first.args[0]
+    assert "naming the owner Alice" in second.args[0]
+
+
+def test_long_rollup_waits_for_converted_children_and_keeps_the_original(env, monkeypatch):
+    evidence = {
+        "status": "verified",
+        "sources": [
+            {
+                "id": "source-1",
+                "stream": speech_log.UTTERANCES,
+                "ts_start": T0,
+                "ts_end": T0 + 5,
+                "text": "A book was discussed.",
+                "people": [],
+            }
+        ],
+    }
+    child = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I read.", "evidence": evidence}
+    )
+    old = env.memory.append(
+        memory_log.JOURNAL,
+        {"ts_start": T0, "ts_end": T0 + 180, "level": 180, "text": "I read a book. " * 200, "evidence": evidence},
+        parents=[child],
+    )
+    model = create_autospec(
+        env.chat_spec,
+        side_effect=[
+            '{"text":"Alice read."}',
+            '{"text":"Alice read a book.","source_ids":["source-1"]}',
+        ],
+    )
+    monkeypatch.setattr(journal, "chat", model)
+    result = journal.rewrite_third_person(env.state, now=NOW)
+    assert (result["superseded"], result["regenerated"], result["failed"]) == (2, 1, 0)
+    [rewritten] = env.memory.entries(T0, NOW, level=30)
+    [rebuilt] = env.memory.entries(T0, NOW, level=180)
+    assert rebuilt["supersedes"] == old
+    assert rebuilt["parents"] == [rewritten["id"]]
+    assert rebuilt["text"] == "Alice read a book."
+    assert rebuilt["evidence"] == evidence
+    assert len(env.memory.range(memory_log.JOURNAL, T0, NOW)) == 4
+    assert json.loads(model.call_args_list[1].args[1])["entries"][0]["text"] == "Alice read."
+    assert journal.rewrite_third_person(env.state, now=NOW)["would_supersede"] == 0
+
+
+def test_failed_rewrite_regenerates_rollup_from_current_children(env, monkeypatch):
+    old_child = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I read."}
+    )
+    current_child = env.memory.append(
+        memory_log.JOURNAL,
+        {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "Alice read.", "supersedes": old_child},
+    )
+    old = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 180, "level": 180, "text": "I read."}, parents=[old_child]
+    )
+    monkeypatch.setattr(
+        journal,
+        "chat",
+        create_autospec(
+            env.chat_spec,
+            side_effect=[
+                "",
+                "",
+                '{"text":"Alice read.","source_ids":[]}',
+            ],
+        ),
+    )
+    assert journal.rewrite_third_person(env.state, now=NOW)["regenerated"] == 1
+    [rebuilt] = env.memory.entries(T0, NOW, level=180)
+    assert (rebuilt["supersedes"], rebuilt["parents"]) == (old, [current_child])
+
+
+def test_regeneration_never_uses_uncorrected_children(env, monkeypatch):
+    child = env.memory.append(memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "I read."})
+    old = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 180, "level": 180, "text": "I read."}, parents=[child]
+    )
+    monkeypatch.setattr(journal, "chat", create_autospec(env.chat_spec, return_value='{"text":"I read."}'))
+    result = journal.rewrite_third_person(env.state, now=NOW)
+    assert (result["superseded"], result["regenerated"], result["failed"]) == (0, 0, 2)
+    assert {r["id"] for r in env.memory.entries(T0, NOW)} == {child, old}
+
+
+def test_deferred_rollups_regenerate_from_fine_to_coarse_in_one_run(env, monkeypatch):
+    child = env.memory.append(
+        memory_log.JOURNAL, {"ts_start": T0, "ts_end": T0 + 30, "level": 30, "text": "Alice read."}
+    )
+    body = {"ts_start": T0, "text": "I read a book. " * 200}
+    three = env.memory.append(memory_log.JOURNAL, {**body, "ts_end": T0 + 180, "level": 180}, parents=[child])
+    ten = env.memory.append(memory_log.JOURNAL, {**body, "ts_end": T0 + 600, "level": 600}, parents=[three])
+    hour = env.memory.append(memory_log.JOURNAL, {**body, "ts_end": T0 + 3600, "level": 3600}, parents=[ten])
+    monkeypatch.setattr(
+        journal, "chat", create_autospec(env.chat_spec, return_value='{"text":"Alice read.","source_ids":[]}')
+    )
+    result = journal.rewrite_third_person(env.state, now=NOW)
+    assert (result["regenerated"], result["failed"]) == (3, 0)
+    [new_three] = env.memory.entries(T0, NOW, level=180)
+    [new_ten] = env.memory.entries(T0, NOW, level=600)
+    [new_hour] = env.memory.entries(T0, NOW, level=3600)
+    assert (new_three["supersedes"], new_three["parents"]) == (three, [child])
+    assert (new_ten["supersedes"], new_ten["parents"]) == (ten, [new_three["id"]])
+    assert (new_hour["supersedes"], new_hour["parents"]) == (hour, [new_ten["id"]])
 
 
 def test_rewrite_page_keeps_sections_links_and_parent_identifiers(env, monkeypatch):
