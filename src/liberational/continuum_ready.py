@@ -1,10 +1,10 @@
 """Wait for a usable broker before execing a mandatory client service.
 
-Service renderers opt in through services.toml's wait_for_broker. Both launchd and
-systemd run this wrapper, which checks an SDK request, then replaces itself with
-the daemon so signals and exit status still belong to the service manager.
-Dashboard and gateway remain available while the broker is offline. Restart cascades additionally require a changed broker arena identity and fresh
-video slots / PCM records for every configured camera and microphone. Live catalog
+Service renderers opt in through services.toml's wait_for_broker. A service starts through this wrapper: the
+application's supervisor, or a per-service systemd unit or launchd agent on an install that still has one. It checks an
+SDK request, then replaces itself with the daemon so signals and exit status still belong to the service manager.
+Dashboard and gateway remain available while the broker is offline. Restart cascades additionally require a changed
+broker arena identity and fresh video slots / PCM records for every configured camera and microphone. Live catalog
 rows and pre-existing rings alone never prove capture readiness.
 """
 
