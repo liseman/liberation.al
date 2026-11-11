@@ -1,8 +1,8 @@
 # Spatial memory
 
-Why the pack keeps a plan of each indoor place, how it collects pictures of the place, and how a person a camera sees
-ends up as a point on the plan. Paths are relative to `src/liberational/`. Everything here is optional. To do it on your
-own install, follow [Places](PLACES.md).
+Why the pack keeps a plan of each indoor place, how it collects pictures of the place, what a camera's own point cloud
+is, and how a person a camera sees ends up as a point on the plan. Paths are relative to `src/liberational/`.
+Everything here is optional. To do it on your own install, follow [Places](PLACES.md).
 
 A camera sees a person as pixels. Saying which room they are in takes two things: where the floor is under that pixel,
 and where that floor is on a plan. So each place has a plan, and every camera that places people has a pose. The owner
@@ -24,8 +24,8 @@ A revision that changes only the floor, the cameras, or the transform points at 
 and splats are kept; plans and revision records stay.
 
 The 3D view shows a revision only when its producer is listed in `SHOWN_PRODUCERS` (`memory/places.py`). None is, so
-the view has no machine-made map to show, and says so: "No 3D map of this place yet: the 3D map is being rebuilt with
-a new method."
+no revision's map is shown. What the 3D view shows is one camera's own point cloud at a time
+([A camera's own point cloud](#a-cameras-own-point-cloud)).
 
 What the owner taught is in the knowledge store and supersedes what the machine holds without changing it: a place's
 name (`place.named`), its plan (`place.plan`, with every earlier version: a scene saved from the plan editor), and each
@@ -56,6 +56,33 @@ The sampler writes what it is doing to `state/surroundings/status.json`: whether
 recent looks came to and when a frame was last kept, and how many frames are kept. `GET /surroundings/status` serves
 it to the Places page, which shows it as the panel [Check what the panel shows](PLACES.md#check-what-the-panel-shows)
 describes.
+
+## A camera's own point cloud
+
+A camera that stays put can't measure a room: nothing it sees shifts against anything else. What it can give is its
+own view with depth. So each camera chosen for Learn surroundings gets one point cloud, made from one picture of that
+camera and shown by itself (`spatial/camera_clouds.py`). Clouds of different cameras are never joined, and a cloud
+registers no camera: positions don't read it.
+
+- **Which picture** (`spatial/surroundings_clouds.py`). One with nobody in it: five sampled pictures in a row with no
+  person or animal, all alike, give one clean picture, their per-pixel median. That is about 20 seconds of an empty
+  view.
+- **When it is made again.** A camera gets a cloud when it has none, and a new one when its view has changed (the
+  room was rearranged, or the camera moved or turned), judged by the picture's thumbnail against the one its cloud was
+  made from. The new cloud replaces the old one: nothing is carried forward.
+- **What makes it.** MASt3R-SLAM's single-frame step gives every pixel a point and a confidence. Points the model is
+  unsure of are left out (bright windows, glass, and sky usually), and so are the pixels the camera burns its clock
+  or name into (the device manifest's `masks`). A picture the model is unsure of over most of it, or one with no
+  depth to speak of, gives no cloud, and the camera's earlier cloud stays.
+- **Its size.** The model's metres are approximate. A camera with a mounting height in the device manifest
+  (`mount.height_m`) and a floor in view is sized by it: the cloud is scaled so that the camera stands that high above
+  the floor it found. Any other cloud stays as the model gave it, and the 3D view says its size is approximate.
+- **Its frame.** The cloud is level: z is up, the floor is z = 0, and the camera stands above the origin.
+- **Where it is kept.** `state/camera_clouds/<camera>/` holds the camera's one cloud and its record, and `notes.json`
+  beside the folders says why a camera's last try made none. `pack-reset-places` deletes them.
+
+A pass runs on a GPU and is skipped, with the reason, when none has 4 GB free. Nothing is made unless
+`spatial.pointmap_runtime` names where MASt3R-SLAM is set up ([Model runtimes](#model-runtimes)).
 
 ## Positions
 
@@ -102,3 +129,12 @@ job records observations there, so a camera is read at its spot, or at the pose 
 
 `tools/calibrate_lens.py` and `tools/calibrate_fisheye.py` calibrate a camera's lens. Each prints what it found and
 writes only with `--write`; their docstrings have the options, and [Cameras](CAMERAS.md) has the steps.
+
+## Model runtimes
+
+| Model | Used for | Set up | License |
+|---|---|---|---|
+| MASt3R-SLAM, with MASt3R's weights | Each camera's point cloud | By hand, in a folder of its own that `spatial.pointmap_runtime` names, with the weights at `spatial.pointmap_weights`. [MIGRATING.md](../MIGRATING.md#each-cameras-own-point-cloud) has the steps | CC BY-NC-SA 4.0 |
+| MegaLoc | Telling which pictures are worth keeping (CPU) | `mise run models` | MIT |
+
+MASt3R-SLAM's code and MASt3R's weights are non-commercial. The pack downloads and installs neither.

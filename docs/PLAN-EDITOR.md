@@ -12,7 +12,7 @@ and keep or undo your changes. Everything here is done on the dashboard's **Know
 
 ## Open the editor
 
-Open Known, then Places, and pick the place. A place of your own shows a switch, **Plan** and **3D map**, that only
+Open Known, then Places, and pick the place. A place of your own shows a switch, **Plan** and **3D view**, that only
 changes how you look at it; neither changes the plan. Press **Edit plan** to change it.
 
 A place with no plan starts an empty one: draw rooms and walls from nothing. If a stored plan can't be read (it is in
@@ -72,7 +72,7 @@ and shows the plan.
 
 - **Discard changes** puts the editor back on the last saved plan.
 - **Close editor** leaves the editor. With unsaved changes, it asks "Discard your unsaved changes?" first. Picking
-  another place asks the same. The **Plan** and **3D map** switch is hidden while the editor is open.
+  another place asks the same. The **Plan** and **3D view** switch is hidden while the editor is open.
 - If a save fails, the message "Couldn't save the plan:" gives the reason. A save from a device that may not teach
   says "plans can only be corrected from this machine (Remote teaching is off)".
 
@@ -94,5 +94,5 @@ way. A place in the examples has no versions, and nothing drawn on it is saved.
 
 ## Related
 
-- [Collect pictures of a place and see people on its plan](PLACES.md): collect pictures, and check what each camera places.
+- [See what each camera sees in 3D and people on a place's plan](PLACES.md): point clouds, and what each camera places.
 - [Spatial memory](SPATIAL.md): what a plan is for, and why a spot outranks a registration.
