@@ -310,7 +310,8 @@ recorded history. What you taught (people, voices, faces, pets, zones, and setti
    .venv/bin/pack-reset-catalog --keep-taught
    ```
 
-3. **Reset**, with the application open. This stops the services, resets, and starts them again.
+3. **Reset.** With the application open, this stops the services, resets, and starts them again. With it closed,
+   this resets and says to open the application.
 
    ```sh
    .venv/bin/pack-reset-catalog --keep-taught --yes
@@ -386,7 +387,7 @@ A routine upgrade needs no reset. When one does:
    uv run --no-sync pack-reset-catalog --keep-taught
    ```
 
-3. **Reset**, with the application open, the same mode, and `--yes`:
+3. **Reset**, with the same mode and `--yes`. With the application closed, open it afterwards:
 
    ```sh
    uv run --no-sync pack-reset-catalog --keep-taught --yes
