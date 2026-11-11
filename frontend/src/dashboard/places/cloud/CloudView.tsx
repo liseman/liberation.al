@@ -17,8 +17,18 @@
 // map was built from, and when it last improved (status.ts).
 import { Button, Checkbox, Group, Progress, SegmentedControl, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ChangeEvent,
+  Component,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { messageOf } from '../../../shared/http';
+import { PageError } from '../../lib/page';
 import { type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
@@ -105,7 +115,31 @@ function useSplatBytes(scene: Scene | undefined, wanted: boolean, attempt: numbe
   return { ...query, got };
 }
 
+/** A failure while rendering the view (above this boundary) replaces the canvas with the shared error and a Retry
+ *  that builds it again. An effect failure is caught in the view itself; this is for one raised during render. */
+class MapCrash extends Component<{ children: ReactNode; onRetry: () => void }, { detail: string | null }> {
+  state = { detail: null as string | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { detail: messageOf(error) };
+  }
+
+  render() {
+    if (this.state.detail === null) return this.props.children;
+    return <PageError title="Couldn't show the map" detail={this.state.detail} onRetry={this.props.onRetry} />;
+  }
+}
+
 export default function CloudView({ place }: { place: string }) {
+  const [generation, setGeneration] = useState(0);
+  return (
+    <MapCrash key={generation} onRetry={() => setGeneration(n => n + 1)}>
+      <CloudMap place={place} />
+    </MapCrash>
+  );
+}
+
+function CloudMap({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
   const scene = useQuery({ ...sceneQuery(place), enabled: webgl });
   const read = scene.data;
@@ -135,6 +169,8 @@ export default function CloudView({ place }: { place: string }) {
   const [size, setSize] = useState(2.5);
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
   const [failed, setFailed] = useState<string | null>(null);
+  // Retry builds the view again. The build runs when its inputs change, and a failure leaves those as they were.
+  const [rebuild, setRebuild] = useState(0);
 
   // Build the scene once its map's bytes are here, with the points alone until the splat's bytes are (and when
   // they can't be read or drawn), then again around the splat: the viewer is built around its content. It's torn
@@ -157,6 +193,7 @@ export default function CloudView({ place }: { place: string }) {
   const newer = !!drawn && !!data && drawn.scene !== data;
   // Where the person was looking when a drawn splat was taken down for a newer one.
   const carried = useRef<View | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rebuild` is Retry asking for this same scene again
   useEffect(() => {
     const el = host.current;
     if (!webgl || !el || !drawn) return;
@@ -196,12 +233,25 @@ export default function CloudView({ place }: { place: string }) {
       carried.current = file && made ? made.view() : null;
       made?.dispose();
     };
-  }, [webgl, drawn]);
+  }, [webgl, drawn, rebuild]);
 
-  // Settings change what's drawn, then one frame is drawn.
+  // Settings change what's drawn, then one frame is drawn. A throw here is the view failing: take it down and say
+  // so, with Retry, instead of leaving a canvas that no longer draws.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says the scene was rebuilt and wants its settings
   useEffect(() => {
-    built.current?.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
+    const view = built.current;
+    if (!view) return;
+    try {
+      view.show({ splat: draw === 'splat' && splatReady, size, colour, ...show });
+    } catch (error) {
+      built.current = null;
+      try {
+        view.dispose();
+      } catch {
+        // The view already failed; tearing it down can fail again once the device is gone.
+      }
+      setFailed(messageOf(error));
+    }
   }, [draw, splatReady, size, colour, show, ready]);
 
   // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
@@ -227,9 +277,16 @@ export default function CloudView({ place }: { place: string }) {
   // A read that fails while a map is drawn leaves it drawn: the next read may well answer.
   if ((scene.isError && !read) || (bytes.isError && !drawn) || failed)
     return (
-      <Text size="sm" c="red">
-        Couldn't show the map: {failed ?? messageOf(scene.error ?? bytes.error)}
-      </Text>
+      <PageError
+        title="Couldn't show the map"
+        detail={failed ?? messageOf(scene.error ?? bytes.error)}
+        onRetry={() => {
+          setFailed(null);
+          setRebuild(n => n + 1);
+          if (scene.isError) void scene.refetch();
+          if (bytes.isError) void bytes.refetch();
+        }}
+      />
     );
   if (data && !data.revision)
     return (
@@ -254,6 +311,12 @@ export default function CloudView({ place }: { place: string }) {
     setAttempt(n => n + 1);
   };
   const cams = Object.keys((drawn?.scene ?? data)?.cameras ?? {});
+  // Read the checkbox now. React clears currentTarget once this handler returns, then runs the state updater, so
+  // reading it inside the updater throws and takes the whole view down. The same for every overlay.
+  const onOverlay = (key: 'floor' | 'cameras' | 'plan') => (event: ChangeEvent<HTMLInputElement>) => {
+    const on = event.currentTarget.checked;
+    setShow(current => ({ ...current, [key]: on }));
+  };
   return (
     <div
       ref={frame}
@@ -306,24 +369,14 @@ export default function CloudView({ place }: { place: string }) {
           </>
         )}
         <Group gap="md">
-          <Checkbox
-            size="xs"
-            label="Floor"
-            checked={show.floor}
-            onChange={e => setShow(s => ({ ...s, floor: e.currentTarget.checked }))}
-          />
+          <Checkbox size="xs" label="Floor" checked={show.floor} onChange={onOverlay('floor')} />
           <Checkbox
             size="xs"
             label={`Cameras${cams.length ? ` (${cams.length})` : ''}`}
             checked={show.cameras}
-            onChange={e => setShow(s => ({ ...s, cameras: e.currentTarget.checked }))}
+            onChange={onOverlay('cameras')}
           />
-          <Checkbox
-            size="xs"
-            label="Plan"
-            checked={show.plan}
-            onChange={e => setShow(s => ({ ...s, plan: e.currentTarget.checked }))}
-          />
+          <Checkbox size="xs" label="Plan" checked={show.plan} onChange={onOverlay('plan')} />
         </Group>
         <Text
           size="xs"
