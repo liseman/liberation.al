@@ -48,7 +48,7 @@ export function sampledLabel(view: SurroundingsView): string {
 export function surroundingsHint(view: SurroundingsView): { off: string; on: string } {
   const from = sampledLabel(view);
   return {
-    off: "Collects the cameras' pictures for this place's 3D map",
+    off: "Collects the cameras' pictures, and keeps a point cloud of what each one sees",
     on: `Collecting pictures from ${from}. See them in Places`,
   };
 }

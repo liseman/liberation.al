@@ -127,7 +127,7 @@ it('says no camera has a point cloud yet, and that learning is off, for a place 
   serve({ place: 'p1', revision: null, learning: learning({ on: false, cameras: 0 }), views: [] });
   renderPage(<CloudView place="p1" />);
   expect(
-    await screen.findByText(/^No camera has a point cloud of this place yet\. Learn surroundings is off/),
+    await screen.findByText(/^No camera has a point cloud of this place yet\. Turn on Learn surroundings in/),
   ).toBeTruthy();
   expect(screen.queryByRole('combobox', { name: 'Camera' })).toBeNull();
   expect(build).not.toHaveBeenCalled();
@@ -186,7 +186,10 @@ it("opens on the first camera's own cloud, from that camera, as points with no s
   await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
   expect(build.mock.calls[0]?.[3]).toBeNull(); // no splat
   expect(build.mock.calls[0]?.[4]).toBe('hall'); // from where the camera stands
-  expect(await screen.findByText(/1,024 points from .+ Approximate size/)).toBeTruthy();
+  expect(
+    await screen.findByText(/^What hall sees on its own\. 1,024 points, .+ Approximate size\. Give this camera/),
+  ).toBeTruthy();
+  expect(screen.getByLabelText('Camera mark')).not.toBeChecked(); // its own mark would lie along the picture's edges
   expect(screen.queryByText('Splat')).toBeNull();
   expect(screen.queryByLabelText('Plan')).toBeNull();
   expect(screen.queryByText(/No splat/)).toBeNull();
@@ -220,7 +223,11 @@ it('shows the camera picked, and says why one with no cloud has none', async () 
 it("says why a camera's cloud isn't newer while learning is off", async () => {
   serve(cloudOf('hall', { learning: learning({ on: false, cameras: 0 }), views: [view('hall', { why: 'off' })] }));
   renderPage(<CloudView place="p1" />);
-  expect(await screen.findByText(/Learn surroundings is off, so nothing is made or refreshed/)).toBeTruthy();
+  const live = await screen.findByRole('link', { name: 'Live' });
+  expect(live.getAttribute('href')).toBe('/');
+  expect(live.closest('p')?.textContent).toBe(
+    "Learn surroundings is off, so this picture won't update. Turn it on in Live.",
+  );
 });
 
 it('asks for the scene again every few seconds while learning is on, and seldom while it is off', () => {

@@ -154,7 +154,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
     place && !place.example
       ? [
           { value: 'plan', label: 'Plan' },
-          { value: 'map', label: '3D map' },
+          { value: 'map', label: '3D view' },
         ]
       : [];
   const shown: View = views.some(v => v.value === view) ? view : 'plan';

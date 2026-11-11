@@ -420,7 +420,7 @@ it.each([
   [
     'off',
     learning(),
-    'No camera has a point cloud of this place yet. Learn surroundings is off, so none is made. Turn it on on the Live tab, and each camera chosen there gets a cloud of what it sees.',
+    'No camera has a point cloud of this place yet. Turn on Learn surroundings in {Live}, and each camera chosen there gets a cloud of what it sees.',
   ],
   [
     'on',
@@ -430,7 +430,7 @@ it.each([
   [
     'on with no camera',
     learning({ on: true }),
-    'No camera has a point cloud of this place yet. No camera is chosen to learn from. Choose one beside Learn surroundings on the Live tab.',
+    'No camera has a point cloud of this place yet. No camera is chosen to learn from. Choose one beside Learn surroundings in {Live}.',
   ],
 ])('says what would make a point cloud for a place where no camera has one: %s', (_, said, text) => {
   expect(learningNote({ place: 'p1', revision: null, learning: said })).toBe(text);
@@ -441,28 +441,48 @@ it("says nothing more about a place's map once it has one, or when the scene doe
   expect(learningNote({ place: 'p1', revision: 'r2' })).toBeNull();
 });
 
-it("says how a camera's own cloud was sized, and nothing of a splat it never has", () => {
-  const own = { place: 'p1', revision: 'c1', view: { camera: 'hall', points: 1024, at: 1.8e9 } } as const;
-  expect(viewNote({ ...own, view: { ...own.view, size: 'height' } })).toMatch(
-    /^1,024 points from .+, as this camera alone sees it\. Sized from the camera's mounting height\.$/,
+it("leads a camera's cloud with whose view it is, then its points, when it was made, and how it was sized", () => {
+  const now = new Date(2026, 10, 10, 9, 0);
+  const at = new Date(2026, 10, 10, 1, 40).getTime() / 1000;
+  const own = { place: 'p1', revision: 'c1', view: { camera: 'cam0', points: 123554, at, floor_found: true } } as const;
+  expect(viewNote({ ...own, view: { ...own.view, size: 'height' } }, 'Hall', now)).toBe(
+    "What Hall sees on its own. 123,554 points, today 01:40. Sized from the camera's mounting height.",
   );
-  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate' } })).toMatch(/Approximate size/);
+  expect(viewNote({ ...own, view: { ...own.view, at: at - 7 * 3600, size: 'height' } }, 'Hall', now)).toMatch(
+    /123,554 points, yesterday 18:40\./,
+  );
+  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate' } }, 'Hall', now)).toMatch(
+    /Approximate size\. Give this camera its mounting height \(mount\.height_m .+config\/devices\.toml\) for a true one\.$/,
+  );
+  // with no floor in view a height wouldn't help, so that is what it says
+  expect(viewNote({ ...own, view: { ...own.view, size: 'approximate', floor_found: false } }, 'Hall', now)).toMatch(
+    /Approximate size: no floor is in this camera's view/,
+  );
   expect(viewNote({ place: 'p1', revision: 'r2' })).toBeNull(); // the place's own map
   expect(viewNote({ place: 'p1', revision: null, view: { camera: 'hall' } })).toBeNull(); // no cloud yet
-  expect(splatNote({ ...own, splat: null })).toBeNull();
+  expect(splatNote({ ...own, splat: null })).toBeNull(); // no splat goes with a camera's cloud
 });
 
 it.each([
-  ['off', /Learn surroundings is off/],
   ['people', /nobody in view/],
   ['gpu', /GPU memory/],
   ['no_runtime', /isn't set up on this machine/],
+  ['not_chosen', /Choose it beside Learn surroundings in \{Live\}/],
 ] as const)('says why a camera has no cloud: %s', (why, text) => {
-  expect(viewWhy({ why })).toMatch(text);
+  expect(viewWhy({ why, cloud: false })).toMatch(text);
+});
+
+it('says what learning being off means for a cloud that is showing, and for a camera with none', () => {
+  expect(viewWhy({ why: 'off', cloud: true })).toBe(
+    "Learn surroundings is off, so this picture won't update. Turn it on in {Live}.",
+  );
+  expect(viewWhy({ why: 'off', cloud: false })).toBe(
+    'Turn on Learn surroundings in {Live}, and each camera chosen there gets a cloud of what it sees.',
+  );
 });
 
 it('says nothing stands in the way of a camera whose cloud is current', () => {
-  expect(viewWhy({ why: null })).toBeNull();
+  expect(viewWhy({ why: null, cloud: true })).toBeNull();
   expect(viewWhy(undefined)).toBeNull();
 });
 

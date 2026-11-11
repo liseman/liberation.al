@@ -4,6 +4,7 @@
 // cloud yet, and what would make one. What it says about one camera's own cloud (`viewNote`, `viewWhy`): how it was
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
+import { dayWords, hm, isoDay } from '../../lib/format';
 import type { CameraView, Scene, ViewWhy } from '../api';
 
 const when = (at: number) =>
@@ -27,22 +28,25 @@ export function splatNote(scene: Scene): string | null {
   }
 }
 
+/** Where a line names the Live page, for the view to put a link there (`CloudView`'s `Words`). */
+export const LIVE = '{Live}';
+
+const TURN_ON = `Turn on Learn surroundings in ${LIVE}, and each camera chosen there gets a cloud of what it sees.`;
+
 /** What to say while there is nothing to draw and no camera to pick: that no camera has a point cloud yet, and what
  *  would make one. Null with something drawn, or when the scene doesn't say. */
 export function learningNote(scene: Scene): string | null {
   const learning = scene.learning;
   if (!learning || scene.revision) return null;
   const none = 'No camera has a point cloud of this place yet.';
-  if (!learning.on)
-    return `${none} Learn surroundings is off, so none is made. Turn it on on the Live tab, and each camera chosen there gets a cloud of what it sees.`;
+  if (!learning.on) return `${none} ${TURN_ON}`;
   if (!learning.cameras)
-    return `${none} No camera is chosen to learn from. Choose one beside Learn surroundings on the Live tab.`;
+    return `${none} No camera is chosen to learn from. Choose one beside Learn surroundings in ${LIVE}.`;
   return `${none} Each chosen camera gets one once it has had about 20 seconds with nobody in view.`;
 }
 
-const WHY: Record<ViewWhy, string> = {
-  off: 'Learn surroundings is off, so nothing is made or refreshed. Turn it on on the Live tab.',
-  not_chosen: "This camera isn't chosen to learn from. Choose it beside Learn surroundings on the Live tab.",
+const WHY: Record<Exclude<ViewWhy, 'off'>, string> = {
+  not_chosen: `This camera isn't chosen to learn from. Choose it beside Learn surroundings in ${LIVE}.`,
   waiting: 'Waiting for about 20 seconds with nobody in view.',
   people: 'Someone was in view each time it looked. It needs about 20 seconds with nobody in view.',
   dark: 'The view is too dark, or the camera is in night mode.',
@@ -54,23 +58,35 @@ const WHY: Record<ViewWhy, string> = {
   lens: "This camera's lens calibration in the device list can't be used.",
 };
 
-/** Why a camera has no cloud, or no newer one, in plain words; null when nothing stands in its way. */
-export function viewWhy(view: Pick<CameraView, 'why'> | undefined): string | null {
-  return view?.why ? (WHY[view.why] ?? null) : null;
+/** What keeps a camera from a cloud, or from a newer one, in plain words; null when nothing does. With learning
+ *  off it says what that means here: a cloud that is showing won't update, and a camera without one gets none. */
+export function viewWhy(view: Pick<CameraView, 'why' | 'cloud'> | undefined): string | null {
+  if (!view?.why) return null;
+  if (view.why === 'off')
+    return view.cloud ? `Learn surroundings is off, so this picture won't update. Turn it on in ${LIVE}.` : TURN_ON;
+  return WHY[view.why] ?? null;
 }
 
-/** What to say about the camera's cloud that is drawn: how many points, when it was made, and how it was sized. Null
- *  for a scene that isn't one camera's own cloud. */
-export function viewNote(scene: Scene): string | null {
+/** When a cloud was made, as people say it: "today 01:40", "yesterday 18:40", "Thu 5 Nov 13:31". */
+const made = (at: number, now: Date) => `${dayWords(isoDay(new Date(at * 1000)), now)} ${hm(at)}`;
+
+/** What to say about the camera's cloud that is drawn: whose view it is, first, since it is that camera's part of the
+ *  place and not the place; then how many points, when it was made, and how it was sized. A size that is only
+ *  approximate says what would make it true: the camera's mounting height, or, when no floor is in its view, that a
+ *  height wouldn't help. `name` is the camera as the page names it. Null for a scene that isn't one camera's cloud. */
+export function viewNote(scene: Scene, name?: string, now = new Date()): string | null {
   const view = scene.view;
   if (!view || !scene.revision) return null;
-  const points = view.points ? `${view.points.toLocaleString()} points` : 'Points';
-  const made = view.at ? ` from ${when(view.at)}` : '';
-  const size =
-    view.size === 'height'
-      ? "Sized from the camera's mounting height."
-      : "Approximate size: the model's own metres, which can be a fifth off. A mounting height for this camera in the device list pins it.";
-  return `${points}${made}, as this camera alone sees it. ${size}`;
+  const facts = [view.points ? `${view.points.toLocaleString()} points` : null, view.at ? made(view.at, now) : null];
+  let size: string;
+  if (view.size === 'height') size = "Sized from the camera's mounting height.";
+  else if (view.floor_found === false)
+    size = "Approximate size: no floor is in this camera's view to measure its height from.";
+  else
+    size =
+      'Approximate size. Give this camera its mounting height (mount.height_m on its entry in config/devices.toml) for a true one.';
+  const counted = facts.filter(Boolean).join(', ');
+  return `What ${name ?? view.camera} sees on its own. ${counted ? `${counted}. ` : ''}${size}`;
 }
 
 /** What to say about the owner's plan on this map: nothing while it's drawn where it belongs (or the place has no

@@ -19,7 +19,7 @@
 // camera sees, with depth. A picker over the view chooses the camera, the view opens from where that camera stands,
 // and a line says how the cloud was sized and when it was made, or why a camera has none yet (status.ts). One camera
 // at a time: clouds of different cameras are never drawn together, since nothing relates them.
-import { Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
+import { Anchor, Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
 import {
   type ChangeEvent,
@@ -34,11 +34,12 @@ import {
 import { messageOf } from '../../../shared/http';
 import { PageError } from '../../lib/page';
 import { viewName } from '../../review/views';
+import { linkClick } from '../../router';
 import { type CameraView, type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import { type Built, build, type Colour, type View } from './scene';
-import { learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
+import { LIVE, learningNote, loadingText, planNote, splatNote, viewNote, viewWhy } from './status';
 
 type Draw = 'points' | 'splat';
 
@@ -173,6 +174,26 @@ function CameraPicker({
   );
 }
 
+/** A line of status.ts's words, with a link to the Live page where it names it. */
+function Words({ text }: { text: string }) {
+  const parts = text.split(LIVE);
+  return (
+    <>
+      {parts.map((part, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the parts of one fixed sentence, in order
+        <span key={i}>
+          {i > 0 && (
+            <Anchor href="/" inherit onClick={linkClick}>
+              Live
+            </Anchor>
+          )}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
 function CloudMap({ place }: { place: string }) {
   const webgl = useMemo(hasWebGL, []);
   // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
@@ -206,6 +227,14 @@ function CloudMap({ place }: { place: string }) {
   const [colour, setColour] = useState<Colour>('rgb');
   const [size, setSize] = useState(2.5);
   const [show, setShow] = useState({ floor: true, cameras: true, plan: true });
+  // A camera's cloud opens from that camera, where its own mark (the outline of its view) lies along the edges of
+  // the picture: a stray line down one side. So the mark starts off for each camera's cloud, and comes on from
+  // outside ("See it from outside"), where it shows where the camera stands.
+  const [opened, setOpened] = useState<string | null>(null);
+  if (camera !== opened) {
+    setOpened(camera);
+    if (camera) setShow(current => ({ ...current, cameras: false }));
+  }
   const [failed, setFailed] = useState<string | null>(null);
   // Retry builds the view again. The build runs when its inputs change, and a failure leaves those as they were.
   const [rebuild, setRebuild] = useState(0);
@@ -332,9 +361,13 @@ function CloudMap({ place }: { place: string }) {
       <>
         <CameraPicker views={views} camera={camera} onPick={setPicked} />
         <Text size="sm" c="dimmed" mt={views.length ? 'sm' : 0} role="status">
-          {camera
-            ? `No point cloud from ${viewName(camera)} yet. ${viewWhy(views.find(v => v.camera === camera)) ?? ''}`.trim()
-            : ((read && learningNote(read)) ?? 'Nothing to show in 3D here yet.')}
+          <Words
+            text={
+              camera
+                ? `No point cloud from ${viewName(camera)} yet. ${viewWhy(views.find(v => v.camera === camera)) ?? ''}`.trim()
+                : ((read && learningNote(read)) ?? 'Nothing to show in 3D here yet.')
+            }
+          />
         </Text>
       </>
     );
@@ -349,7 +382,7 @@ function CloudMap({ place }: { place: string }) {
   const splatLoading = hasSplat && !splatError && !splatReady && !newer;
   const note = read ? splatNote(read) : null;
   const learning = read ? learningNote(read) : null;
-  const own = read ? viewNote(read) : null;
+  const own = read ? viewNote(read, camera ? viewName(camera) : undefined) : null;
   // Why the camera's cloud isn't newer than it is (learning is off, nobody has left its view, no GPU memory).
   const held = read?.view ? viewWhy(views.find(v => v.camera === camera)) : null;
   const plan = read ? planNote(read) : null;
@@ -376,10 +409,14 @@ function CloudMap({ place }: { place: string }) {
           {own && (
             <Text size="xs" c="dimmed" role="status" flex={1} miw={220}>
               {own}
-              {held ? ` ${held}` : ''}
             </Text>
           )}
         </Group>
+      )}
+      {held && (
+        <Text size="xs" c="dimmed" mb="sm" role="status">
+          <Words text={held} />
+        </Text>
       )}
       <div
         className={classes.cloud}
@@ -430,7 +467,7 @@ function CloudMap({ place }: { place: string }) {
           <Checkbox size="xs" label="Floor" checked={show.floor} onChange={onOverlay('floor')} />
           <Checkbox
             size="xs"
-            label={`Cameras${cams.length ? ` (${cams.length})` : ''}`}
+            label={read?.view ? 'Camera mark' : `Cameras${cams.length ? ` (${cams.length})` : ''}`}
             checked={show.cameras}
             onChange={onOverlay('cameras')}
           />
@@ -442,7 +479,11 @@ function CloudMap({ place }: { place: string }) {
           component="button"
           type="button"
           className={classes.cloudHome}
-          onClick={() => built.current?.home()}
+          onClick={() => {
+            // from outside, the camera's mark shows where it stands
+            if (read?.view) setShow(current => ({ ...current, cameras: true }));
+            built.current?.home();
+          }}
         >
           {read?.view ? 'See it from outside' : 'Back to the start'}
         </Text>
@@ -453,7 +494,10 @@ function CloudMap({ place }: { place: string }) {
             component="button"
             type="button"
             className={classes.cloudHome}
-            onClick={() => built.current?.lookFrom(camera)}
+            onClick={() => {
+              setShow(current => ({ ...current, cameras: false }));
+              built.current?.lookFrom(camera);
+            }}
           >
             Back to the camera's view
           </Text>
