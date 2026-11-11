@@ -214,11 +214,17 @@ class Marks:
     @classmethod
     def load(cls, state: Path) -> Marks:
         path = state / MARKS
-        try:
-            days = json.loads(path.read_text()).get("days", {})
-        except FileNotFoundError, ValueError, AttributeError:
-            days = {}
-        return cls(path, {str(k): dict(v) for k, v in days.items()} if isinstance(days, dict) else {})
+        saved = json_state.read(path, {})
+        days = saved.get("days") if isinstance(saved, dict) else None
+        # Only a done-set: due() asks whether a day is in here, and done() rewrites the whole record. So a hand-edited
+        # or truncated file that still parses starts from what it can be read as, rather than ending the night's
+        # age-out with a TypeError (an unguarded dict() over a non-mapping count).
+        counts = {
+            str(day): {str(name): n for name, n in went.items() if isinstance(n, int)}
+            for day, went in (days.items() if isinstance(days, dict) else ())
+            if isinstance(went, dict)
+        }
+        return cls(path, counts)
 
     def done(self, day: str, counts: Mapping[str, int]) -> None:
         self.days[day] = dict(counts)
