@@ -855,7 +855,8 @@ def test_a_cameras_own_cloud_is_the_scene_asked_for_by_camera(tmp_path, vision, 
     _, cloud = keep_cloud(tmp_path, "hall")
     reply = view.scene(tmp_path, place, camera="hall")[1]
     assert (reply["revision"], reply["map_format"], reply["map_bytes"]) == (cloud.id, "ply", len(CLOUD))
-    assert reply["view"] == {"camera": "hall", "size": "approximate", "floor_found": True, "points": 1024, "at": T}
+    assert reply["view"] == {"camera": "hall", "size": "approximate", "floor_found": True, "points": 1024, "at": T,
+                             "level": "floor", "tilt_deg": 0.0, "roll_deg": 0.0}  # fmt: skip
     assert reply["floor"] == [0.0, 0.0, 1.0, 0.0] and reply["splat"] is None and reply["plan"] is None
     assert reply["cameras"]["hall"]["pose"][11] == 1.5  # the camera, where it stands in its own cloud
     assert [(v["camera"], v["cloud"], v["why"]) for v in reply["views"]] == [

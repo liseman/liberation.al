@@ -231,6 +231,12 @@ The 3D view can also show every camera's cloud in one scene (All cameras), each 
 your plan. It needs no setting. Each camera's cloud is made again once after this upgrade, so that its picture is
 kept for comparing with its neighbours' and with its own later ones.
 
+Each cloud stands level by its own floor, or by its walls when no floor is in view, and in All cameras a camera with a
+spot is turned and slid so that its walls run along your plan's (never stretched; your spots and plan are not
+changed). A cloud made earlier that found no floor is stood up by its walls once, within a minute of the surroundings
+service starting, with no new picture. A camera that has not moved keeps its cloud when a later one, from a dark
+picture for instance, would be worse. It needs no setting.
+
 `pack-reset-places` deletes the clouds with the rest of what the machine made; they are made again.
 
 ### One application instead of a service per daemon

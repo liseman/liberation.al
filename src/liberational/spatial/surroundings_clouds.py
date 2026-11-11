@@ -14,7 +14,14 @@ per-pixel median. With nobody in view the scene is still, so the median only rem
 brief thing the detector missed. At a sample every 5 s that is 20 s of an empty view. Without the detector's model
 a picture is taken to be empty, as the sampler takes it, and the log says so once.
 
-The new cloud replaces the camera's cloud; nothing of the old one is carried forward. Making it takes ten seconds
+The new cloud replaces the camera's cloud, unless it is the worse of the two and the camera hasn't moved
+(spatial/camera_clouds.py `refresh`: a dark picture often shows no floor); nothing of the old one is carried forward.
+A look that gave no better cloud is remembered with the cloud, so the same view isn't tried again.
+
+**Square to the plan.** Every `SQUARE_EVERY_S` a camera that has a cloud is checked (`square`): a cloud made before
+walls were used to level one is stood up by them, and the cloud's squaring to the owner's plan
+(spatial/cloud_scene.py `align`) is made again when the cloud, the camera's spot, or the plan is another. It needs
+no picture and no model, so it runs in the dark and with people about. Making it takes ten seconds
 or so (most of it loading the model), so it runs on a thread of its own, one cloud at a time, and the sampler's
 looks carry on meanwhile.
 """
@@ -37,11 +44,14 @@ CLEAN = 5  # pictures in a row with nobody in them
 CHECK_EVERY_S = 30.0
 REFRESH_MIN_S = 300.0
 RETRY_S = 120.0
+SQUARE_EVERY_S = 60.0
 
 #: The people and animals in a BGR frame, as boxes.
 Detector = Callable[[np.ndarray], Sequence[tuple[float, float, float, float]]]
 #: `camera_clouds.refresh` with the store and the runner bound: (camera, picture, now, frames, thumbnail).
 Refresh = Callable[[str, np.ndarray, float, int, Sequence[float]], object]
+#: Stand a camera's older cloud up and bring its squaring to the plan up to date (`for_service`).
+Square = Callable[[str], object]
 
 
 class Clouds:
@@ -57,6 +67,7 @@ class Clouds:
         thumbnail: Callable[[np.ndarray], np.ndarray],
         configured: Callable[[], bool] = lambda: True,
         submit: Callable[[Callable[[], None]], object] | None = None,
+        square: Square | None = None,
     ) -> None:
         self.store = store
         self.refresh = refresh
@@ -64,6 +75,8 @@ class Clouds:
         self.lit = lit
         self.thumbnail = thumbnail
         self.configured = configured
+        self.square = square
+        self._squared: dict[str, float] = {}  # when a camera's squaring was last checked
         self._pool: concurrent.futures.ThreadPoolExecutor | None = None
         if submit is None:
             pool = self._pool = concurrent.futures.ThreadPoolExecutor(1, "camera-cloud")
@@ -81,6 +94,13 @@ class Clouds:
         is being made), "wait" (too soon after the last try), "fine" (its view is as its cloud shows it), "dark",
         "people", "collecting" (a clean picture, more wanted), or "made" (the clean picture is on its way to the
         model)."""
+        if (
+            self.square is not None
+            and camera not in self._making
+            and now - self._squared.get(camera, -SQUARE_EVERY_S) >= SQUARE_EVERY_S
+        ):
+            self._squared[camera] = now
+            self._submit(lambda: self._square(camera))
         if not self.configured():
             self.store.note(camera, "no_runtime", now)
             return "off"
@@ -100,7 +120,10 @@ class Clouds:
                 self.store.note(camera, "dark", now)
             return "dark"
         thumb = self.thumbnail(pixels)
-        if have is not None and len(have.thumb) == len(thumb) and float(np.asarray(have.thumb) @ thumb) >= CHANGED:
+        if have is not None and any(
+            len(known) == len(thumb) and float(np.asarray(known) @ thumb) >= CHANGED
+            for known in (have.thumb, have.also)
+        ):
             self._drop(camera)
             self._checked[camera] = now
             return "fine"
@@ -134,6 +157,14 @@ class Clouds:
             self._making.discard(camera)
         self._wait[camera] = now + (REFRESH_MIN_S if made is not None else RETRY_S)
         self._checked[camera] = now
+        self._squared.pop(camera, None)  # a new cloud is squared at the next look
+
+    def _square(self, camera: str) -> None:
+        try:
+            if self.square is not None:
+                self.square(camera)
+        except Exception:  # a cloud that can't be squared must not stop the sampling
+            LOG.exception("%s: squaring its cloud to the plan failed", camera)
 
     def _drop(self, camera: str) -> None:
         self._clean.pop(camera, None)
@@ -172,4 +203,16 @@ def for_service(
             spots=lambda: cloud_scene.spots_of(Path(str(state))),
         )
 
-    return Clouds(store, refresh, detect, lit, thumbnail, configured=lambda: camera_clouds.runtime() is not None)
+    def square(camera: str) -> object:
+        folder = Path(str(state))
+        cloud_scene.relevel(store, camera)
+        return cloud_scene.align(
+            store,
+            camera,
+            cloud_scene.spots_of(folder),
+            lambda place, mirrored: cloud_scene.plan_rooms(folder, place, mirrored),
+        )
+
+    return Clouds(
+        store, refresh, detect, lit, thumbnail, configured=lambda: camera_clouds.runtime() is not None, square=square
+    )

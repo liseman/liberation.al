@@ -3,7 +3,7 @@ import { HttpResponse, http } from 'msw';
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../../test/render';
 import { server } from '../../../test/server';
-import type { ScenePair, ScenePlaced } from '../api';
+import type { ScenePair, ScenePlaced, SceneSquare } from '../api';
 import { buildScene } from '../scene/build';
 import CloudView from './CloudView';
 import { collisionMesh, glb, glbUrl } from './collision';
@@ -22,14 +22,18 @@ import {
 import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import {
+  bendLine,
   learningNote,
+  levelLine,
   loadingText,
   moveSpotQuestion,
   pairLine,
+  pictureLine,
   placedLine,
   placedState,
   planNote,
   splatNote,
+  squareLine,
   viewNote,
   viewWhy,
 } from './status';
@@ -468,6 +472,11 @@ it("leads a camera's cloud with whose view it is, then its points, when it was m
   expect(viewNote({ ...own, view: { ...own.view, at: at - 7 * 3600 } }, 'Hall', now)).toMatch(
     /123,554 points, yesterday 18:40\./,
   );
+  expect(
+    viewNote({ ...own, view: { ...own.view, level: 'walls', tilt_deg: 12.5, roll_deg: 0.6 } }, 'Hall', now),
+  ).toMatch(
+    /today 01:40\. No floor in view, so levelled from its walls: the camera looks 13° down and is rolled 1°\. Approximate size/,
+  );
   expect(viewNote({ place: 'p1', revision: 'r2' })).toBeNull(); // the place's own map
   expect(viewNote({ place: 'p1', revision: null, view: { camera: 'hall' } })).toBeNull(); // no cloud yet
   expect(splatNote({ ...own, splat: null })).toBeNull(); // no splat goes with a camera's cloud
@@ -520,6 +529,88 @@ const pairOf = (state: ScenePair['state'], more: Partial<ScenePair> = {}): Scene
   measured: null,
   latest: null,
   ...more,
+});
+
+const squareOf = (more: Partial<SceneSquare> = {}): SceneSquare => ({
+  state: 'squared',
+  turn_deg: 0,
+  right_m: 0,
+  ahead_m: 0,
+  slide: '',
+  bend_deg: 0,
+  ...more,
+});
+
+it.each([
+  ['floor', 14.4, 0.1, 'Levelled from its own floor: the camera looks 14° down.'],
+  ['floor', 28.3, 15.3, 'Levelled from its own floor: the camera looks 28° down and is rolled 15°.'],
+  ['walls', 12.5, -1.3, 'No floor in view, so levelled from its walls: the camera looks 13° down and is rolled 1°.'],
+  ['none', 0, 0, 'No floor or wall in view to level it by: it stands as if the camera were upright, so it may lean.'],
+] as const)('says what a cloud was levelled by, and the camera tilt that gives: %s', (level, tilt, roll, line) => {
+  expect(levelLine(level, tilt, roll)).toBe(line);
+});
+
+it('says nothing of the level for a scene that does not say', () => {
+  expect(levelLine()).toBeNull();
+});
+
+it.each([
+  [
+    squareOf({ turn_deg: -3.5, right_m: 0.12, ahead_m: 0.16 }),
+    'Squared to your plan by its walls: turned 3.5° and moved 20 cm.',
+  ],
+  [squareOf({ turn_deg: 0.2 }), "Its walls already run along your plan's."],
+  [
+    squareOf({ turn_deg: -2.73, slide: 'beyond' }),
+    "Squared to your plan by its walls: turned 2.7°. Not slid onto the plan's walls: they are farther off than a slide goes, because its size is an estimate.",
+  ],
+  [squareOf({ turn_deg: 1.9, slide: 'no_counterpart' }), 'Squared to your plan by its walls: turned 1.9°.'],
+])('says how a cloud was squared to the plan: %#', (square, line) => {
+  expect(squareLine(placedAs('spot', { square, squared: true }))).toBe(line);
+});
+
+it('says why a cloud was not squared, and nothing for a camera placed some other way', () => {
+  expect(squareLine(placedAs('spot', { square: squareOf({ state: 'beyond', turn_deg: -25.2 }) }))).toBe(
+    'Not squared: its walls line up with your plan only 25° from the facing you set, farther than a cloud is turned. Check which way its spot faces.',
+  );
+  expect(squareLine(placedAs('spot', { square: squareOf({ state: 'no_walls' }) }))).toBe(
+    'No wall in view to square it to your plan by: it faces the way its spot says.',
+  );
+  expect(squareLine(placedAs('spot', { square: squareOf({ state: 'no_plan' }) }))).toBe(
+    'No wall of your plan near it to square it to: it faces the way its spot says.',
+  );
+  expect(squareLine(placedAs('moved', { square: squareOf({ turn_deg: 3 }), squared: false }))).toBeNull();
+  expect(squareLine(placedAs('no_spot'))).toBeNull();
+});
+
+it('says that walls bend from the depth estimate only where they do', () => {
+  expect(bendLine(placedAs('spot', { square: squareOf({ bend_deg: 7.9 }) }))).toBe(
+    'Walls in this cloud bend by about 8°: that is the depth estimate, not the placement.',
+  );
+  expect(bendLine(placedAs('spot', { square: squareOf({ bend_deg: 1.4 }) }))).toBeNull();
+  expect(bendLine(placedAs('spot'))).toBeNull();
+});
+
+it("says when a camera's picture was taken", () => {
+  const now = new Date(2026, 5, 2, 9, 0);
+  const at = new Date(2026, 5, 1, 15, 53).getTime() / 1000;
+  expect(pictureLine(placedAs('spot', { at }), now)).toBe('From a picture taken yesterday 15:53.');
+  expect(pictureLine(placedAs('spot'), now)).toBeNull();
+});
+
+it('says two squared cameras are checked by their pictures, not moved by them', () => {
+  const pair: ScenePair = {
+    a: 'hall',
+    b: 'porch',
+    state: 'checked',
+    off_m: 0.21,
+    off_deg: 3.2,
+    measured: null,
+    latest: null,
+  };
+  expect(pairLine(pair)).toBe(
+    "hall and porch see the same space. Both are squared to your plan, which their pictures don't move: the pictures put the two 21 cm and 3° from where they stand.",
+  );
 });
 
 it.each([

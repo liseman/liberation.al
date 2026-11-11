@@ -29,9 +29,18 @@ camera's own frame and a confidence. Then, in the pack:
    are six or seven away, and the model's near and far depth don't share one scale: on two cameras the walls landed
    1.11 and 1.24 times too far on the owner's plan when sized by height, against 0.96 and 1.00 in the model's own
    metres (and 1.06 on a third).
-5. *Its frame* (`level`). The cloud is turned level: z is up, the floor is z = 0, the camera stands on the z axis
-   looking along +y. With no floor found the camera is taken to be upright and the lowest points stand in for the
-   floor, so the view still has a ground to stand on.
+5. *Its frame* (`level`, `Cloud.level`). The cloud is turned level: z is up, the floor is z = 0, the camera stands
+   on the z axis looking along +y. Its tilt and roll are its floor's ("floor"). With no floor found, its walls say
+   which way is up ("walls": spatial/cloud_align.py `stand`; a wall is vertical), and the lowest points stand in
+   for the floor. With neither, the camera is taken to be upright ("none"), which a tilted camera isn't: two such
+   clouds on the Linux machine stood 11.7 and 12.5 degrees off level, and came upright by their walls. A cloud made
+   before walls were used is stood up by them once, where it is kept (`relevel`).
+
+**Which cloud is kept** (`refresh`, `better`). A camera's view looks different by night, so a cloud is made then
+too, and a dark picture often shows no floor. While the camera hasn't moved (its picture registers with its anchor,
+spatial/cloud_scene.py), a new cloud that is worse than the one it has doesn't replace it: one with no floor against
+one with a floor, or one with under `FEWER` of its points. The look is remembered (`Cloud.also`), so the same view
+isn't tried again. A camera with no spot has no anchor to say it stayed put, and its newest cloud is kept.
 
 **Keeping one** (`Store`): `state/camera_clouds/<camera>/` holds the camera's one cloud, `<id>.ply` (binary, x y z
 and red green blue) and `cloud.json` (`Cloud`: when, how many points, the camera's pose and focal
@@ -64,7 +73,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, logs
 from liberational.memory import places
-from liberational.spatial import ply
+from liberational.spatial import cloud_align, ply
 
 LOG = logs.get("camera-clouds")
 
@@ -87,6 +96,7 @@ FLOOR_UP = 0.5  # cosine: a floor's normal is within 60 degrees of the camera's 
 FLOOR_UNDER = (0.06, 0.02)  # at most this share of points may lie more than this far (m) under the floor
 FLOOR_MIN = 0.04  # of the sampled points must be on it
 FLOOR_BELOW_M = 0.5  # the floor passes at least this far under the camera: nearer is a table top or a shelf
+FEWER = 0.8  # a new cloud with under this share of the kept one's points is the worse of the two
 HEIGHT_FITS = (
     0.6,
     1.7,
@@ -303,12 +313,21 @@ class Cloud:
     frames: int = 1  # the frames whose median the picture was
     cleaned: float = 0.0  # of the points the model was sure of, the share `clean` dropped
     thumb: tuple[float, ...] = field(default=(), repr=False)  # the picture's thumbnail, to notice a changed view
+    level: str = ""  # what it was levelled by: "floor", "walls", or "none"; "" for one made before walls were used
+    #: The thumbnail of a later picture of the same view that gave no better cloud (`refresh`): that view is known too.
+    also: tuple[float, ...] = field(default=(), repr=False)
+
+    @property
+    def levelled(self) -> str:
+        """`level`, for an older cloud too."""
+        return self.level or ("floor" if self.floor_found else "none")
 
     @staticmethod
     def from_dict(value: dict[str, Any]) -> Cloud:
         known = {k: value[k] for k in Cloud.__dataclass_fields__ if k in value}
         known["pose"] = tuple(float(v) for v in known["pose"])
         known["thumb"] = tuple(float(v) for v in known.get("thumb", ()))
+        known["also"] = tuple(float(v) for v in known.get("also", ()))
         return Cloud(**known)
 
 
@@ -388,6 +407,11 @@ def make(
     if not fits:
         found = None  # not this camera's floor: it would stand far from its measured height above it
     levelled, pose, floor_found = level(kept, found)
+    by = "floor" if floor_found else "none"
+    if not floor_found:
+        upright = cloud_align.stand(levelled, pose)
+        if upright is not None:
+            levelled, pose, by = cloud_align.apply(upright, levelled), upright @ pose, "walls"
     h, w = keep.shape
     cloud = Cloud(
         id=str(uuid.uuid7()),
@@ -406,8 +430,19 @@ def make(
         frames=frames,
         thumb=tuple(float(v) for v in thumb),
         cleaned=round(1.0 - float(keep.sum()) / max(int(sure.sum()), 1), 3),
+        level=by,
     )
     return Made(cloud, ply.dumps(levelled, got.colour[keep]))
+
+
+RANK = {"floor": 2, "walls": 1, "none": 0}
+
+
+def better(new: Cloud, old: Cloud) -> bool:
+    """Whether `new` is at least as good a cloud of the same view as `old` (the module docstring)."""
+    if RANK[new.levelled] != RANK[old.levelled]:
+        return RANK[new.levelled] > RANK[old.levelled]
+    return new.points >= FEWER * old.points
 
 
 def root(state: Path | str) -> Path:
@@ -472,9 +507,41 @@ class Store:
                 places.write_whole(self.picture(made.cloud), png.tobytes())
         json_state.write(folder / "cloud.json", asdict(made.cloud))
         for old in [*folder.glob("*.ply"), *folder.glob("*.png")]:
-            if old.stem not in (made.cloud.id, "anchor"):  # the anchor is spatial/cloud_scene.py's to keep
+            if old.stem not in (made.cloud.id, "anchor", "before.anchor"):  # spatial/cloud_scene.py's to keep
                 old.unlink(missing_ok=True)
         self.note(made.cloud.camera, None, made.cloud.at)
+
+    def seen(self, cloud: Cloud, thumb: Sequence[float]) -> Cloud:
+        """Remember a later picture of `cloud`'s view that gave no better cloud (`Cloud.also`)."""
+        known = replace(cloud, also=tuple(float(v) for v in thumb))
+        json_state.write(self.folder / slug(cloud.camera) / "cloud.json", asdict(known))
+        return known
+
+    def relevel(self, camera: str) -> Cloud | None:
+        """Stand up, by its walls, a cloud made before walls were used that found no floor (the module docstring's
+        step 5). The cloud is kept as a new one (its points turned, nothing else changed), which is returned; None
+        when there was nothing to do. A cloud is looked at once: one with no wall is marked "none"."""
+        cloud = self.current(camera)
+        if cloud is None or cloud.level:
+            return None
+        if cloud.floor_found:
+            json_state.write(self.folder / slug(camera) / "cloud.json", asdict(replace(cloud, level="floor")))
+            return None
+        points, colours, _ = ply.read(self.file(cloud))
+        pose = np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4)
+        upright = cloud_align.stand(points, pose)
+        if upright is None:
+            json_state.write(self.folder / slug(camera) / "cloud.json", asdict(replace(cloud, level="none")))
+            return None
+        stood = replace(
+            cloud, id=str(uuid.uuid7()), level="walls", pose=tuple(float(v) for v in (upright @ pose).ravel())
+        )
+        picture = self.picture(cloud)
+        if picture.is_file():
+            shutil.copyfile(picture, self.picture(stood))
+        fill = np.full((len(points), 3), 160, dtype=np.uint8) if colours is None else colours
+        self.replace(Made(stood, ply.dumps(cloud_align.apply(upright, points), fill)))
+        return stood
 
     def note(self, camera: str, reason: str | None, at: float, detail: str = "") -> None:
         """Say why `camera`'s last try made no cloud (one of REASONS), or with None that it made one."""
@@ -556,6 +623,12 @@ def refresh(
         LOG.warning("%s: no cloud: %s", camera, e)
         store.note(camera, "failed", now, str(e)[-300:])
         return None
+    have = store.current(camera)
+    still = bool(compared) and compared[0][0] == "anchor" and cloud_scene.stayed(store, camera, got.matches[:1])
+    if have is not None and still and not better(made.cloud, have):
+        LOG.info("%s: a new cloud (%s, %d points) is no better than the one it has; kept", camera, made.cloud.level,
+                 made.cloud.points)  # fmt: skip
+        return store.seen(have, thumb)
     store.replace(made)
     if compared:
         try:
