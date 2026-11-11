@@ -200,3 +200,10 @@ def test_restore_dry_run_on_fresh_install_does_not_create_state(tmp_path, capsys
     tool.restore(state, dry_run=True)
     assert json.loads(capsys.readouterr().out)["pets"] == []
     assert not state.exists()
+
+
+def test_inventory_cannot_silently_run_the_writing_carry_mode(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["restore", "--inventory-only", "--carry-from", OLD])
+    with pytest.raises(SystemExit) as error:
+        tool.main()
+    assert error.value.code == 2

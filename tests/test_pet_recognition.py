@@ -60,6 +60,18 @@ def test_temporal_classifier_purges_nearby_tracks_on_both_split_boundaries():
     assert R._temporal_check(similar_pets(gap=1), "cat", None) == {}
 
 
+def test_a_retained_mean_is_not_an_extra_crop_in_classifier_confidence():
+    check = R._temporal_check(similar_pets(), "cat", None)
+    crop1 = {"track_id": "query", "species": "cat", "ts_start": T, "vector": [1.0, 0.13, 0.3]}
+    crop2 = {**crop1, "vector": [1.0, -0.02, -0.3]}
+    plain = R.sightings([crop1, crop2])[0]
+    retained = {**crop1, "vector": plain.mean.tolist(), "owner_label": {"label": "Alice"}}
+    with_reference = R.sightings([crop1, crop2, retained])[0]
+    labels, scores = check["_model"].scores([plain, with_reference])
+    assert labels[0] == labels[1]
+    assert scores[0] == pytest.approx(scores[1])
+
+
 def test_one_pet_species_keeps_gallery_even_with_many_labels():
     examples = [(s, "Rex") for s, _ in similar_pets()]
     check = R._temporal_check(examples, "cat", "Rex")

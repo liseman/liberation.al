@@ -171,6 +171,7 @@ class Sighting:
     end: float
     vectors: list[np.ndarray] = field(default_factory=list)
     shot: dict[str, Any] = field(default_factory=dict)  # the largest box seen: {ts, box}, for its photo
+    crops: list[np.ndarray] = field(default_factory=list)  # observed crops, excluding a retained reference mean
 
     @functools.cached_property
     def mean(self) -> np.ndarray:
@@ -196,6 +197,8 @@ def sightings(rows: Iterable[Mapping[str, Any]]) -> list[Sighting]:
         s = out.setdefault(tid, Sighting(tid, species, str(r.get("cam") or ""), ts, ts))
         s.start, s.end = min(s.start, ts), max(s.end, ts)
         s.vectors.append(v / np.linalg.norm(v))
+        if "owner_label" not in r:
+            s.crops.append(s.vectors[-1])
         box = r.get("box")
         if isinstance(box, list) and len(box) >= 4:
             area = (box[2] - box[0]) * (box[3] - box[1])
@@ -436,7 +439,11 @@ class _Classifier:
     threshold: float
 
     def scores(self, found: Sequence[Sighting]) -> tuple[list[str], np.ndarray]:
-        probabilities = np.stack([self.estimator.predict_proba(np.stack(s.vectors)).mean(axis=0) for s in found])
+        # A retained mean is a fallback after recordings expire, not an extra camera observation. Counting it
+        # again would make labeled test tracks differ from the unlabeled tracks this classifier will answer.
+        probabilities = np.stack(
+            [self.estimator.predict_proba(np.stack(s.crops or s.vectors)).mean(axis=0) for s in found]
+        )
         best = probabilities.argmax(axis=1)
         return self.estimator.classes_[best].tolist(), probabilities[np.arange(len(found)), best]
 

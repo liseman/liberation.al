@@ -400,6 +400,8 @@ def main() -> None:
     parser.add_argument("--margin", type=float, default=MARGIN, help=f"carry-over: how clear (default {MARGIN})")
     parser.add_argument("--per-pet", type=int, default=PER_PET, help=f"carry-over: sightings a pet (default {PER_PET})")
     args = parser.parse_args()
+    if args.inventory_only and args.carry_from:
+        parser.error("--inventory-only cannot be combined with --carry-from")
     state = args.state or Path(cfg.path("paths.state"))
     if args.carry_from:
         carry(state, args.carry_from, args.old_model, args.min_sim, args.margin, args.per_pet, args.dry_run)
