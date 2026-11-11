@@ -6,10 +6,11 @@ Makes a demo directory (DIR, or a new one under the system's temporary directory
 and the pack's config file into it, starts a private Continuum broker on its state directory, seeds the dataset in
 demo/dataset.py, and runs the dashboard on PORT. Without --port it is 8780, a port no service of the pack uses, so the
 demo runs beside an open application; when 8780 is taken, a free port the pack doesn't use instead, and the address
-line says which. A --port that is taken is refused at once. Ctrl-C stops the dashboard and the broker. The demo runs no models: its Ollama URL points nowhere, so asking a
-question in it fails rather than reaching a real model.
+line says which. A --port that is taken is refused at once. Ctrl-C stops the dashboard, broker, and private playback gateway. The demo runs no models:
+Ask uses prepared answers, and the demo HTTP process refuses outbound network connections and subprocesses.
+Room illustrations, recordings, portraits, and point clouds are generated locally on first start.
 
-A DIR that already holds a seeded demo is reused as it is. The real `data/` directory is never read or written: the
+A DIR that already holds a seeded demo is reused; older demos receive the media fixtures once. The real `data/` directory is never read or written: the
 launcher refuses a DIR inside it.
 """
 
@@ -32,7 +33,7 @@ from liberational import config as cfg
 
 # The dashboard's default port: none of the pack's own ([ports] in config/defaults.toml, and the gateway's).
 PORT = 8780
-# The broker's Tier 0 arena, kept tiny: the demo has no video or audio, only the journal's text payloads.
+# The broker's Tier 0 arena, kept tiny: generated video is read from disk, not live capture.
 TIER0 = "16384x64"
 # Where Ollama would be: the discard port, which nothing listens on, so the demo can't reach a real model.
 NO_OLLAMA = "http://127.0.0.1:9"
@@ -222,7 +223,7 @@ def start_vector_worker(env: Mapping[str, str], output: IO[bytes] | None = None)
     return subprocess.Popen(command, env=dict(env), stdout=output, stderr=output)
 
 
-def seed_here(today: dt.date | None = None) -> dt.date:
+def seed_here(today: dt.date | None = None, *, media: bool = False) -> dt.date:
     """Seeds the demo into the configured state directory (run in the demo's environment, by `run`), its day the one
     before `today` (by default the real today)."""
     from liberational import memory_log, speech_log
@@ -236,6 +237,10 @@ def seed_here(today: dt.date | None = None) -> dt.date:
     finally:
         mic.close()
     dataset.seed_faces(cfg.path("paths.faces"), time.time())
+    if media:
+        from liberational.demo import household
+
+        household.seed(state, day)
     print(f"pack-demo: seeded the demo household, with a journal and a transcript for {day.isoformat()}")
     return day
 
@@ -280,20 +285,40 @@ def run(root: Path, port: int, dashboard_args: Sequence[str] = ()) -> int:
     root = root.resolve()
     prepare(root)
     env = environment(root, port)
+    gateway_port = any_free_port(reserved_ports() | {port})
+    env["PACK_PORTS_GATEWAY"] = str(gateway_port)
     broker = start_broker(root, env)
     try:
         if not (root / SEEDED).exists():
-            subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--seed-here"], env=env, check=True)
+            subprocess.run(
+                [sys.executable, "-m", "liberational.demo.cli", "--seed-here", "--media"], env=env, check=True
+            )
             (root / SEEDED).write_text("pack-demo\n")
-        print(f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})", flush=True)
-        dashboard = subprocess.Popen(
-            [sys.executable, "-m", "liberational.dashboard.server", str(port), *dashboard_args], env=env
+        elif not (root / "state" / "demo" / "day.json").exists():
+            subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--media"], env=env, check=True)
+        gateway = subprocess.Popen(
+            [
+                str(cfg.program("continuum-gateway")),
+                "--state-dir",
+                env["PACK_PATHS_STATE"],
+                "--listen",
+                f"127.0.0.1:{gateway_port}",
+            ],
+            env=env,
+            cwd=root,
         )
+        print(f"pack-demo: the demo dashboard is on http://localhost:{port}/ (its files are in {root})", flush=True)
         try:
-            return dashboard.wait()
-        except KeyboardInterrupt:
-            stop(dashboard)
-            return 0
+            dashboard = subprocess.Popen(
+                [sys.executable, "-m", "liberational.demo.server", str(port), *dashboard_args], env=env
+            )
+            try:
+                return dashboard.wait()
+            except KeyboardInterrupt:
+                stop(dashboard)
+                return 0
+        finally:
+            stop(gateway)
     finally:
         stop(broker)
         sock = Path(env["CONTINUUM_SOCKET"])
@@ -309,15 +334,21 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--port", type=int, help=f"the dashboard's port (default {PORT}, or a free one when {PORT} is taken)"
     )
     parser.add_argument("--dev", action="store_true", help="run the dashboard with --dev (pages from Vite)")
+    parser.add_argument("--media", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--seed-here", action="store_true", help=argparse.SUPPRESS)
     # With --seed-here: the day after the demo's, and waiting for a vector worker to index it (tools/measure.py --demo)
     parser.add_argument("--today", type=dt.date.fromisoformat, help=argparse.SUPPRESS)
     parser.add_argument("--wait-index", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.seed_here:
-        day = seed_here(args.today)
+        day = seed_here(args.today, media=args.media)
         if args.wait_index:
             wait_for_index(day)
+        return
+    if args.media:
+        from liberational.demo import household
+
+        household.seed(cfg.path("paths.state"), (args.today or dt.date.today()) - dt.timedelta(days=1))
         return
     port = choose_port(args.port)
     root = args.dir or Path(tempfile.mkdtemp(prefix="pack-demo-"))
