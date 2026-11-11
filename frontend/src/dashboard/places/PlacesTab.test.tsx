@@ -10,6 +10,12 @@ import { lastVisit, linkedFrom, PlacesTab, sceneSummary } from './PlacesTab';
 import { buildScene } from './scene/build';
 import { drawScene } from './scene/draw';
 
+// Counted, to see that a plan is drawn only for the place being shown (each row reads its summary instead).
+vi.mock('./scene/draw', async importOriginal => {
+  const actual = await importOriginal<typeof import('./scene/draw')>();
+  return { ...actual, drawScene: vi.fn(actual.drawScene) };
+});
+
 const drawing = () => screen.getByRole('img', { name: /^Floor plan/ });
 const rows = () => within(screen.getByRole('navigation', { name: 'Places' })).getAllByRole('button');
 const row = (name: RegExp) => within(screen.getByRole('navigation', { name: 'Places' })).getByRole('button', { name });
@@ -96,6 +102,35 @@ it('lists the places the house knows, without the examples, and draws the one pi
   fireEvent.click(row(/Office/));
   expect(drawing().getAttribute('aria-label')).toBe('Floor plan of Office');
   expect(row(/Office/).getAttribute('aria-current')).toBe('true');
+});
+
+it("reads each row's plan summary without drawing it, and draws only the place being shown", async () => {
+  const draw = vi.mocked(drawScene);
+  draw.mockClear();
+  const OFFICE_SCENE = buildScene({
+    height: 2.4,
+    walls: [],
+    openings: [],
+    rooms: [
+      {
+        id: 'desk',
+        name: 'Desk',
+        outline: [
+          [0, 0],
+          [2, 0],
+          [2, 2],
+          [0, 2],
+        ],
+      },
+    ],
+  });
+  serve([HOME, { ...OFFICE, plan: JSON.stringify(OFFICE_SCENE) }]);
+  renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: /^Home/ });
+  expect(row(/^Office/).textContent).toContain('1 room · 4.0 m²'); // its row's summary, read without drawing it
+  draw.mockClear(); // what was drawn while the list was still loading says nothing either way
+  fireEvent.click(row(/^Office/));
+  expect(draw.mock.calls.map(([, name]) => name)).toEqual(['Office']); // the place shown, and no other place
 });
 
 it('shows the example plans while no place has a plan, after the places waiting for one', async () => {
