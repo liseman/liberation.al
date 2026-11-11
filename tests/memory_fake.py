@@ -16,6 +16,9 @@ class FakeMemoryLog:
         self.records: dict[str, list[dict[str, Any]]] = {}
         self.cursors: dict[str, int] = {}  # durable name -> how many records of its stream were handled
         self.state: Any = None  # the state directory the code last asked for its log by, which `page` reviews against
+        # As the broker: a parent it never had (a row from the hourly segment files) is refused too. Off by default,
+        # since most tests name sources from other fakes without writing them here.
+        self.known_parents_only = False
 
     def append(
         self,
@@ -34,8 +37,10 @@ class FakeMemoryLog:
         if extra:
             raise ValueError(f"{stream} has no {sorted(extra)}")  # the codec refuses unknown keys
         purged = {r["id"] for rows in self.records.values() for r in rows if r.get("_purged")}
+        known = {r["id"] for rows in self.records.values() for r in rows} if self.known_parents_only else None
         for parent in parents:
-            if parent in purged:  # the catalog refuses a payload naming a parent it no longer has
+            if parent in purged or (known is not None and parent not in known):
+                # the catalog refuses a payload naming a parent it no longer has, or never had
                 raise ValueError(f"payload names unknown parent {parent}")
         pid = payload_id or str(uuid.uuid7())
         r = {"ts_end": record["ts_start"], **record, "id": pid, "parents": list(parents), "subjects": list(subjects)}
