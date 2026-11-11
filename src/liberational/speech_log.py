@@ -285,8 +285,13 @@ _retained_rows: list[dict[str, Any]] = []
 def retained() -> list[dict[str, Any]]:
     """Every utterance kept, in time order, cached until a line is written or a purge may have taken one. People and
     clone totals need complete history. Raw rows only: each request applies a fresh identity View, so names and
-    corrections never wait for new speech. Copies keep a caller's projection or annotations from changing another
-    request's input."""
+    corrections never wait for new speech.
+
+    The rows come back as they are kept, not as copies: this is the most-read speech read, and copying the whole
+    corpus per request (there are seven callers, several behind polled routes) cost more than reading it. A reader
+    must not change a row. Readers that put something on a line (a name, `confirmed`, a twin marker) read the rows
+    through `transcript_view.View`, whose `lines`/`named`/`individual_lines`/`line` each hand back a dict of their
+    own, so annotating what a reader got cannot reach this cache or another request's input."""
     global _retained_log, _retained_mark, _retained_rows
     log = shared()
     with _retained_lock:
@@ -297,7 +302,7 @@ def retained() -> list[dict[str, Any]]:
         if log is not _retained_log or mark != _retained_mark:
             rows = log.all_lines()
             _retained_log, _retained_mark, _retained_rows = log, mark, rows
-        return copy.deepcopy(_retained_rows)
+        return list(_retained_rows)  # a new list, the same rows: a caller's sort or append can't reach the cache
 
 
 WORKER_STREAM_PREFIX = "worker."  # the broker's own worker state, such as worker.checkpoint.<hash>.parts
