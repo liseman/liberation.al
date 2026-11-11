@@ -59,6 +59,14 @@ cameras that were seen together close by on the plan are one path (`joined`, `Po
 second where both cameras saw them (see FUSE_M); tracks of one entity further apart stay their own paths, so a path
 never zig-zags between where two cameras put two people both named the same.
 
+An animal is up on furniture often enough that its box's bottom cast to the floor can land beyond a wall: a pet on a
+cabinet against the far wall of its room, put on the floor, is a pet behind that wall, which the placer used to give
+no point at all. Its footprint is put at the furniture instead (`_Places.at_furniture`): the farthest point along the
+camera's sight line toward that floor point that the camera still sees by the plan, AT_FURNITURE_M short of where
+the line leaves the room, so it is in the room the pet is seen in, at the furniture, short of the wall. That is a
+guess to a metre or so, so the record says so (`approximate`), and a view may mark it apart from a point on the
+floor. A person's foot there isn't furniture's: it is pose's, and `_deferred` puts it where another camera saw them.
+
 A person's foot on an occluding edge (a couch's back) is put where another camera saw them that second
 (`_deferred`). A track whose rows went to one other track that way is that person drawn twice, one line over the other,
 though `joined` never joined them: it measures the two at the edge track's own far points. So it's drawn on that
@@ -93,7 +101,7 @@ import statistics
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import astuple, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -163,6 +171,14 @@ DEFER_SHARE = 0.75
 # Such a join takes a track of the camera already on that path that shares up to DEFER_OVERLAP_S seconds with it: the
 # tracker often starts a person's next track a second or two before it lets go of the last.
 DEFER_OVERLAP_S = 2
+# A subject whose floor point its camera's spot can't see by the plan (a pet up on a cabinet, cast to the floor beyond
+# the wall) is put where its sight line leaves the room it is seen in (`_Places.at_furniture`), AT_FURNITURE_M short
+# of that wall: the furniture stands inside the room, short of the wall, and a room's wall centre line is 0.15 m off
+# its inner face (a 0.3 m thick wall), so this lands inside the room rather than on its wall. It is a guess to a metre
+# or so, so the point says it is approximate.
+AT_FURNITURE_M = 0.3
+# A bisection's steps for where a sight line leaves the room: 20 of them are a millionth of the line's length.
+FURNITURE_STEPS = 20
 
 
 @dataclass(frozen=True)
@@ -217,6 +233,10 @@ class Position:
     # A person's foot on an occluding edge (`footprints.at_edge`) that no other camera's point settled: hidden
     # behind it and guessed by pose, or just beyond it, so it may be metres off. A view may leave it out of a path.
     uncertain: bool = False
+    # An animal its camera's spot can't see on the floor by the plan, placed at the furniture in the room it is seen
+    # in instead (`_Places.at_furniture`): a pet up on a cabinet or a shelf. Where it is to a metre or so, not where
+    # it stood, so a view may mark it apart from a point on the floor.
+    approximate: bool = False
 
 
 def animal_track(track: str | None) -> str | None:
@@ -355,8 +375,10 @@ class _Places:
         self._at: dict[tuple[str, str, tuple[float, ...]], places.CameraPose] = {}
         self._views: dict[tuple[str, str, tuple[float, ...]], places.Revision] = {}
         self._sights: dict[str, Callable[[tuple[float, float], tuple[float, float]], bool] | None] = {}
-        # The footprints left unplaced because their camera can't see their floor point by the plan (`place`), as
-        # (camera, track, time): a set, since a read places a row more than once
+        self._furniture: dict[tuple[str, float, float], tuple[float, float] | None] = {}  # `at_furniture`'s, by pixel
+        # The footprints left unplaced because their camera can't see their floor point by the plan and nothing came
+        # of putting them at the furniture (`place`), as (camera, track, time): a set, since a read places a row
+        # more than once
         self.hidden: set[tuple[str, str | None, float]] = set()
 
     def revision(self, place: str, rev_id: str | None) -> places.Revision | None:
@@ -514,10 +536,44 @@ class _Places:
     def seen(self, camera: str, hit: tuple[float, float]) -> bool:
         """Whether `camera`, read at its owner spot, can see plan point `hit` (in its spot's frame) by the plan. A
         floor point behind a solid wall from the spot isn't where the subject stood: it is up on furniture (a pet
-        on a cabinet, cast to the floor as if it stood there, lands metres beyond the wall), or the pose is off."""
+        on a cabinet, cast to the floor as if it stood there, lands metres beyond the wall, and `at_furniture` puts
+        it at the furniture instead), or the pose is off."""
         spot = self.spots.get(camera)
         sees = self.sight(spot.place) if spot is not None else None
         return sees is None or spot is None or sees(spot.at, hit)
+
+    def at_furniture(self, camera: str, hit: tuple[float, float]) -> tuple[float, float] | None:
+        """Where a subject up on furniture is put when the floor point its pixel casts to (`hit`, in the camera's
+        spot's frame) is one its spot can't see: the farthest point along the sight line from the spot toward `hit`
+        that the spot still sees by the plan, AT_FURNITURE_M back from where the line leaves the room, so the point
+        is in the room the subject is seen in and short of its wall, where the furniture stands. None when it can't
+        be put there at all: no spot on a plan, no plan to ask, or a line the spot can't see from its start."""
+        key = (camera, round(hit[0], 3), round(hit[1], 3))  # a pet standing still is the same pixel
+        if key not in self._furniture:
+            self._furniture[key] = self._at_furniture(camera, hit)
+        return self._furniture[key]
+
+    def _at_furniture(self, camera: str, hit: tuple[float, float]) -> tuple[float, float] | None:
+        """`at_furniture`, worked out once per pixel: a bisection for where the sight line leaves the room. The
+        points of a line a spot sees are a prefix of it (the solid wall it crosses hides everything past), so a
+        bisection finds that end."""
+        spot = self.spots.get(camera)
+        sees = self.sight(spot.place) if spot is not None else None
+        if spot is None or sees is None:
+            return None
+        (ax, ay), (bx, by) = spot.at, hit
+        run = math.dist((ax, ay), (bx, by))
+        if run <= AT_FURNITURE_M:
+            return None  # the room's wall is on the camera: nothing between it and the furniture
+        near, far = 0.0, 1.0  # of the way from the spot to the floor point
+        for _ in range(FURNITURE_STEPS):
+            mid = (near + far) / 2
+            if sees(spot.at, (ax + mid * (bx - ax), ay + mid * (by - ay))):
+                near = mid
+            else:
+                far = mid
+        back = max(near * run - AT_FURNITURE_M, 0.0) / run  # short of the wall, where the furniture stands
+        return round(ax + back * (bx - ax), 3), round(ay + back * (by - ay), 3)
 
     def place(self, sample: Sample, frame: places.Revision | None = None) -> Placed:
         """Where a sample is. With no `frame`: a row that gives its own place (a rig's) keeps its point, in the frame of
@@ -526,7 +582,11 @@ class _Places:
         the camera, so it lands in that revision's plan frame; a row that can't be (a rig row from another frame, or
         a camera that revision doesn't register and that can't be moved onto it, `carried`) keeps its own frame and
         comes back `in_frame` False. Either way, a camera with a pose series in that revision's map frame is projected
-        through its pose at the row's time (`view`) in place of the revision's."""
+        through its pose at the row's time (`view`) in place of the revision's.
+
+        A camera with an owner spot is checked against the plan: a point its spot can't see is behind a wall from it.
+        An animal's is put at the furniture in the room it is seen in (`at_furniture`) and comes back `approximate`;
+        a person's, and an animal's that can't be put there, gets no point (`hidden`)."""
         if sample.source != FIXED_CAMERA or sample.camera is None or sample.place is not None:
             rev = self.revision(sample.place, sample.revision) if sample.place is not None else None
             found = (
@@ -554,9 +614,18 @@ class _Places:
         # A person's footprint is their heels or ankles, a few centimetres up; an animal's, its box's bottom
         height = 0.0 if animal_track(sample.track) is not None else footprints.FOOT_M
         hit = places.project(self.view(rev, sample.camera, sample.t), sample.camera, sample.u, sample.v, height)
+        approximate = False
         if hit is not None and spotted is not None and rev.id == spotted.id and not self.seen(sample.camera, hit):
-            self.hidden.add((sample.camera, sample.track, sample.t))
-            hit = None  # behind a wall from the camera: not on the floor where it was seen, so given no point
+            # Behind a wall from the camera: not on the floor where it was seen. An animal is up on furniture there
+            # (a pet on a cabinet, its box's bottom cast to the floor beyond the wall), so it is put at the furniture
+            # in the room it is seen in, and the point says it is approximate. People's feet are pose's, and a
+            # person's point there is the pose's, not furniture's (`_at_edge`, `_deferred`).
+            put = self.at_furniture(sample.camera, hit) if animal_track(sample.track) is not None else None
+            if put is None:
+                self.hidden.add((sample.camera, sample.track, sample.t))  # nothing to put it on
+                hit = None
+            else:
+                hit, approximate = put, True
         if move is not None and frame is not None:
             rev = frame
             if hit is not None:
@@ -565,7 +634,9 @@ class _Places:
         if hit is None:
             return Placed(place, None, None, None, None, rev.id, in_frame)
         found = self.room(rev, *hit)
-        return Placed(place, found[1] if found else None, found[0] if found else None, *hit, rev.id, in_frame)
+        return Placed(
+            place, found[1] if found else None, found[0] if found else None, *hit, rev.id, in_frame, approximate
+        )
 
 
 @dataclass(frozen=True)
@@ -577,6 +648,9 @@ class Placed:
     y: float | None
     revision: str | None
     in_frame: bool
+    # Its camera's spot can't see its floor point by the plan and it was put at the furniture in the room it is seen
+    # in instead (`_Places.at_furniture`): a pet up on a cabinet. Where it is to a metre or so, not where it stood.
+    approximate: bool = False
 
 
 def _names(state: Path, entities: Iterable[str | None]) -> dict[str, str | None]:
@@ -1164,9 +1238,10 @@ def _path_entities(paths: Mapping[str, str], entity: Mapping[str, str | None]) -
 
 def _fuse(
     stored: Sequence[Sample], paths: Mapping[str, str], place: Callable[[Sample], Placed], where: _Places
-) -> tuple[list[Sample], dict[str, str], set[str]]:
+) -> tuple[list[Sample], dict[str, str], set[str], set[str]]:
     """`stored` with each joined path's rows in a second two or more of its cameras placed replaced by one fused row
-    (see FUSE_M), each fused row's path by its id, and the fused rows whose every camera's foot was on an edge."""
+    (see FUSE_M), each fused row's path by its id, the fused rows whose every camera's foot was on an edge, and those
+    whose mean is of a camera's point at the furniture (`_Places.at_furniture`, approximate)."""
     at: dict[tuple[str, int], list[Sample]] = {}
     for s in stored:
         if s.track is not None and s.track in paths:
@@ -1175,6 +1250,7 @@ def _fuse(
     made: list[Sample] = []
     fused: dict[str, str] = {}
     doubtful: set[str] = set()  # the fused rows whose every camera's foot was on an edge
+    rough: set[str] = set()  # the fused rows a camera's point at the furniture went into
     for (path, _), rows in at.items():
         if len({r.camera for r in rows}) < 2:
             continue
@@ -1214,7 +1290,9 @@ def _fuse(
         fused[row.id] = path
         if not clear:
             doubtful.add(row.id)
-    return [s for s in stored if s.id not in gone] + made, fused, doubtful
+        if any(p.approximate for _, p in used):
+            rough.add(row.id)
+    return [s for s in stored if s.id not in gone] + made, fused, doubtful, rough
 
 
 def derive(
@@ -1243,8 +1321,10 @@ def derive(
     series (or one that gives no pose), it's placed through that revision's registration of the camera, whatever the
     row's age, so its older rows land as if seen from where it is now.
 
-    A footprint its camera can't see by the plan (`_Places.seen`) gets no point; `hidden` collects which, as
-    (camera, track, time)."""
+    An animal's footprint its camera's spot can't see on the floor by the plan (`_Places.seen`: a pet up on a
+    cabinet, cast to the floor beyond a wall) is put at the furniture in the room it is seen in (`_Places.at_furniture`)
+    and comes back `approximate`. A person's, and an animal's it can't put anywhere at all, gets no point; `hidden`
+    collects which, as (camera, track, time)."""
     where = _Places(state)
     frame: places.Revision | None = None
     if frame_revision is not None:
@@ -1313,11 +1393,11 @@ def derive(
 
     def settle(
         rows: list[Sample], paths: Mapping[str, str]
-    ) -> tuple[list[Sample], dict[str, str], set[str], dict[str, bool], dict[str, tuple[Sample, Sample]]]:
+    ) -> tuple[list[Sample], dict[str, str], set[str], set[str], dict[str, bool], dict[str, tuple[Sample, Sample]]]:
         """`rows` with each joined path fused (`_fuse`), and each person's foot on an occluding edge that no fusion
-        settled put where another camera saw them that second (`_deferred`): the rows, `_fuse`'s paths and doubtful
-        rows, which rows were on an edge, and which were put elsewhere (not yet moved)."""
-        rows, fused, doubtful = _fuse(rows, paths, placement, where)
+        settled put where another camera saw them that second (`_deferred`): the rows, `_fuse`'s paths, its doubtful
+        and approximate rows, which rows were on an edge, and which were put elsewhere (not yet moved)."""
+        rows, fused, doubtful, rough = _fuse(rows, paths, placement, where)
         edge = {
             s.id: _at_edge(where, s, found)
             for s in rows
@@ -1327,9 +1407,9 @@ def derive(
             and s.place is None
             and (found := placement(s)).x is not None
         }
-        return rows, fused, doubtful, edge, _deferred(rows, placement, edge, partner, where, nots)
+        return rows, fused, doubtful, rough, edge, _deferred(rows, placement, edge, partner, where, nots)
 
-    settled, fused, doubtful, edge, moved = settle(stored, paths)
+    settled, fused, doubtful, rough, edge, moved = settle(stored, paths)
     # A track whose rows were put on another's is that person drawn twice: it joins that track's path, the two take one
     # entity, and the seconds both saw are fused again
     if near := _deferred_joins(moved, settled, edge, placement):
@@ -1339,7 +1419,7 @@ def derive(
         zones = [replace(z, entity=drawn_as[z.track]) if z.track in drawn_as else z for z in zones]
         for i in fused:
             seen_at.pop(i, None)  # a fused row of the first pass may be fused again from other rows
-        settled, fused, doubtful, edge, moved = settle(stored, paths)
+        settled, fused, doubtful, rough, edge, moved = settle(stored, paths)
     stored = [moved[s.id][0] if s.id in moved else s for s in settled]
     for i in moved:
         seen_at.pop(i, None)  # placed again at the other camera's point
@@ -1355,9 +1435,8 @@ def derive(
     out: list[Position] = []
     for s in stored:
         found = placement(s)
-        at, room, room_id, x, y, revision, in_frame = astuple(found)
         uncertain = s.id in doubtful or (edge.get(s.id, False) and s.id not in moved)
-        if place is not None and at != place:
+        if place is not None and found.place != place:
             continue
         out.append(
             Position(
@@ -1369,18 +1448,19 @@ def derive(
                 track=s.track,
                 source=s.source,
                 confidence=s.confidence,
-                place=at,
-                room=room,
-                room_id=room_id,
-                x=x,
-                y=y,
+                place=found.place,
+                room=found.room,
+                room_id=found.room_id,
+                x=found.x,
+                y=found.y,
                 camera=s.camera,
                 u=s.u,
                 v=s.v,
-                revision=revision,
-                in_frame=in_frame,
+                revision=found.revision,
+                in_frame=found.in_frame,
                 path=fused.get(s.id) or paths.get(s.track or "") or s.track,
                 uncertain=uncertain,
+                approximate=found.approximate or s.id in rough,
             )
         )
     out += [
@@ -1491,6 +1571,7 @@ def write(state: Path, rows: Sequence[Position], resume: Mapping[str, Mapping[st
                 "revision": p.revision,
                 "camera": p.camera,
                 "uncertain": p.uncertain,
+                "approximate": p.approximate,
             }
         )
     if not by_slot:
@@ -1510,7 +1591,8 @@ def _piece(
 ) -> list[Position]:
     """One place's records for [lo, hi): its raw footprints and zone visits placed in the frame its plan is drawn in
     (`derive`), read with MARGIN_S of context either side. `behind` counts the footprints of [lo, hi) left unplaced
-    behind a wall from their camera (`_Places.seen`), by camera and kind ("person" or "animal")."""
+    behind a wall from their camera (`_Places.seen`, and nothing came of putting them at the furniture), by camera and
+    kind ("person" or "animal")."""
     hidden: set[tuple[str, str | None, float]] = set()
     try:
         rows = derive(
@@ -1530,7 +1612,8 @@ def _kind_of(track: str | None) -> str:
 
 
 def behind_walls(counts: Mapping[tuple[str, str], int]) -> str:
-    """Footprints left unplaced behind a wall, by camera, in words: "cam0 (people 3, animals 40)"."""
+    """Footprints left unplaced behind a wall and nowhere to put them (an animal's are put at the furniture, so only one
+    with no furniture point is counted), by camera, in words: "cam0 (people 3, animals 4)"."""
     cams = sorted({c for c, _ in counts})
     return "; ".join(
         f"{c} (people {counts.get((c, 'person'), 0)}, animals {counts.get((c, 'animal'), 0)})" for c in cams
@@ -1684,13 +1767,14 @@ def dry_run(state: Path, cams: Sequence[str], now: float, hours: float) -> list[
     """What a run would place, changing nothing: for each of `cams`, the footprints its pose tracks hold over the
     last `hours` (read as `footprints.record` would record them), how many land on its place's floor, how many of
     those in a room of the plan, how many a camera with a spot left unplaced because its spot can't see their floor
-    point by the plan (`behind_wall`, people and animals apart, `_Places.seen`; None for a camera with no spot), the
-    aim it was read through (fitted now when it has none stored, and not kept), and what the camera lacks. One row
-    per camera, in order.
+    point by the plan and it couldn't be put at the furniture either (`behind_wall`, people and animals apart,
+    `_Places.seen` and `_Places.at_furniture`; None for a camera with no spot), the aim it was read through (fitted
+    now when it has none stored, and not kept), and what the camera lacks. One row per camera, in order.
 
     `behind_wall` is the check that a camera's positions are at the plan's scale: rooms tile a home, so a point a
     pose puts metres too far is still in a room, but in one behind a wall. People stand on the floor, so many of a
-    camera's people there means its pose or the plan is off; an animal there is mostly one up on furniture."""
+    camera's people there means its pose or the plan is off; an animal there is mostly one up on furniture, and is
+    now put at the furniture rather than left out, so its count is the ones it couldn't place at all."""
     aims = spots.fit(state, now, save=False)
     where = _Places(state, aims)
     feet = footprints.collect(state, now - hours * 3600.0, now - footprints.FLUSH_S, list(cams))
@@ -1806,7 +1890,7 @@ def _columns(got: Mapping[str, Any]) -> dict[str, list[Any]]:
     cols |= {name: got[column] for name, column in _AS_STORED.items()}
     cols["t"] = (np.asarray(got["ts_ns"], dtype=np.int64) / S.NS).tolist()
     cols["end"] = (np.asarray(got["end_ns"], dtype=np.int64) / S.NS).tolist()
-    for name in ("x", "y", "confidence", "uncertain"):
+    for name in ("x", "y", "confidence", "uncertain", "approximate"):
         cols[name] = np.asarray(got[name]).tolist()
     return cols
 
@@ -1818,6 +1902,7 @@ def _record(cols: Mapping[str, list[Any]], i: int) -> dict[str, Any]:
     row["x"] = None if math.isnan(row["x"]) else row["x"]
     row["y"] = None if math.isnan(row["y"]) else row["y"]
     row["uncertain"] = bool(row["uncertain"])
+    row["approximate"] = bool(row["approximate"])
     return row
 
 

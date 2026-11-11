@@ -21,7 +21,9 @@ hand (`positions.run`).
 Projected into the map frame, a place's people's footprints are where people walk: its walkable floor, which
 spatial/floorplan.py takes beside the place's point cloud (`walkable=`) to close rooms whose walls the fixed cameras
 don't see (they hang high and look down, so a camera cloud holds the floor and furniture, and walls only low down).
-Animals' footprints are left out of it: a cat on the sofa or a counter isn't standing on the floor. So is a foot on an
+Animals' footprints are left out of it: a cat on the sofa or a counter isn't standing on the floor. And a cat on a
+cabinet cast to the floor can land beyond a wall, so the position layer puts an animal's footprint there at the
+furniture in the room it is seen in, marked approximate (positions.py's `_Places.at_furniture`). So is a foot on an
 occluding edge (`edges`, as positions judges one): pose guesses feet behind a couch's back on its top, and cast
 to the floor they land metres past the person, so the couch top and the floor beyond it were learned as walked. Over
 14 days on Place 1, that was 84% of cam0's walked footprints
