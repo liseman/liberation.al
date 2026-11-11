@@ -4,6 +4,7 @@ import datetime as dt
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -121,7 +122,7 @@ def test_people_pet_and_place_are_seeded(seeded):
     assert [(p["name"], p["species"]) for p in pets.at(seeded).listing()] == [("Rex", "dog")]
     (place,) = places.places(seeded)
     assert place.name == "Demo house"
-    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("owner", 5)
+    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("owner", 6)
 
 
 def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):
@@ -270,3 +271,74 @@ def test_the_default_port_skips_one_this_install_gave_a_service(monkeypatch):
     monkeypatch.setattr(cli, "any_free_port", lambda reserved: 40000)
     with cfg.override({"ports": {"vlm": cli.PORT}}):
         assert cli.choose_port(None) == 40000
+
+
+def test_demo_restart_discards_edits_without_following_external_links(tmp_path: Path) -> None:
+    root, outside = tmp_path / "demo", tmp_path / "outside"
+    cli.prepare(root)
+    (root / cli.SEEDED).write_text("pack-demo")
+    outside.mkdir()
+    (outside / "keep").write_text("untouched")
+    (root / "faces").symlink_to(outside, target_is_directory=True)
+    (root / "state").mkdir()
+    (root / "state" / "edit").write_text("changed")
+    (root / "uploaded.wav").write_bytes(b"demo recording")
+    cli.reset(root)
+    cli.prepare(root)
+    assert (outside / "keep").read_text() == "untouched"
+    assert not (root / "faces").exists()
+    assert not (root / "state").exists()
+    assert not (root / "uploaded.wav").exists()
+    assert not (root / cli.SEEDED).exists()
+    assert (root / "pack.toml").read_text() == cli.CONFIG
+
+
+def test_demo_plan_places_each_camera_in_its_room() -> None:
+    spots = {
+        name: at
+        for name, at, height, yaw, fov in plan_scene.spots(plan_scene.load(dataset.PLAN))
+        if height and yaw is not None and fov
+    }
+    assert set(spots) == {"front-room", "kitchen", "porch", "study"}
+    assert 4 < spots["front-room"][0] < 9 and 0 < spots["front-room"][1] < 5
+    assert 0 < spots["kitchen"][0] < 4 and 0 < spots["kitchen"][1] < 3.5
+    assert -4 < spots["porch"][0] < 0 and 3.5 < spots["porch"][1] < 6.5
+    assert 4 < spots["study"][0] < 9 and 5 < spots["study"][1] < 8.5
+
+
+def test_demo_clouds_combine_at_the_editor_spots_with_a_refined_doorway_pair(seeded: Path) -> None:
+    import numpy as np
+
+    from liberational.dashboard import places as place_view
+    from liberational.demo import household
+    from liberational.spatial import camera_clouds, cloud_scene, ply
+
+    store = camera_clouds.Store(camera_clouds.root(seeded))
+    pose = (1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 2.65, 0.0, 0.0, 0.0, 1.0)
+    points = np.array([[0.0, 0.5, 0.0], [0.2, 0.5, 0.0], [0.0, 0.5, 1.0]])
+    for camera in ("front-room", "kitchen", "porch", "study"):
+        cloud = camera_clouds.Cloud(str(uuid.uuid7()), camera, NOW, 3, 1.0, "approximate", True, pose, 300, 64, 36)
+        store.replace(
+            camera_clouds.Made(
+                cloud, ply.dumps(points, np.full((3, 3), 100, np.uint8)), np.zeros((36, 64, 3), np.uint8)
+            )
+        )
+    household.camera_pairs(seeded)
+    place = places.places(seeded)[0]
+    spots = cloud_scene.spots_of(seeded)
+    result = cloud_scene.scene(store, place.id, spots)
+    assert {camera.camera: camera.how for camera in result.cameras} == {
+        "front-room": "adjusted",
+        "kitchen": "adjusted",
+        "porch": "spot",
+        "study": "spot",
+    }
+    assert all(camera.placed for camera in result.cameras)
+    assert result.pairs[0].state == "tightened"
+    code, combined = place_view.scene(seeded, place.id, combined=True)
+    assert code == 200 and combined["revision"]
+    assert len(combined["cameras"]) == 4
+    assert set(plan_scene.spot_names(combined["plan"])) == set(spots)
+    code, editor = place_view.plan_as_scene(seeded, place.id)
+    assert code == 200
+    assert {name for name, *_ in plan_scene.spots(editor["scene"])} == set(spots)

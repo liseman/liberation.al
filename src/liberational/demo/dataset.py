@@ -17,6 +17,7 @@ this transcript and journal.
 """
 
 import datetime as dt
+import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -157,6 +158,7 @@ _ROOMS = (
     ("bedroom", "Bedroom", "bedroom", _rect(0, 5, 4, 3.5)),
     ("living", "Living room", "living", _rect(4, 0, 5, 5)),
     ("study", "Study", "office", _rect(4, 5, 5, 3.5)),
+    ("porch", "Porch", "other", _rect(-4, 3.5, 4, 3.0)),
 )
 _OPENINGS = (
     ("door", (0.0, 4.25), 0.9),  # the way in, to the hall
@@ -171,12 +173,23 @@ _OPENINGS = (
     ("window", (0.0, 6.75), 1.2),
     ("window", (9.0, 6.75), 1.2),
 )
+# Same camera and target as the room renderer, with each room turned into the plan frame.
+CAMERA_EYE = (0.2, 0.2, 2.65)
+CAMERA_TARGET = (2.3, 2.5, 0.95)
+BEARING = math.degrees(math.atan2(CAMERA_TARGET[0] - CAMERA_EYE[0], CAMERA_TARGET[1] - CAMERA_EYE[1]))
+CAMERA_SPOTS = {
+    "front-room": {"at": [8.8, 0.2], "height": 2.65, "yaw": BEARING + 180, "fov": 69.5},
+    # The owner's rough kitchen spot is 10 cm off; the shared doorway refines the pair below.
+    "kitchen": {"at": [0.3, 3.3], "height": 2.65, "yaw": BEARING, "fov": 69.5},
+    "porch": {"at": [-3.8, 6.3], "height": 2.65, "yaw": BEARING, "fov": 69.5},
+    "study": {"at": [4.2, 8.3], "height": 2.65, "yaw": BEARING, "fov": 69.5},
+}
 PLAN = plan_scene.dump(
     plan_scene.build(
         walls=plan_scene.cut_walls([outline for *_, outline in _ROOMS], 0.2, 0.1),
         openings=_OPENINGS,
         rooms=_ROOMS,
-        records={"title": PLACE},
+        records={"title": PLACE, "cameras": CAMERA_SPOTS},
     )
 )
 

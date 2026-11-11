@@ -8,9 +8,9 @@ demo/dataset.py, and runs the dashboard on PORT. Without --port it is 8780, a po
 demo runs beside an open application; when 8780 is taken, a free port the pack doesn't use instead, and the address
 line says which. A --port that is taken is refused at once. Ctrl-C stops the dashboard, broker, and private playback gateway. The demo runs no models:
 Ask uses prepared answers, and the demo HTTP process refuses outbound network connections and subprocesses.
-Room illustrations, recordings, portraits, and point clouds are generated locally on first start.
+Room illustrations, recordings, portraits, and point clouds are generated locally at each start.
 
-A DIR that already holds a seeded demo is reused; older demos receive the media fixtures once. The real `data/` directory is never read or written: the
+Each start restores a fresh household in DIR, discarding the previous demo edits. The real `data/` directory is never read or written: the
 launcher refuses a DIR inside it.
 """
 
@@ -69,6 +69,7 @@ def environment(root: Path, port: int, base: Mapping[str, str] | None = None) ->
     }
     root = root.resolve()
     env["PACK_ROOT"] = str(root)
+    env["TMPDIR"] = str(root / "tmp")
     for key in path_keys():
         env[f"PACK_PATHS_{key.upper()}"] = str(root / key)
     env["PACK_STATE"] = env["PACK_PATHS_STATE"]  # the older name, which a shell may still set
@@ -90,6 +91,7 @@ def prepare(root: Path) -> None:
     from liberational.demo.dataset import MIC
 
     root.mkdir(parents=True, exist_ok=True)
+    (root / "tmp").mkdir(exist_ok=True)
     (root / "pack.toml").write_text(CONFIG)
     folder = root / "config"
     folder.mkdir(exist_ok=True)
@@ -107,6 +109,18 @@ def check_dir(root: Path) -> None:
         raise SystemExit(f"pack-demo: {root} is inside the real data directory ({real}); pick another --dir")
     if here.exists() and any(here.iterdir()) and not (here / SEEDED).exists():
         raise SystemExit(f"pack-demo: {root} isn't empty and isn't a demo directory; pick an empty or new --dir")
+
+
+def reset(root: Path) -> None:
+    """Discard only this marked demo's scratch state before starting any child process."""
+    check_dir(root)
+    for path in root.iterdir() if root.exists() else ():
+        if path.is_symlink():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
 
 
 def reserved_ports() -> set[int]:
@@ -283,19 +297,15 @@ def run(root: Path, port: int, dashboard_args: Sequence[str] = ()) -> int:
     # A stop (SIGTERM) unwinds like Ctrl-C, so the dashboard and the broker are stopped too, never left running.
     signal.signal(signal.SIGTERM, _interrupt)
     root = root.resolve()
+    reset(root)
     prepare(root)
     env = environment(root, port)
     gateway_port = any_free_port(reserved_ports() | {port})
     env["PACK_PORTS_GATEWAY"] = str(gateway_port)
     broker = start_broker(root, env)
     try:
-        if not (root / SEEDED).exists():
-            subprocess.run(
-                [sys.executable, "-m", "liberational.demo.cli", "--seed-here", "--media"], env=env, check=True
-            )
-            (root / SEEDED).write_text("pack-demo\n")
-        elif not (root / "state" / "demo" / "day.json").exists():
-            subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--media"], env=env, check=True)
+        subprocess.run([sys.executable, "-m", "liberational.demo.cli", "--seed-here", "--media"], env=env, check=True)
+        (root / SEEDED).write_text("pack-demo\n")
         gateway = subprocess.Popen(
             [
                 str(cfg.program("continuum-gateway")),
