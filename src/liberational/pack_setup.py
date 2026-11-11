@@ -9,11 +9,13 @@ It does, in order:
 
 1. System packages: lists what this machine is missing and the command that installs it (system_packages.py). It
    installs none of them itself: that takes sudo, and `pack-system install` asks first.
-2. Python extras for this machine (extras()): face recognition, object masks, and deep transcription everywhere,
-   and voice cloning on Linux with an NVIDIA GPU. MLX on Apple Silicon and CUDA's ONNX Runtime on Linux come with
-   the package itself. They are installed with uv into the environment this command runs from, as the extras of the
-   package that is already installed, so no index has to carry the package. When the release ships its lock
-   (LOCK, a constraints file the release build writes into the package), every version is pinned to it.
+2. Python extras for this machine (extras()): object masks and deep transcription everywhere, face recognition
+   everywhere but a Linux x86-64 machine without an NVIDIA GPU (its CUDA ONNX Runtime and cuDNN wheels are several
+   GB such a machine cannot use, so it is told plainly and gets the rest), and voice cloning only with an NVIDIA
+   GPU. MLX on Apple Silicon and CUDA's ONNX Runtime on Linux come with the package itself. They are installed with
+   uv into the environment this command runs from, as the extras of the package that is already installed, so no
+   index has to carry the package. When the release ships its lock (LOCK, a constraints file the release build
+   writes into the package), every version is pinned to it.
 3. Continuum: says whether the SDK and the daemons are in this environment. They come with the package as wheels;
    nothing here builds or fetches them.
 4. Ollama: says whether it is there and answering, and how to get it. Its models are pulled in step 5 when it is.
@@ -23,6 +25,10 @@ It does, in order:
 It ends by saying how to open the application. Run again, it installs and downloads nothing it already has. The exit
 status is 1 while something the application needs is still missing (a needed system package, the extras, Continuum,
 or a model), and 0 otherwise; Ollama alone doesn't fail it, since the application opens without it.
+
+A check names what is missing, so a bare machine's check fails: the extras whose module isn't in this environment
+(missing_extras), and the models that can be told apart (fetch_models.missing: a file, or a Hugging Face copy under
+data/models; a repository left in Hugging Face's own cache is fetched on first use).
 
 In a checkout, `mise run setup` is the path: it also builds what a checkout builds (whisper-server, the frontend)
 and syncs the extras from uv.lock. Here step 2 only says so; the other steps work the same.
@@ -50,6 +56,16 @@ DIST = "liberational-pack"
 # by hand) resolves the extras to the newest versions that fit.
 LOCK = cfg.RESOURCES / "constraints.txt"
 EVERYWHERE = ("faces", "segmentation", "deep-asr")
+# The extras only an NVIDIA GPU can use: voice cloning, and the CUDA ONNX Runtime and cuDNN wheels under face
+# recognition (several GB, and a Linux machine without the GPU cannot use them; the application needs one on Linux).
+GPU_EXTRAS = ("faces", "voice-clone")
+# The module each extra brings: `--check` finds its spec (without importing it) to say which extra is missing.
+EXTRA_MODULES = {
+    "faces": ("insightface",),
+    "segmentation": ("timm", "torchvision"),
+    "deep-asr": ("librosa", "transformers"),
+    "voice-clone": ("faster_qwen3_tts",),
+}
 DAEMONS = ("continuum-broker", "continuum-capture", "continuum-tier-worker", "continuum-vector-worker")
 OPEN = "pack-app"
 
@@ -57,10 +73,13 @@ type Run = Callable[[list[str]], int]
 
 
 def extras(platform: str | None = None, nvidia: bool | None = None) -> list[str]:
-    """The optional extras this machine gets, as `mise run setup` picks them: voice cloning needs CUDA, so it is
-    only for Linux x86-64 with an NVIDIA GPU (nvidia-smi on PATH)."""
+    """The optional extras this machine gets. The CUDA ones (GPU_EXTRAS) need an NVIDIA GPU, so a Linux x86-64
+    machine without one (no nvidia-smi on PATH) is told plainly and gets everything else; Apple Silicon and the ARM
+    Linux platforms (their ONNX Runtime is the plain or the MLX one) get every extra in EVERYWHERE."""
     platform = platform or cfg.platform_key()
     nvidia = shutil.which("nvidia-smi") is not None if nvidia is None else nvidia
+    if platform == "linux-x86_64" and not nvidia:
+        return [extra for extra in EVERYWHERE if extra not in GPU_EXTRAS]
     return [*EVERYWHERE, *(["voice-clone"] if nvidia and platform == "linux-x86_64" else [])]
 
 
@@ -86,6 +105,16 @@ def _run(command: list[str]) -> int:
         return 127
 
 
+def missing_extras(chosen: list[str]) -> list[str]:
+    """The chosen extras whose modules aren't in this environment, as `extra (module, module)`."""
+    gone = []
+    for extra in chosen:
+        absent = [module for module in EXTRA_MODULES[extra] if importlib.util.find_spec(module) is None]
+        if absent:
+            gone.append(f"{extra} ({', '.join(absent)})")
+    return gone
+
+
 def system_step() -> bool:
     """Lists the missing system packages and how to install them. True when no needed one is missing."""
     print("System packages:")
@@ -98,18 +127,29 @@ def system_step() -> bool:
 
 
 def extras_step(check: bool, run: Run = _run) -> bool:
-    """Installs this machine's extras (or, with `check`, says which). True when they are in, or when there is
-    nothing for this command to do (a checkout)."""
+    """Installs this machine's extras (or, with `check`, says which are missing). True when they are in, or when
+    there is nothing for this command to do (a checkout)."""
     chosen = extras()
     print(f"Python extras for this machine: {', '.join(chosen)}")
+    if "faces" not in chosen:
+        print(
+            "  no NVIDIA GPU: leaving out faces. Its CUDA ONNX Runtime and cuDNN wheels are several GB this machine"
+            " cannot use, so face recognition will not work here, and on Linux the application needs an NVIDIA GPU"
+            " to run."
+        )
     if cfg.CHECKOUT is not None:
         print("  a checkout syncs them from uv.lock: `mise run setup`")
         return True
     tool = uv()
     command = extras_command(tool or "uv", chosen)
     if check:
-        print(f"  would run: {' '.join(command)}")
-        return True
+        gone = missing_extras(chosen)
+        if not gone:
+            print("  the extras are here")
+            return True
+        print(f"  missing: {', '.join(gone)}")
+        print(f"  install them with: {' '.join(command)}")
+        return False
     if tool is None:
         print(f"  uv isn't installed (https://docs.astral.sh/uv/). With it, run: {' '.join(command)}")
         return False
@@ -163,11 +203,21 @@ def ollama_step() -> bool:
 
 
 def models_step(check: bool, ollama: bool) -> bool:
-    """Fetches the models (or, with `check`, lists them). True when every one this machine wants is here: not when
-    a gated one was skipped, or when a download stopped (what arrived is kept, and the next run carries on)."""
+    """Fetches the models (or, with `check`, says which are missing). True when every one this machine wants is
+    here: not when a gated one was skipped, or when a download stopped (what arrived is kept, and the next run
+    carries on)."""
     print("Models:")
+    if check:
+        gone = fetch_models.missing()
+        if not gone:
+            print("  every model this machine wants is here")
+            return True
+        for line in gone:
+            print(f"  missing: {line}")
+        print("  fetch them with pack-setup, or with pack-models")
+        return False
     try:
-        gated = fetch_models.fetch(ollama=ollama, listing=check)
+        gated = fetch_models.fetch(ollama=ollama)
     except OSError as error:  # the network, or a full disk
         print(f"  stopped: {error}\n  What was downloaded is kept: run pack-setup again to carry on.")
         return False
