@@ -10,7 +10,7 @@ Everyone here is invented. The demo keeps its data in a temporary directory of i
 
 ## Before we start
 
-- Finish "Install" in the [README](../README.md#install), down to `mise run continuum-release`. The demo needs no
+- Finish "Install" in the [install guide](INSTALL.md#install), down to `mise run continuum-release`. The demo needs no
   camera, no microphone, no `pack.toml`, and no running Ollama.
 - Open a terminal in the clone.
 
@@ -62,6 +62,8 @@ wrote about it. On the right is the day's page:
 - **What happened:** five lines, each with its hour
 - **Talked about** and **Ate**
 
+![The Journal with yesterday picked: the hours from 07:00 in one column, and the day's page beside them](images/demo-journal-day.png)
+
 Notice the dot beside `12 h`: it marks a day whose page is written. The other days have no dot and no hours,
 because nothing happened in this household before yesterday.
 
@@ -71,6 +73,8 @@ because nothing happened in this household before yesterday.
 
    A column of events opens with the four things that happened in that hour, at 18:02, 18:15, 18:31, and 18:38. The
    pane on the right shows the hour, "18:00 to 19:00", and its entry: Alice cooked pasta while Sam set the table.
+
+   ![The Journal with 18:00 picked: its four events in a new column, and the hour's entry on the right](images/demo-journal-hour.png)
 
    Under the entry is **Evidence**, which reads "Nothing cited." In a pack of our own, this is where the recordings
    an entry came from are listed. The demo has no recordings.
@@ -98,6 +102,8 @@ Click **Dana**. Her card opens. A card is where everything the pack knows about 
 Notice "Voice known" at the top: the pack can tell Dana's voice from the others'. Further down, the card says it
 doesn't know her voice yet for a voice clone, which is a different thing: a voice to speak with.
 
+![Known, People, with Dana's card open beside the list of Alice, Dana, and Sam](images/demo-people-card.png)
+
 ## Step 5: correct what the pack learned about Rex
 
 1. Click the **Pets** tab, then **Rex**. His card opens. It names a camera, demo-cam, and videos that can't be shown:
@@ -109,6 +115,9 @@ doesn't know her voice yet for a voice clone, which is a different thing: a voic
    doesn't belong. (The tiles are drawings. The demo holds no picture of anyone.)
 
 3. Tick the box on the grey tile, and click **Remove 1 selected**.
+
+   ![Rex's training images with the grey tile ticked, and the Remove 1 selected button above the tiles](images/demo-pet-remove-selected.png)
+
 4. The dashboard asks "Remove 1 training image from Rex?" Click **Remove**.
 
 The card now says "6 examples", and the grey tile is gone. Under Recognition, the card says Rex is recognized by
@@ -124,6 +133,8 @@ Click the **Places** tab.
 The list on the left has one place: Demo house, "5 rooms · 76.5 m² · Nothing seen yet". Beside it is the plan of
 the house, with its five rooms: Kitchen, Hall, Bedroom, Living room, and Study. Beside the place's name, at the top
 right, the page calls it a "Machine-made plan".
+
+![Known, Places: Demo house in the list, and its plan with five rooms](images/demo-places-plan.png)
 
 Notice "Nothing seen yet". In a pack with cameras, the paths that people and pets took are drawn on this plan. This
 household has no cameras, so nothing is drawn on its plan. For the same reason the page says the place has no map
@@ -154,7 +165,7 @@ has the same pages, filled from its cameras and microphones.
 
 ## Next steps
 
-- Make it yours: [Configure](../README.md#configure) and [First run](../README.md#first-run) in the README.
+- Make it yours: [Configure](INSTALL.md#configure) and [First run](INSTALL.md#first-run) in the install guide.
 - Why the Journal reads as it does: [Answers](ANSWERS.md).
 - How people, voices, faces, and pets are named and corrected: [People](PEOPLE.md).
 - How a place gets its plan, and how people are placed on it: [Spatial memory](SPATIAL.md).

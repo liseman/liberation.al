@@ -54,6 +54,7 @@ export function PersonNameInput({
   miw,
   flex,
   withChevron = false,
+  withinPortal = true,
 }: {
   known: readonly string[];
   suggestions?: readonly NameSuggestion[];
@@ -87,6 +88,8 @@ export function PersonNameInput({
   flex?: number;
   /** A chevron at the box's right, as a select has: the naming inboxes' name boxes look alike (Pets' is a Cascader). */
   withChevron?: boolean;
+  /** Keep options inside a containing popover so choosing one is not an outside click. */
+  withinPortal?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   // The first option is the one Enter takes: what's typed (an exact match, or Add) while typing, else the top guess.
@@ -124,7 +127,7 @@ export function PersonNameInput({
     }
   };
   return (
-    <Combobox store={box} onOptionSubmit={pick} size={size} disabled={disabled}>
+    <Combobox store={box} onOptionSubmit={pick} size={size} disabled={disabled} withinPortal={withinPortal}>
       {/* aria-expanded closed as well as open: a combobox needs it (axe) */}
       <Combobox.Target withExpandedAttribute>
         <TextInput

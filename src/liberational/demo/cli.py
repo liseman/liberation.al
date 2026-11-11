@@ -59,7 +59,15 @@ def environment(root: Path, port: int, base: Mapping[str, str] | None = None) ->
     """The environment the demo's broker, seeding, and dashboard run in: `base` (os.environ by default) with every
     `paths.*` setting under `root`, the config file `root/pack.toml`, the broker's socket in `root`'s state directory
     (or a short temporary one when that path is too long for a socket), and Ollama and the camera gateway nowhere."""
-    env = dict(os.environ if base is None else base)
+    inherited = os.environ if base is None else base
+    aliases = {name for names in cfg.ALIASES.values() for name in names}
+    env = {
+        key: value
+        for key, value in inherited.items()
+        if not key.startswith(("PACK_", "OLLAMA_", "CONTINUUM_")) and key not in aliases
+    }
+    root = root.resolve()
+    env["PACK_ROOT"] = str(root)
     for key in path_keys():
         env[f"PACK_PATHS_{key.upper()}"] = str(root / key)
     env["PACK_STATE"] = env["PACK_PATHS_STATE"]  # the older name, which a shell may still set
@@ -74,6 +82,20 @@ def environment(root: Path, port: int, base: Mapping[str, str] | None = None) ->
         sock = Path(tempfile.mkdtemp(prefix="pack-demo-")) / "b.sock"
     env["CONTINUUM_SOCKET"] = str(sock)
     return env
+
+
+def prepare(root: Path) -> None:
+    """Write only the demo's settings and device manifest, including when reusing an older demo."""
+    from liberational.demo.dataset import MIC
+
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pack.toml").write_text(CONFIG)
+    folder = root / "config"
+    folder.mkdir(exist_ok=True)
+    cameras = "".join(
+        f'[[device]]\nname = "{name}"\nkind = "camera"\n\n' for name in ("front-room", "kitchen", "porch", "study")
+    )
+    (folder / "devices.toml").write_text(cameras + f'[[device]]\nname = "{MIC}"\nkind = "microphone"\n')
 
 
 def check_dir(root: Path) -> None:
@@ -255,10 +277,9 @@ def run(root: Path, port: int, dashboard_args: Sequence[str] = ()) -> int:
     check_dir(root)
     # A stop (SIGTERM) unwinds like Ctrl-C, so the dashboard and the broker are stopped too, never left running.
     signal.signal(signal.SIGTERM, _interrupt)
-    root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve()
+    prepare(root)
     env = environment(root, port)
-    if not Path(env["PACK_CONFIG"]).exists():
-        Path(env["PACK_CONFIG"]).write_text(CONFIG)
     broker = start_broker(root, env)
     try:
         if not (root / SEEDED).exists():

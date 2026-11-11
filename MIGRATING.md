@@ -3,7 +3,7 @@
 This guide shows how to update a checkout of this repository that already runs: the steps every upgrade takes, the
 extra steps some changes need, and how to reset state. It covers a checkout installed from the first public commit
 (2026-11-09) or later. For anything older, export what you taught (`pack-knowledge export`), set up fresh from the
-[README](README.md), and import it.
+[install guide](docs/INSTALL.md), and import it.
 
 Components and state paths are in [docs/COMPONENTS.md](docs/COMPONENTS.md).
 

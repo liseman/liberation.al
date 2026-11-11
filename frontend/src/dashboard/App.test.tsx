@@ -127,7 +127,7 @@ describe('top bar', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView');
     renderApp('/ingest');
     const nav = screen.getByRole('navigation', { name: 'Sections' });
-    const ingest = within(nav).getByRole('link', { name: 'Ingest' });
+    const ingest = within(nav).getByRole('link', { name: 'Known' });
     expect(scroll.mock.contexts).toContain(ingest);
     expect(scroll).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
     scroll.mockClear();
@@ -138,6 +138,25 @@ describe('top bar', () => {
     scroll.mockClear();
     act(() => window.dispatchEvent(new Event('resize')));
     expect(scroll.mock.contexts).toContain(live);
+  });
+
+  it('opens Ingest last in Known and preserves its path through navigation and Back', async () => {
+    server.use(
+      http.get('/ingest/api/items', () => HttpResponse.json({ items: [], jobs: [], sources: [], control: false })),
+    );
+    renderApp('/ingest');
+    const nav = screen.getByRole('navigation', { name: 'Sections' });
+    expect(within(nav).queryByRole('link', { name: 'Ingest' })).toBeNull();
+    expect(within(nav).queryByRole('link', { name: 'Reports' })).toBeNull();
+    expect(await screen.findByRole('tab', { name: 'Ingest' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getAllByRole('tab').at(-1)).toHaveTextContent('Ingest');
+    expect(await screen.findByRole('heading', { name: 'Ingest', level: 1 })).toBeVisible();
+    await userEvent.click(screen.getByRole('tab', { name: 'People' }));
+    expect(location.pathname).toBe('/people');
+    act(() => history.back());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Ingest' })).toHaveAttribute('aria-selected', 'true'));
+    await userEvent.click(within(nav).getByRole('link', { name: 'Live' }));
+    expect(within(nav).getByRole('link', { name: 'Known' })).toHaveAttribute('href', '/ingest');
   });
 
   it('keeps Ask, the status, and one menu in the bar, with Settings in the menu', async () => {
@@ -158,12 +177,11 @@ describe('top bar', () => {
     expect(links.map(a => [a.textContent, a.getAttribute('href')])).toEqual([
       ['Live', '/'],
       ['Review', '/review'],
-      ['Journal', '/journal'],
       ['Known', '/people'],
       ['Calls', '/calls'],
       ['Inbox', '/inbox'],
-      ['Reports', '/reports'],
-      ['Ingest', '/ingest'],
+      ['Journal', '/journal'],
+      ['Statistics', '/statistics'],
     ]);
     expect(within(nav).getByRole('link', { name: 'Live' })).toHaveAttribute('aria-current', 'page');
   });

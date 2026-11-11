@@ -6,7 +6,7 @@ for where it is going.
 
 ## Setup
 
-Follow [Install](README.md#install) and [Configure](README.md#configure) in the README. The pack runs on Linux with
+Follow [Install](docs/INSTALL.md#install) and [Configure](docs/INSTALL.md#configure) in the install guide. The pack runs on Linux with
 an NVIDIA GPU and on macOS with Apple Silicon.
 
 | Declared in | What |
@@ -54,8 +54,7 @@ an NVIDIA GPU and on macOS with Apple Silicon.
 
 ## Making a change
 
-1. Find or open an issue on the [project board](https://github.com/liseman/liberation.al/projects). New ideas go in
-   Ideas; a maintainer moves them to Ready.
+1. Find or open an [issue](https://github.com/liseman/liberation.al/issues). A maintainer says when a new idea is ready to build.
 2. Branch from `main` and make the change, with tests.
 3. Run `mise run fmt` and `mise run lint` (Ruff, ty, Biome, and tsc), then the tests that cover what you changed:
    `mise run test-changed`, or `tools/test-slot.sh .venv/bin/python -m pytest tests/test_<area>.py`. Do not run the

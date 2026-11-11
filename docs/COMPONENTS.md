@@ -106,7 +106,7 @@ one `<service>.log` each, trimmed hourly past 10 MB by the `log-trim` service. H
 | `state/ask/busy/`, `state/ask/partial/` | `memory/ask.py` | `pack-research`; dashboard | Markers for running questions; the answer as it grows |
 | `state/research/` | `pack-research`, dashboard | The same | Research jobs and reports |
 | `state/review_video_cache/` | `memory/video_evidence.py` | The same | Disposable frame observations |
-| `state/reports.sqlite3` | Dashboard (`memory/reports.py`, `dashboard/report_health.py`) | The same | Per-day report aggregates (rebuildable), the Reports tab's layout, and health samples |
+| `state/reports.sqlite3` | Dashboard (`memory/reports.py`, `dashboard/report_health.py`) | The same | Per-day report aggregates (rebuildable), the Statistics page's layout, and health samples |
 | `state/journal_pages_window.json`, `journal_pages_batch.json` | `pack-journal` | The same | The page batch's sleep window and last finished day |
 | `state/journal.lock` | `pack-journal` | The same | The journal's one-writer lock |
 | `state/journal_evidence/<day>/` | `pack-video-window` | Dashboard | Clips and stills of moments day pages cite; durable |
