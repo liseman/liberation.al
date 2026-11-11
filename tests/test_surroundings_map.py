@@ -2,7 +2,7 @@
 
 import json
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -228,6 +228,7 @@ class Models:
         self.jobs: list[dict] = []
         self.measured: list[list[tuple[str, str]]] = []
         self.depth = lambda height, width, focal: np.full((height, width), 2.0, dtype=np.float32)  # a wall 2 m off
+        self.by_frame: dict[str, Callable[[int, int, float], np.ndarray]] = {}  # a frame's own depth, by its id
 
     def run_mast3r(self, runtime, images, out, gpu, *, pairs, nice=0, **_):
         self.measured.append([tuple(p) for p in pairs])
@@ -248,7 +249,8 @@ class Models:
             image = cv2.imread(view["image"])
             assert image is not None
             height, width = image.shape[:2]
-            np.save(view["out"], self.depth(height, width, view["focal"]))
+            depth = self.by_frame.get(Path(view["image"]).stem.split(".")[0], self.depth)
+            np.save(view["out"], depth(height, width, view["focal"]))
 
     def run_runner(self, runtime, job, gpu, timeout_s=0.0):
         spec = json.loads(Path(job).read_text())
@@ -610,10 +612,69 @@ ROOMS = plans.scene(
 #: A camera 1 m up at (2, 1.5) on the plan, level, looking along the plan's +x: its right is the plan's -y, its
 #: down the plan's -z.
 LOOKING_EAST = (0.0, 0.0, 1.0, 2.0, -1.0, 0.0, 0.0, 1.5, 0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+#: `ROOMS`'s Living room's inner wall faces (x1, y1, x2, y2), by hand: its 0.2 m outer walls and the 0.1 m partition
+#: to the Hall at y = 3, each moved in by half its thickness.
+_ROOMS_FACES = np.array([[0.1, 0.1, 3.9, 0.1], [3.9, 0.1, 3.9, 2.95], [3.9, 2.95, 0.1, 2.95], [0.1, 2.95, 0.1, 0.1]])
+ROOMS_SIZE = (256, 144)  # a frame big enough for its depth to be fitted to the plan (`registration.Tolerances`)
+ROOMS_FOCAL = 22.4  # a focal 0.35 of the width: wide enough that a level camera 1 m up sees the floor before the wall
 
 
-def spot(place: str, camera: str = "front", pose=LOOKING_EAST, missing: tuple[str, ...] = ()) -> spots.Spot:
-    posed = None if missing else places.CameraPose(tuple(pose), 44.8, 64, 36)  # a focal 0.7 of the width
+def wide(place: str, camera: str = "front", pose=LOOKING_EAST, missing: tuple[str, ...] = ()) -> spots.Spot:
+    """`spot`, with a lens wide enough (`ROOMS_FOCAL`) for its view of `ROOMS` to register against the plan."""
+    return spot(place, camera, pose, missing, focal=ROOMS_FOCAL)
+
+
+def _render(
+    c2w: np.ndarray,
+    faces: np.ndarray,
+    height: int,
+    width: int,
+    focal: float,
+    boxes: Sequence[tuple[float, float, float, float, float]] = (),
+    headers: np.ndarray | None = None,
+) -> np.ndarray:
+    """The true depth (metres along the view axis) of a room from `c2w`: a floor, a 2.5 m ceiling, walls on
+    `faces` (x1, y1, x2, y2), `headers` over openings from 2.1 m up, and `boxes` of furniture (x0, y0, x1, y1,
+    top)."""
+    uu, vv = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
+    dirs = np.stack([(uu - width / 2) / focal, (vv - height / 2) / focal, np.ones_like(uu)], axis=-1) @ c2w[:3, :3].T
+    o = c2w[:3, 3]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        best = np.minimum(
+            np.where(dirs[..., 2] < 0, -o[2] / dirs[..., 2], np.inf),
+            np.where(dirs[..., 2] > 0, (2.5 - o[2]) / dirs[..., 2], np.inf),
+        )
+    surfaces = [(s, 0.0, 2.5) for s in faces] + [(s, 2.1, 2.5) for s in (headers if headers is not None else [])]
+    for x0, y0, x1, y1, top in boxes:
+        surfaces += [
+            (np.array(s), 0.0, top) for s in ([x0, y0, x1, y0], [x1, y0, x1, y1], [x1, y1, x0, y1], [x0, y1, x0, y0])
+        ]
+    for (ax, ay, bx, by), lo, hi in surfaces:
+        sx, sy = bx - ax, by - ay
+        den = dirs[..., 0] * sy - dirs[..., 1] * sx
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = ((ax - o[0]) * sy - (ay - o[1]) * sx) / den
+            u = ((ax - o[0]) * dirs[..., 1] - (ay - o[1]) * dirs[..., 0]) / den
+        z = o[2] + t * dirs[..., 2]
+        ok = (np.abs(den) > 1e-9) & (t > 0.05) & (u >= 0) & (u <= 1) & (z >= lo) & (z <= hi)
+        best = np.where(ok & (t < best), t, best)
+    return np.where(np.isfinite(best), best, 0.0).astype(np.float32)
+
+
+def rooms_depth(pose: Sequence[float] = LOOKING_EAST) -> Callable[[int, int, float], np.ndarray]:
+    """The Living room of `ROOMS` as a frame from `pose` shows it, read the way the depth model reads (#394)."""
+
+    def depth(height: int, width: int, focal: float) -> np.ndarray:
+        true = _render(np.asarray(pose, dtype=np.float64).reshape(4, 4), _ROOMS_FACES, height, width, focal)
+        return np.where(true > 0, _as_the_model_reads(np.maximum(true, 1e-3)), 0.0).astype(np.float32)
+
+    return depth
+
+
+def spot(
+    place: str, camera: str = "front", pose=LOOKING_EAST, missing: tuple[str, ...] = (), focal: float = 44.8
+) -> spots.Spot:
+    posed = None if missing else places.CameraPose(tuple(pose), focal, 64, 36)  # by default a focal 0.7 of the width
     return spots.Spot(camera, place, "r", (pose[3], pose[7]), pose[11], 90.0, 90.0, True, posed, missing)
 
 
@@ -673,8 +734,9 @@ def test_a_camera_with_a_spot_is_placed_from_it_with_no_pairing_in_the_plans_fra
     from liberational.spatial import plan_lineup
 
     place = owned(state)
-    first = keep(state, 0, t=1.0)
-    did = sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
+    first = keep(state, 0, t=1.0, size=ROOMS_SIZE)
+    models.depth = rooms_depth()
+    did = sm.step(state, now=100.0, held={}, spotted={"front": wide(place)})
     assert did is not None
     assert models.measured == []  # MASt3R was asked nothing
     assert (list(did["places"]), did["places"][place]["views"], did["unplaced"]) == ([place], 1, 0)
@@ -686,10 +748,11 @@ def test_a_camera_with_a_spot_is_placed_from_it_with_no_pairing_in_the_plans_fra
     [seen] = sm.views(state, place)
     assert (seen.id, seen.pose) == (first.id, LOOKING_EAST)
     assert sm.in_plan_frame(state, place)
-    # The wall 2 m in front of a camera at x = 2 looking along +x is at x = 4, in the plan's metres.
+    # The east wall's face, 1.9 m in front of a camera at x = 2 looking along +x, is at x = 3.9 in the plan's metres.
     assert rev.map is not None
     points, _, _ = ply.read(places.root(state) / place / rev.map)
-    assert points[:, 0] == pytest.approx(4.0)
+    east = points[(points[:, 0] > 3.5) & (points[:, 2] > 0.2)]
+    assert len(east) > 100 and np.median(east[:, 0]) == pytest.approx(3.9, abs=0.03)
     # The owner's plan is drawn in this map's frame, and the line-up finds it so without a search.
     held = places.get(state, place)
     assert held is not None and (held.plan_source, held.plan_revision) == ("owner", rev.id)
@@ -700,9 +763,11 @@ def test_a_camera_with_a_spot_is_placed_from_it_with_no_pairing_in_the_plans_fra
 
 def test_a_camera_whose_spot_lacks_its_facing_is_parked_with_the_reason_until_the_owner_gives_one(models, state):
     place = owned(state)
-    keep(state, 0, t=1.0, camera="hall")
-    keep(state, 90, t=2.0)
-    lacking = {"hall": spot(place, "hall"), "front": spot(place, missing=("facing",))}
+    hall = keep(state, 0, t=1.0, camera="hall", size=ROOMS_SIZE)
+    front = keep(state, 90, t=2.0, size=ROOMS_SIZE)
+    west = (*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:])
+    models.by_frame = {hall.id: rooms_depth(), front.id: rooms_depth(west)}
+    lacking = {"hall": wide(place, "hall"), "front": wide(place, missing=("facing",))}
     did = sm.step(state, now=100.0, held={}, spotted=lacking)
     assert did is not None and did["unplaced"] == 1
     saved = sm.State.read(frames.root(state))
@@ -711,7 +776,7 @@ def test_a_camera_whose_spot_lacks_its_facing_is_parked_with_the_reason_until_th
     assert (
         sm.due(frames.Store(frames.root(state)).kept, saved, 160.0, sm.bases(lacking)) == []
     )  # no step a minute later
-    given = {**lacking, "front": spot(place, pose=(*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:]))}
+    given = {**lacking, "front": wide(place, pose=west)}
     assert len(sm.due(frames.Store(frames.root(state)).kept, saved, 160.0, sm.bases(given))) == 1
     did = sm.step(state, now=200.0, held={}, spotted=given)
     assert did is not None and (did["unplaced"], did["places"][place]["views"]) == (0, 2)
@@ -719,14 +784,19 @@ def test_a_camera_whose_spot_lacks_its_facing_is_parked_with_the_reason_until_th
 
 def test_a_camera_with_no_spot_joins_through_a_view_that_overlaps_a_spot_view(models, state):
     place = owned(state)
-    at_spot = keep(state, 0, t=1.0, camera="hall")
-    other = keep(state, 40, t=2.0)
-    models.pairs[frozenset((at_spot.id, other.id))] = pair(at_spot.id, other.id, shifted(z=0.5))
-    did = sm.step(state, now=100.0, held={}, spotted={"hall": spot(place, "hall")})
+    at_spot = keep(state, 0, t=1.0, camera="hall", size=ROOMS_SIZE)
+    other = keep(state, 40, t=2.0, size=ROOMS_SIZE)
+    ahead = (*LOOKING_EAST[:3], 2.5, *LOOKING_EAST[4:])  # where the other camera stands: 0.5 m further east
+    models.by_frame = {at_spot.id: rooms_depth(), other.id: rooms_depth(ahead)}
+    # The pair's depths of its two frames are their metric medians, so its translation is in metres already.
+    medians = [float(np.median(d[d > 0])) for d in (rooms_depth()(144, 256, 89.6), rooms_depth(ahead)(144, 256, 89.6))]
+    models.pairs[frozenset((at_spot.id, other.id))] = pair(at_spot.id, other.id, shifted(z=0.5), depths=medians)
+    did = sm.step(state, now=100.0, held={}, spotted={"hall": wide(place, "hall")})
     assert did is not None and did["places"][place]["views"] == 2
     poses = {v.id: np.array(v.pose).reshape(4, 4) for v in sm.views(state, place)}
-    # Half a pair's unit forward of the spot view, at 2 m to the unit: 1 m along the plan's +x from x = 2.
-    assert poses[other.id][:3, 3] == pytest.approx([3.0, 1.5, 1.0])
+    # Half a metre forward of the spot view: along the plan's +x from x = 2. (The spot view's depth is fitted to the
+    # plan, so its median moves a little, and the pair's scale with it.)
+    assert poses[other.id][:3, 3] == pytest.approx([2.5, 1.5, 1.0], abs=0.03)
     fixed = {v["image"].split("/")[-1].split(".")[0]: v.get("fixed", False) for v in models.jobs[0]["views"]}
     assert fixed == {at_spot.id: True, other.id: False}
 
@@ -738,8 +808,9 @@ def test_a_map_learned_in_a_frame_of_its_own_is_started_again_when_a_spot_view_a
     assert did is not None and list(did["places"]) == [place]  # the one place with no map took it, at its own origin
     first = newest(state, place)
     assert first.plan_transform is None
-    keep(state, 90, t=2.0, camera="hall")
-    did = sm.step(state, now=200.0, held={}, spotted={"hall": spot(place, "hall")})
+    hall = keep(state, 90, t=2.0, camera="hall", size=ROOMS_SIZE)
+    models.by_frame = {hall.id: rooms_depth()}
+    did = sm.step(state, now=200.0, held={}, spotted={"hall": wide(place, "hall")})
     assert did is not None
     rev = newest(state, place)
     assert rev.frame == rev.id != first.frame  # a new frame: the plan's
@@ -749,15 +820,23 @@ def test_a_map_learned_in_a_frame_of_its_own_is_started_again_when_a_spot_view_a
     assert old.id not in saved.frames  # back to waiting, not parked: the next step tries it against the new map
 
 
-def test_a_view_is_placed_again_when_its_cameras_spot_moves(models, state):
+def test_a_view_is_tried_again_at_its_cameras_moved_spot_and_left_out_where_it_does_not_register(models, state):
     place = owned(state)
-    keep(state, 0, t=1.0)
-    sm.step(state, now=100.0, held={}, spotted={"front": spot(place)})
-    moved = (*LOOKING_EAST[:3], 1.0, *LOOKING_EAST[4:])  # the owner put the camera a metre to the west
-    did = sm.step(state, now=200.0, held={}, spotted={"front": spot(place, pose=moved)})
+    kept = keep(state, 0, t=1.0, size=ROOMS_SIZE)
+    models.depth = rooms_depth()  # the picture shows the room from x = 2
+    sm.step(state, now=100.0, held={}, spotted={"front": wide(place)})
+    assert [v.id for v in sm.views(state, place)] == [kept.id]
+    moved = (*LOOKING_EAST[:7], 2.0, *LOOKING_EAST[8:])  # the owner put the camera half a metre to the south
+    did = sm.step(state, now=200.0, held={}, spotted={"front": wide(place, pose=moved)})
     assert did is not None
-    [seen] = sm.views(state, place)
-    assert seen.pose == moved
+    # From y = 2 the side walls would be 0.5 m nearer on one side and farther on the other than the picture shows them:
+    # past the plan's wall is where nothing can be seen, so the view doesn't register there and the map doesn't take
+    # it at the moved spot.
+    assert did["spots"]["front"]["registration"]["registered"] is False
+    assert did["places"] == {}
+    assert sm.views(state, place) == []
+    said = sm.summary(state, now=210.0, spotted={"front": wide(place, pose=moved)})
+    assert said["registration"]["front"]["left_out"] == 1
 
 
 def test_a_spot_view_whose_floor_is_far_off_is_parked_as_such(models, state):
@@ -1042,13 +1121,15 @@ def test_a_spot_off_past_the_bound_holds_where_the_owner_put_it_and_surfaces_a_s
     assert fit_info["suggestion"]["score"] > fit_info["at_spot"]
     assert fit_info["suggestion"]["shift_m"] > spots.REFINE_M or fit_info["suggestion"]["turn_deg"] > spots.REFINE_DEG
 
-    # The owner's spot stays the authority: neither the placed view nor `spots.read` moves past it.
-    assert sm.views(state, place)[0].pose == owner_spot.pose.pose
-    assert newest(state, place).cameras["front"].pose == owner_spot.pose.pose
+    # The owner's spot stays the authority: `spots.read` doesn't move past it. At the spot as given, the view's depth
+    # can't be lined up with the plan without bending it too far: it isn't added at that guess, but left out.
     assert spots.read(state)["front"].refined is None
+    assert (fit_info["registration"]["registered"], fit_info["registration"]["why"]) == (False, "bends")
+    assert sm.views(state, place) == [] and did["places"] == {}
 
-    # The Places summary surfaces the suggestion until the owner updates the spot on the plan.
+    # The Places summary surfaces the suggestion, with the view left out, until the owner updates the spot.
     summary = sm.summary(state, now=110.0)
+    assert summary["registration"]["front"] == {"added": 0, "left_out": 1, "reasons": {"bends": 1}, "why": "bends"}
     assert "front" in summary["spot_suggestions"]
     assert summary["spot_suggestions"]["front"]["far_turn"] is True  # the spot faces 12 degrees off: past 5
     moved = _synthetic_plan(cx=0.65, cy=0.75, cz=1.65, yaw=125.0)
@@ -1207,14 +1288,15 @@ def test_a_view_whose_depth_reads_as_the_model_does_has_its_walls_put_back_on_th
     far_wall = (true > 5.0) & (true < 7.0)  # the east wall, 5.3 m off along the view at its nearest
 
     today = read * sm.spot_fit(read, _BOX_FOCAL, pose, None).scale
-    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
+    reg = registration.register(read, _BOX_FOCAL, pose, _box_geom())
+    fit = reg.fit
+    assert reg.registered and fit is not None
     fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
 
     # Scaled by its floor alone, the far wall lands well short of the plan; fitted, on it, over the depths the fit
     # saw (the wall below 2 m: above, the plan can't tell wall from ceiling, and the end ratio holds).
     in_range = far_wall & (read <= fit.far)
     assert np.median(today[far_wall] - true[far_wall]) < -0.25
-    assert fit.why is None
     assert in_range.sum() > 1000
     assert np.abs(fixed[in_range] - true[in_range]).max() < 0.02
     assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.01), pytest.approx(-0.037, abs=0.005))
@@ -1228,10 +1310,11 @@ def test_furniture_and_people_in_front_of_the_walls_do_not_drag_the_fit():
     true = _box_depth(pose, boxes=[(5.2, 0.6, 5.5, 3.4, 1.9), (1.5, 3.0, 3.5, 3.8, 0.9)])
     read = _as_the_model_reads(true)
     read[60:, 140:170] = 0.0
-    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
+    reg = registration.register(read, _BOX_FOCAL, pose, _box_geom())
+    fit = reg.fit
+    assert reg.registered and fit is not None
     fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
     far = (true > 4.5) & (read > 0)
-    assert fit.why is None
     assert np.median(np.abs(fixed[far] - true[far])) < 0.02
     assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.02), pytest.approx(-0.037, abs=0.01))
 
@@ -1252,7 +1335,7 @@ def test_a_view_the_plan_cannot_fit_says_why(covered, why):
     else:
         read = _as_the_model_reads(_box_depth(pose))
         read[covered] = 0.0
-    assert plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320)).why == why
+    assert registration.register(read, _BOX_FOCAL, pose, _box_geom()).why == why
 
 
 def _box_pose_at(x: float, pitch: float) -> np.ndarray:
@@ -1297,9 +1380,11 @@ def test_a_doorway_seen_past_the_far_wall_is_not_stretched():
     door = (np.abs(true - t_wall) < 1e-6) & (np.abs(y - 2.0) < 0.5) & (z < 2.1)
     fence[door] = (9.4 - pose[0, 3]) / dirs[..., 0][door]
     read = _as_the_model_reads(fence)
-    fit = plan_depth.fit(read, plan_depth.expected(spot_check.prepare_plan(parsed), pose, _BOX_FOCAL, 180, 320))
+    reg = registration.register(read, _BOX_FOCAL, pose, spot_check.prepare_plan(parsed))
+    fit = reg.fit
+    assert reg.registered and fit is not None
     fixed = plan_depth.apply(read, fit.a, fit.b, fit.near, fit.far)
-    assert fit.why is None and door.sum() > 200
+    assert door.sum() > 200
     assert float(read[door].min()) > fit.far  # the doorway is read past every depth the line was fitted on
     ratio = 1.0 / (1.108 / fit.far - 0.037) / fit.far  # the true depth over the read one at the far end
     assert fixed[door] == pytest.approx(read[door] * ratio, rel=0.02)
@@ -1315,8 +1400,9 @@ def test_a_cabinet_face_across_a_lone_wall_does_not_pull_the_wall_to_it():
     pose = _box_pose_at(3.6, pitch=25.0)
     true = _box_depth(pose, boxes=[(5.45, 0.3, 5.9, 3.7, 1.9)])
     read = _as_the_model_reads(true)
-    fit = plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320))
-    assert fit.why is None
+    reg = registration.register(read, _BOX_FOCAL, pose, _box_geom())
+    fit = reg.fit
+    assert reg.registered and fit is not None
     assert (fit.a, fit.b) == (pytest.approx(1.108, abs=0.02), pytest.approx(-0.037, abs=0.01))
 
 
@@ -1327,7 +1413,7 @@ def test_a_lone_wall_behind_a_cabinet_with_no_floor_in_sight_is_refused():
     # floor, and the cabinet's would put the wall above it past the plan.
     pose = _box_pose_at(3.6, pitch=10.0)
     read = _as_the_model_reads(_box_depth(pose, boxes=[(5.45, 0.3, 5.9, 3.7, 1.9)]))
-    assert plan_depth.fit(read, plan_depth.expected(_box_geom(), pose, _BOX_FOCAL, 180, 320)).why == "disagrees"
+    assert registration.register(read, _BOX_FOCAL, pose, _box_geom()).why == "disagrees"
 
 
 def _map_far_wall(state: Path, place: str) -> np.ndarray:
@@ -1345,7 +1431,7 @@ def test_the_map_step_maps_a_spot_view_with_its_depth_fitted_and_keeps_the_model
     place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
     did = sm.step(state, now=100.0, held={})
     assert did is not None and place in did["places"]
-    assert did["spots"]["front"]["depth"]["why"] is None
+    assert did["spots"]["front"]["registration"]["registered"] is True
     # The map's far wall stands on its face, x = 5.9 (within a few centimetres: on this flat grey picture the spot
     # check moves the pose about 0.2 m inside its bound, which the true depth then fits a little less well). Scaled
     # by its floor alone, it would stand about 0.3 m short.
@@ -1356,23 +1442,26 @@ def test_the_map_step_maps_a_spot_view_with_its_depth_fitted_and_keeps_the_model
     kept_png = sm._read_depth(frames.root(state) / f"{kept.id}.depth.png")
     assert kept_png == pytest.approx(model_read, abs=0.001)
     assert sm.State.read(frames.root(state)).frames[kept.id]["depth"]["fit"] == "plan"
-    assert sm.summary(state, now=110.0)["depth_fit"] == {"front": {"fitted": 1, "floor": 0, "why": None}}
+    assert sm.summary(state, now=110.0)["registration"] == {
+        "front": {"added": 1, "left_out": 0, "reasons": {}, "why": None}
+    }
 
 
-def test_the_map_step_keeps_the_floor_scale_for_a_view_the_plan_cannot_fit(models, state):
-    pose = _box_pose()
-    read = _as_the_model_reads(_box_depth(pose))
-    read[:150] = 0.0  # only the near floor in sight: no wall to fit
+def test_a_spot_view_with_no_wall_in_sight_is_left_out_not_added_at_its_floor_scale(models, state):
+    read = _as_the_model_reads(_box_depth(_box_pose()))
+    read[:150] = 0.0  # only the near floor in sight: no wall to line it up by
     models.depth = lambda h, w, f: read
     rgb = np.full((180, 320, 3), 120, np.uint8)
-    _, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
+    place, kept = _setup_synthetic_place(state, rgb, 0.6, 2.0, cz=1.6, yaw=90.0, pitch=18.0, roll=0.0, plan_text=_BOX)
     did = sm.step(state, now=100.0, held={})
-    assert did is not None
-    seen = did["spots"]["front"]
-    assert seen["depth"]["why"] == "few" and seen["scale"] != 1.0
-    record = sm.State.read(frames.root(state)).frames[kept.id]["depth"]
-    assert record == {"fit": "floor", "why": "few", "a": pytest.approx(1.0 / seen["scale"], abs=0.002), "b": 0.0}
-    assert sm.summary(state, now=110.0)["depth_fit"] == {"front": {"fitted": 0, "floor": 1, "why": "few"}}
+    assert did is not None and did["places"] == {}  # no map is made of it
+    assert did["spots"]["front"]["registration"]["why"] == "few"
+    entry = sm.State.read(frames.root(state)).frames[kept.id]
+    assert (entry["why"], entry["registration"]["registered"]) == ("few", False)
+    assert "depth" not in entry and (frames.root(state) / f"{kept.id}.depth.png").is_file()  # kept, uncorrected
+    said = sm.summary(state, now=110.0)
+    assert said["registration"] == {"front": {"added": 0, "left_out": 1, "reasons": {"few": 1}, "why": "few"}}
+    assert place not in said["places"]
 
 
 def test_a_plan_frame_map_from_before_the_depth_fit_is_started_again_and_fitted_once(models, state):

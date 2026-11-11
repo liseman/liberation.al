@@ -19,12 +19,13 @@ nearer than the plan, never farther (rays through doors, archways, and windows a
 lie at scattered depths, so the largest set of pixels one line fits is the room's own surfaces: a RANSAC over pixel
 pairs in inverse depth, then least squares on its inliers. The line must hold some of the walls and some of the
 floor, or the floor (most of a view's known pixels) would pick a line the walls disagree with. A view where too few
-pixels see the plan's walls or floor (`few`), too few agree with any one line (`disagrees`), or the line would bend
-the depth too far (`bends`) is not corrected (`Fit.why`): the caller keeps the floor scale it had and reports why.
-Nothing is seen through a wall, so a candidate line loses a pixel for each one it would put past the plan's surfaces,
-and a fit that puts more than BEYOND of them there is refused (`disagrees`): with a cabinet face across most of a
-lone wall, the line through the floor and the face holds more pixels than the true one, and the strip of real wall
-around the cabinet then reads past the plan.
+Nothing is seen through a wall, so a candidate line loses a pixel for each one it would put past the plan's surfaces:
+with a cabinet face across most of a lone wall, the line through the floor and the face would otherwise hold more
+pixels than the true one.
+
+**The fit measures; it doesn't judge.** `Fit` says how much of the plan the view saw, how much agreed with the line,
+how much reads past the plan once corrected, and how far the line bends the depth. Whether that is good enough for
+the view to go into a map is `spatial/registration.py`'s call, with every tolerance in one place.
 
 **Only over the fitted range** (`apply`). The line is applied between the nearest and farthest inliers' depths, and
 outside them the ratio at that end holds: a doorway, a window, or a hallway reads past the far wall, and the line
@@ -36,7 +37,7 @@ RANSAC samples. No per-frame or per-training-step work.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -48,12 +49,7 @@ OPENING_M = 0.05  # a ray whose wall hit moves this far once openings are cut pa
 MAX_DEPTH_M = 12.0
 INLIER = 0.04  # relative depth error a pixel may have and still be the plan's surface
 SAMPLES = 400  # RANSAC pixel pairs
-MIN_PIXELS = 400  # samples that must see a plan wall or floor
-MIN_EACH = 80  # inliers on the walls and on the floor each: both are needed to tell a shift from a scale
-MIN_SHARE = 0.12  # share of the samples that see the plan which must agree with the line
-MAX_CHANGE = 0.35  # how far the correction may change any inlier's depth, relative; past it the plan or pose is off
-BEYOND = 0.10  # share of the samples that see the plan which may read farther than it once corrected
-SLOPE = (0.5, 2.0)  # the fitted `a`: the model's depth has the room's shape, so a line far from 1 fits something else
+LEAST = 80  # inliers a candidate line must hold on the walls and on the floor each, to tell a shift from a scale
 SEED = 394
 
 
@@ -70,15 +66,18 @@ class Expected:
     known: np.ndarray  # (N,) bool
 
 
-def _cast(origin: np.ndarray, dirs: np.ndarray, w: plan_import.Walls) -> np.ndarray:
+def _cast(origin: np.ndarray, dirs: np.ndarray, w: plan_import.Walls) -> tuple[np.ndarray, np.ndarray]:
     """For (N, 2) horizontal ray directions from `origin` (2,), the ray parameter of the nearest wall face (the
-    centreline moved half a wall toward the camera, as `spot_check.raycast_2d` does), inf for none."""
+    centreline moved half a wall toward the camera, as `spot_check.raycast_2d` does), inf for none, and which wall
+    of `w` that is (-1 for none)."""
     out = np.full(len(dirs), np.inf)
+    which = np.full(len(dirs), -1, dtype=np.int64)
     if not len(w.a):
-        return out
+        return out, which
     ab = w.b - w.a
     length = np.hypot(ab[:, 0], ab[:, 1])
     keep = length > 1e-6
+    index = np.flatnonzero(keep)
     a, ab, length, half = w.a[keep], ab[keep], length[keep], w.half[keep]
     normal = np.stack([-ab[:, 1], ab[:, 0]], axis=1) / length[:, None]
     signed = np.sum((origin[None, :] - a) * normal, axis=1)
@@ -90,9 +89,10 @@ def _cast(origin: np.ndarray, dirs: np.ndarray, w: plan_import.Walls) -> np.ndar
         with np.errstate(divide="ignore", invalid="ignore"):
             t = (rel[i, 0] * ab[i, 1] - rel[i, 1] * ab[i, 0]) / denom
             s = (rel[i, 0] * dirs[:, 1] - rel[i, 1] * dirs[:, 0]) / denom
-        hit = (np.abs(denom) > 1e-12) & (t > 1e-3) & (s >= -1e-4) & (s <= 1.0001)
-        out = np.where(hit & (t < out), t, out)
-    return out
+        hit = (np.abs(denom) > 1e-12) & (t > 1e-3) & (s >= -1e-4) & (s <= 1.0001) & (t < out)
+        out = np.where(hit, t, out)
+        which = np.where(hit, index[i], which)
+    return out, which
 
 
 def expected(
@@ -109,8 +109,8 @@ def expected(
     centre = c2w[:3, 3]
     with np.errstate(divide="ignore", invalid="ignore"):
         floor_t = np.where(dirs[:, 2] < -1e-9, -centre[2] / dirs[:, 2], np.inf)
-    full = _cast(centre[:2], dirs[:, :2], geom.full)
-    cut = _cast(centre[:2], dirs[:, :2], geom.opaque)  # doors, archways, and windows cut
+    full, _ = _cast(centre[:2], dirs[:, :2], geom.full)
+    cut, _ = _cast(centre[:2], dirs[:, :2], geom.opaque)  # doors, archways, and windows cut
     wall = full < floor_t
     depth = np.minimum(full, floor_t)
     through = wall & ~(np.abs(cut - full) < OPENING_M)
@@ -121,26 +121,30 @@ def expected(
 
 @dataclass(frozen=True)
 class Fit:
-    """A view's correction, `1 / d' = a / d + b` (`apply`), with how it was found: the samples that saw the plan
-    (`seen`), the share of them on the fitted line (`share`), the inliers on walls and on the floor, and the median
-    signed relative error of the wall and floor inliers before and after (positive reads farther than the plan).
-    `why` says why it isn't to be used (None when it is): `few` (too little of the plan in sight), `disagrees` (too
-    few pixels agree with any one line), or `bends` (the line would change the depth too much)."""
+    """A view's line, `1 / d' = a / d + b` (`apply`), and what it was fitted on: the samples that saw the plan
+    (`seen`, of them on walls and on the floor), whether a line holding both was found (`found`), the share of the
+    samples on it (`share`), its inliers on walls and on the floor, the median signed relative error of those
+    before and after (positive reads farther than the plan), the model depths of the nearest and farthest inliers
+    (`near`, `far`), the share of the samples that read past the plan once corrected (`beyond`), and the most the
+    line changes an inlier's depth, relative (`change`)."""
 
     a: float
     b: float
     seen: int
-    share: float
-    walls: int
-    floor: int
-    wall_before: float | None
-    wall_after: float | None
-    floor_before: float | None
-    floor_after: float | None
-    why: str | None
-    near: float = 0.0  # the model's depth at the nearest and farthest inliers: the range the line was fitted on
+    seen_walls: int
+    seen_floor: int
+    found: bool
+    share: float = 0.0
+    walls: int = 0
+    floor: int = 0
+    wall_before: float | None = None
+    wall_after: float | None = None
+    floor_before: float | None = None
+    floor_after: float | None = None
+    near: float = 0.0
     far: float = MAX_DEPTH_M
-    beyond: float = 0.0  # the share of the samples that see the plan which read farther than it once corrected
+    beyond: float = 0.0
+    change: float = 0.0
 
     def as_dict(self) -> dict[str, object]:
         def r(x: float | None) -> float | None:
@@ -150,6 +154,7 @@ class Fit:
             "a": round(self.a, 5),
             "b": round(self.b, 5),
             "seen": self.seen,
+            "found": self.found,
             "share": round(self.share, 3),
             "walls": self.walls,
             "floor": self.floor,
@@ -157,10 +162,10 @@ class Fit:
             "wall_after": r(self.wall_after),
             "floor_before": r(self.floor_before),
             "floor_after": r(self.floor_after),
-            "why": self.why,
             "near": round(self.near, 3),
             "far": round(self.far, 3),
             "beyond": round(self.beyond, 3),
+            "change": round(self.change, 3),
         }
 
 
@@ -186,8 +191,8 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
     d = np.asarray(depth, dtype=np.float64)[exp.v, exp.u]
     use = exp.known & (d > 0) & (d <= MAX_DEPTH_M)
     x, y, wall = 1.0 / d[use], 1.0 / exp.depth[use], exp.wall[use]
-    none = Fit(1.0, 0.0, int(use.sum()), 0.0, 0, 0, None, None, None, None, "few")
-    if len(x) < MIN_PIXELS or wall.sum() < MIN_EACH or (~wall).sum() < MIN_EACH:
+    none = Fit(1.0, 0.0, len(x), int(wall.sum()), int((~wall).sum()), False)
+    if wall.sum() < LEAST or (~wall).sum() < LEAST:
         return none
     rng = np.random.default_rng(SEED)
     i, j = rng.integers(0, len(x), SAMPLES), rng.integers(0, len(x), SAMPLES)
@@ -206,10 +211,10 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
         err = (a_c * x + b_c) / y - 1.0  # relative depth error, to first order: negative reads farther
         inl = np.abs(err) < INLIER
         n = int(inl.sum()) - int((err < -INLIER).sum())
-        if n > best_n and int((inl & wall).sum()) >= MIN_EACH and int((inl & ~wall).sum()) >= MIN_EACH:
+        if n > best_n and int((inl & wall).sum()) >= LEAST and int((inl & ~wall).sum()) >= LEAST:
             best, best_n = inl, n
     if best is None or not best.any():
-        return Fit(1.0, 0.0, len(x), 0.0, 0, 0, None, None, None, None, "disagrees")
+        return none
     inl = best
     a_ls, b_ls = 1.0, 0.0
     for _ in range(3):  # least squares on the inliers (relative error), then again
@@ -217,35 +222,29 @@ def fit(depth: np.ndarray, exp: Expected) -> Fit:
         a_ls, b_ls = np.linalg.lstsq(np.stack([x[inl] * wts, wts], axis=1), y[inl] * wts, rcond=None)[0]
         inl = np.abs((a_ls * x + b_ls) / y - 1.0) < INLIER
         if not inl.any():
-            return Fit(1.0, 0.0, len(x), 0.0, 0, 0, None, None, None, None, "disagrees")
+            return none
     a, b = float(a_ls), float(b_ls)
     near, far = 1.0 / float(x[inl].max()), 1.0 / float(x[inl].min())
     before = y / x - 1.0  # (d - D) / D: positive reads farther than the plan
     after = apply(1.0 / x, a, b, near, far) * y - 1.0
-    n_wall, n_floor = int((inl & wall).sum()), int((inl & ~wall).sum())
-    out = Fit(
+    with np.errstate(divide="ignore", invalid="ignore"):
+        change = np.abs(x[inl] / (a * x[inl] + b) - 1.0)
+    return Fit(
         a,
         b,
         len(x),
-        float(inl.mean()),
-        n_wall,
-        n_floor,
-        _median(before[inl & wall]),
-        _median(after[inl & wall]),
-        _median(before[inl & ~wall]),
-        _median(after[inl & ~wall]),
-        None,
-        near,
-        far,
-        float((after > INLIER).mean()),
+        int(wall.sum()),
+        int((~wall).sum()),
+        True,
+        share=float(inl.mean()),
+        walls=int((inl & wall).sum()),
+        floor=int((inl & ~wall).sum()),
+        wall_before=_median(before[inl & wall]),
+        wall_after=_median(after[inl & wall]),
+        floor_before=_median(before[inl & ~wall]),
+        floor_after=_median(after[inl & ~wall]),
+        near=near,
+        far=far,
+        beyond=float((after > INLIER).mean()),
+        change=float(np.nan_to_num(change, nan=np.inf).max()),
     )
-    if n_wall < MIN_EACH or n_floor < MIN_EACH or out.share < MIN_SHARE or out.beyond > BEYOND:
-        return _why(out, "disagrees")
-    change = np.abs(x[inl] / (a * x[inl] + b) - 1.0)
-    if not SLOPE[0] <= a <= SLOPE[1] or float(change.max()) > MAX_CHANGE:
-        return _why(out, "bends")
-    return out
-
-
-def _why(f: Fit, why: str) -> Fit:
-    return replace(f, why=why)

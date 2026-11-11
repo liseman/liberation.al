@@ -342,29 +342,39 @@ it('gives each camera a row with its name, how it is doing, and its newest kept 
   expect(within(rows[0] as HTMLElement).queryByRole('img')).toBeNull();
 });
 
-it('says which spot cameras have views whose depth could not be lined up with the plan', () => {
+it("says how many of a camera's views were left out of the map and why, and plainly when none got in", () => {
   const told = status({
     sampling: ['front', 'hall'],
-    depth_fit: {
-      front: { fitted: 2, floor: 1, why: 'few' },
-      hall: { fitted: 3, floor: 0, why: null },
-      porch: { fitted: 0, floor: 2, why: 'disagrees' },
+    // a parked frame of front's is one of its views left out: the left-out row is what its row says
+    parked_cameras: { front: 'disagrees' },
+    registration: {
+      front: { added: 3, left_out: 2, reasons: { disagrees: 2 }, why: 'disagrees' },
+      hall: { added: 4, left_out: 0, reasons: {}, why: null },
+      porch: { added: 0, left_out: 3, reasons: { floor: 1, weak: 2 }, why: 'weak' },
+      attic: { added: 0, left_out: 1, reasons: { few: 1 }, why: 'few' },
     },
     cameras: { hall: { recent: { view: 3 }, last_kept: 1.8e9 } },
   });
+  const kept = 'Views left out are kept, and tried again when the plan, the spot, or the lens changes.';
   expect(cameraRows(told, 1.8e9).map(r => [r.camera, r.tone, r.label, r.detail])).toEqual([
     [
       'front',
       'warn',
-      'Walls not lined up in 1 of 3 views',
-      "The depth of one of its pictures couldn't be lined up with the plan (too little of the plan's walls and floor is in view), so its walls there may sit short of the plan's.",
+      '2 views left out',
+      `2 of its 5 views were left out of the map: could not be lined up with the plan. ${kept}`,
     ],
     ['hall', 'ok', 'Keeping pictures', expect.any(String)],
     [
+      'attic',
+      'warn',
+      'None in the map',
+      `Its one view couldn't be added to the map: too little of the plan's walls and floor in view. ${kept}`,
+    ],
+    [
       'porch',
       'warn',
-      'Walls not lined up with the plan',
-      "The depth of 2 of its pictures couldn't be lined up with the plan (what it sees doesn't match the plan's walls), so its walls there may sit short of the plan's.",
+      'None in the map',
+      `None of its 3 views could be added to the map: too few matches with views already in the map. ${kept}`,
     ],
   ]);
 });

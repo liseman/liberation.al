@@ -81,7 +81,7 @@ import numpy as np
 from liberational import config as cfg
 from liberational import json_state, locking, logs, nvml
 from liberational.memory import places
-from liberational.spatial import cameras, lens, plan_depth, ply, sog, splats, spot_check, spots
+from liberational.spatial import cameras, lens, plan_depth, ply, registration, sog, splats, spot_check, spots
 from liberational.spatial import surroundings_frames as frames
 
 LOG = logs.get("surroundings-map")
@@ -95,13 +95,15 @@ PHASES = ("pairing", "depth", "training", "writing")
 MAX_NEW = 12  # waiting frames a step takes
 NEIGHBOURS = 3  # frames a waiting frame is paired with
 MIN_ALIKE = 0.1  # a frame less alike than this isn't worth a pair
-MIN_INLIERS = 150  # matches that must agree with a pair's pose for it to place a frame
+MIN_INLIERS = registration.TOLERANCES.min_inliers  # matches that must agree with a pair's pose for it to place a frame
 PARK_S = 86400.0  # how long a frame nothing places stays parked before it's dropped
 SPOT_FLOOR_M = 0.05  # a spot view's floor this near the plan's (z = 0) is left as the depth model gave it
-SPOT_SCALE = (0.75, 1.35)  # how far a spot view's depth may be scaled to bring its floor to the plan's
+SPOT_SCALE = (
+    registration.TOLERANCES.floor_scale
+)  # how far a spot view's depth may be scaled to put its floor at the plan's
 # How a spot view's depth is fitted to its plan (`plan_depth`). A place in its plan's frame whose map was learned
 # with another is started again, so every view in it has its depth fitted the same way.
-DEPTH_FIT = 1
+DEPTH_FIT = 2  # 1: spot views fitted to the plan (#394); 2: views that don't register are left out (#410)
 SPOT_WALL_POINTS = 200  # band points near a wall a spot view needs before its wall fit says anything...
 SPOT_WALL_NEAR = 0.1  # ...and the share of its band on a wall under which the log warns
 #: Why a frame is parked, for a page to say (`summary`'s `parked_cameras`): it overlaps nothing in a map (`overlap`);
@@ -184,11 +186,39 @@ def expired(kept: Sequence[frames.Kept], state: State, now: float) -> list[frame
     return out
 
 
-def bases(spotted: Mapping[str, spots.Spot]) -> dict[str, str]:
-    """What each camera with a spot has to be placed by, as a word that changes when the owner changes the spot or a
-    tilt is fitted: "spot" when the spot gives a pose, else "spot:" and what it lacks. A camera with no spot isn't
-    listed (`NO_SPOT`)."""
-    return {c: "spot" if usable(sp) else "spot:" + ",".join(sp.missing or ("frame",)) for c, sp in spotted.items()}
+def bases(spotted: Mapping[str, spots.Spot], plans: Mapping[str, str] | None = None) -> dict[str, str]:
+    """What each camera has to be placed by, as a word that changes when anything a view of it registers against
+    changes (`registration`): for a camera whose spot gives a pose, "spot#" and a digest of that pose (the spot, its
+    fitted tilt, the focal, and the lens) and of its place's plan (`plans`, by place: the scene's text); for a spot
+    that lacks something, "spot:" and what it lacks. A camera with no spot takes `NO_SPOT` with a digest of every
+    plan (the "" entry, `basis_of`), since a view placed by pairing registers against the plan of whatever place it
+    joins. A parked frame whose camera's word changes is tried again (`due`)."""
+    import hashlib
+
+    def digest(*parts: object) -> str:
+        return hashlib.sha256(json.dumps(parts, default=str).encode()).hexdigest()[:12]
+
+    plans = plans or {}
+    out = {"": NO_SPOT + "#" + digest(sorted(plans.items()))}
+    for camera, sp in spotted.items():
+        if not usable(sp) or sp.pose is None:
+            out[camera] = "spot:" + ",".join(sp.missing or ("frame",))
+            continue
+        pose = sp.pose
+        out[camera] = "spot#" + digest(
+            [round(v, 6) for v in pose.pose],
+            round(pose.focal, 4),
+            pose.width,
+            pose.height,
+            pose.lens,
+            plans.get(sp.place),
+        )
+    return out
+
+
+def basis_of(basis: Mapping[str, str], camera: str) -> str:
+    """`camera`'s word in `basis` (`bases`): its own, else the one for cameras with no spot."""
+    return basis.get(camera) or basis.get("", NO_SPOT)
 
 
 NO_SPOT = "none"
@@ -225,7 +255,7 @@ def due(
     for f in waiting(kept, state):
         entry = state.frames.get(f.id) or {}
         parked = entry.get("parked")
-        moved = basis is not None and entry.get("basis") != basis.get(f.camera, NO_SPOT)
+        moved = basis is not None and entry.get("basis") != basis_of(basis, f.camera)
         if parked is None or views > int(parked) or moved or f.id in old:
             out.append(f)
     return sorted(out, key=lambda f: f.t)
@@ -257,7 +287,8 @@ class SpotFit:
     check: spot_check.SpotCheck | None = None  # the check this fit used, to keep for the camera's later views
     basis: str | None = None  # what `check` was made on (`_check_basis`)
     reused: bool = False  # whether `check` was a kept one (no search ran for this view)
-    depth: plan_depth.Fit | None = None  # the depth's fit to the plan (`_depth_correction`); None before it, or no plan
+    depth: plan_depth.Fit | None = None  # the depth's fit to the plan when it registered the view, else None
+    registered: registration.Registration | None = None  # whether the view registered (`registration.register`)
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -283,6 +314,8 @@ class SpotFit:
                 out["suggestion"] = dict(self.suggestion)
         if self.depth is not None:
             out["depth"] = self.depth.as_dict()
+        if self.registered is not None:
+            out["registration"] = self.registered.as_dict()
         return out
 
 
@@ -501,10 +534,15 @@ def edges(pairs: Sequence[Mapping[str, Any]], metric: Mapping[str, float]) -> li
     return out
 
 
-def grow(poses: Mapping[str, np.ndarray], found: Sequence[Edge], least: int = MIN_INLIERS) -> dict[str, np.ndarray]:
+def grow(
+    poses: Mapping[str, np.ndarray],
+    found: Sequence[Edge],
+    least: int = MIN_INLIERS,
+    via: dict[str, int] | None = None,
+) -> dict[str, np.ndarray]:
     """Place frames outward from the ones that have a pose (`poses`, camera to world): again and again, the edge with
     the most inliers (at least `least`) between a placed frame and an unplaced one places it. Returns the poses of
-    the frames it placed."""
+    the frames it placed, and notes in `via` the inliers of the edge that placed each."""
     have = dict(poses)
     new: dict[str, np.ndarray] = {}
     usable = sorted((e for e in found if e.inliers >= least), key=lambda e: -e.inliers)
@@ -512,9 +550,13 @@ def grow(poses: Mapping[str, np.ndarray], found: Sequence[Edge], least: int = MI
         for e in usable:
             if e.a in have and e.b not in have:
                 new[e.b] = have[e.b] = have[e.a] @ e.b_in_a
+                if via is not None:
+                    via[e.b] = e.inliers
                 break
             if e.b in have and e.a not in have:
                 new[e.a] = have[e.a] = have[e.b] @ np.linalg.inv(e.b_in_a)
+                if via is not None:
+                    via[e.a] = e.inliers
                 break
         else:
             return new
@@ -843,10 +885,14 @@ def _check_basis(plan: Any, camera: str, held: lens.Held | None, focal: float, s
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _park(state: State, frame: frames.Kept, now: float, basis: str, why: str) -> None:
-    """Park `frame` (`due`)."""
+def _park(
+    state: State, frame: frames.Kept, now: float, basis: str, why: str, reg: registration.Registration | None = None
+) -> None:
+    """Park `frame` (`due`), with its registration when one left it out."""
     since = (state.frames.get(frame.id) or {}).get("since", now)
     state.frames[frame.id] = {"parked": len(state.placed()), "since": since, "basis": basis, "why": why}
+    if reg is not None:
+        state.frames[frame.id]["registration"] = reg.as_dict()
 
 
 def _step(
@@ -863,7 +909,7 @@ def _step(
         LOG.info("a frame of %s was parked for a day with nothing to place it by: dropped", f.camera)
         state.drop.append(f.id)
         state.frames.pop(f.id, None)
-    basis = bases(spotted)
+    basis = bases(spotted, plans if plans is not None else _owner_plans(state_dir))
     by_id = {f.id: f for f in store.kept}
     # A view placed from a spot stands where the spot says. When the owner moves the spot, or the tilt is fitted
     # again, the view is placed again from where the spot is now.
@@ -934,7 +980,7 @@ def _step(
         did: dict[str, Any] = {"at": now, "taken": len(todo), "places": {}, "spots": {}}
         spot_poses: dict[str, dict[str, np.ndarray]] = {}  # place -> frame id -> pose
         spot_fits: dict[str, SpotFit] = {}  # frame id -> fit
-        refused: dict[str, str] = {}  # frame id -> why
+        refused: dict[str, registration.Registration] = {}  # frame id -> the registration that left it out
         plan_at: dict[str, _PlanAt] = {}  # place -> its plan, read once a step
         # Each camera's kept spot check (`spots.REFINED`): its spot's pose, the basis, and the check. A camera's views
         # all stand at one pose, so the search runs once a spot and plan, and every later view reuses it.
@@ -1011,15 +1057,17 @@ def _step(
                     100 * (fit.wall_near or 0.0),
                     fit.wall_median or 0.0,
                 )
-            if fit.why is not None:
-                refused[f.id] = fit.why
-                continue
             chosen_pose = np.asarray(fit.refined, dtype=np.float64).reshape(4, 4) if fit.refined is not None else pose
-            record, got = _depth_correction(depth_here, focal, chosen_pose, plan_here, fit.scale, f.camera)
-            pictures.corrections[f.id] = record
-            fit = replace(fit, depth=got)
+            reg = registration.register(depth_here, focal, chosen_pose, plan_here.geom(), floor_scale=fit.scale)
+            _log_registration(f.camera, reg)
+            fit = replace(fit, depth=reg.fit, registered=reg)
             spot_fits[f.id] = fit
             did["spots"][f.camera] = fit.as_dict()
+            if not reg.registered:
+                refused[f.id] = reg
+                continue
+            if reg.fit is not None:
+                pictures.corrections[f.id] = _correction(reg.fit)
             spot_poses.setdefault(spot.place, {})[f.id] = chosen_pose
         # A place with a view at a spot stands in its plan's frame. A map learned in a frame of its own before (its
         # first camera the origin) can't take such a view: it's started again in the plan's, from the frames kept.
@@ -1032,19 +1080,72 @@ def _step(
 
         depth = {k: _read_depth(pictures.depth(k)) for k in involved if _depth_path(store, k).is_file()}
         found = edges(answer["pairs"], {k: _metric(d) for k, d in depth.items()})
+
         # Place what joins a place (one that exists, or one a spot view founds now), then let what's left found new
         # ones.
-        joined: dict[str, tuple[str, np.ndarray]] = {}  # frame id -> (place, pose)
-        for place in dict.fromkeys([*state.places, *spot_poses]):
-            anchored = {**state.placed(place), **spot_poses.get(place, {})}
-            for k, pose in grow(anchored, found).items():
-                joined.setdefault(k, (place, pose))
+        # A frame a pair places registers through that pair, and against the plan where its place has one
+        # (`registration.register`). One left out takes its edges with it, and the rest are placed again without
+        # it, so nothing stands on a pose that didn't register.
+        def plan_geom(place: str) -> spot_check.PlanGeometry | None:
+            if not (state.places.get(place, {}).get("plan_frame") or place in spot_poses):
+                return None
+            if place not in plan_at:
+                text = _plan_text(state_dir, place, plans)
+                plan_at[place] = _PlanAt(plan_lineup.read_plan(text) if text else None)
+            return plan_at[place].geom()
+
+        left_out: set[str] = set(refused)
+        while True:
+            joined: dict[str, tuple[str, np.ndarray]] = {}  # frame id -> (place, pose)
+            via: dict[str, int] = {}  # frame id -> the agreeing matches of the pair that placed it
+            usable_edges = [e for e in found if not {e.a, e.b} & left_out]
+            for place in dict.fromkeys([*state.places, *spot_poses]):
+                anchored = {**state.placed(place), **spot_poses.get(place, {})}
+                for k, pose in grow(anchored, usable_edges, via=via).items():
+                    joined.setdefault(k, (place, pose))
+            out_now = set()
+            for k, (place, pose) in joined.items():
+                focal_k = pictures.focal(k)
+                assert focal_k is not None
+                reg = registration.register(
+                    _read_depth(_depth_path(store, k)), focal_k, pose, plan_geom(place), inliers=via[k]
+                )
+                _log_registration(by_id[k].camera, reg)
+                if reg.registered:
+                    if reg.fit is not None:
+                        pictures.corrections[k] = _correction(reg.fit)
+                else:
+                    refused[k] = reg
+                    out_now.add(k)
+            if not out_now:
+                break
+            left_out |= out_now
+            for k in out_now:
+                pictures.corrections.pop(k, None)
+        # A waiting frame no pair placed, though some pair reached a placed or spot view: too few matches agreed.
+        anchors = set(state.placed()) | {k for g in spot_poses.values() for k in g} | joined.keys()
+        for f in todo:
+            if f.id in joined or f.id in at_spot or f.id in refused:
+                continue
+            reach = [e.inliers for e in found if f.id in (e.a, e.b) and ({e.a, e.b} - {f.id}) & anchors]
+            if reach and max(reach) < MIN_INLIERS:
+                refused[f.id] = registration.register(
+                    _read_depth(_depth_path(store, f.id)), 1.0, np.eye(4), None, inliers=max(reach)
+                )
+                _log_registration(f.camera, refused[f.id])
         groups: list[dict[str, np.ndarray]] = []
         for f in ready:
-            if f.id in joined or f.id in at_spot or any(f.id in g for g in groups):
+            if f.id in joined or f.id in at_spot or f.id in refused or any(f.id in g for g in groups):
                 continue
-            free = [e for e in found if not {e.a, e.b} & (joined.keys() | at_spot.keys())]
-            group = {f.id: np.eye(4), **grow({f.id: np.eye(4)}, free)}
+            free = [e for e in found if not {e.a, e.b} & (joined.keys() | at_spot.keys() | refused.keys())]
+            group_via: dict[str, int] = {}
+            group = {f.id: np.eye(4), **grow({f.id: np.eye(4)}, free, via=group_via)}
+            # A new place's first frame is its origin; the rest register by the pairs that placed them (no plan yet).
+            for k, n in group_via.items():
+                focal_k = pictures.focal(k)
+                assert focal_k is not None
+                reg = registration.register(_read_depth(_depth_path(store, k)), focal_k, group[k], None, inliers=n)
+                _log_registration(by_id[k].camera, reg)
             if (not state.places and not spot_poses and not groups) or len(group) >= FOUND_MIN:
                 groups.append(group)
         targets: list[tuple[str | None, dict[str, np.ndarray]]] = []
@@ -1065,10 +1166,17 @@ def _step(
             if f.id in taken:
                 continue
             spot = spotted.get(f.camera)
-            why = refused.get(f.id) or (
+            reg = refused.get(f.id)
+            why = (reg.why if reg is not None else None) or (
                 "overlap" if spot is None or usable(spot) else (spot.missing[0] if spot.missing else "frame")
             )
-            _park(state, f, now, basis.get(f.camera, NO_SPOT), why)
+            _park(state, f, now, basis_of(basis, f.camera), why or "overlap", reg)
+            checked = spot_fits.get(f.id)
+            if reg is not None and checked is not None and spot is not None and spot.pose is not None:
+                # A spot view left out keeps the spot it was tried at, and the check's suggestion when it has one.
+                state.frames[f.id]["spot_pose"] = [float(x) for x in spot.pose.pose]
+                if checked.suggestion is not None:
+                    state.frames[f.id]["suggestion"] = dict(checked.suggestion)
         did["unplaced"] = len([f for f in todo if f.id not in taken])
     did["seconds"] = round(time.monotonic() - began, 1)
     state.last = did
@@ -1085,29 +1193,37 @@ def _at(pose: Sequence[float], spot: spots.Spot | None) -> bool:
     )
 
 
-def _depth_correction(
-    depth: np.ndarray, focal: float, pose: np.ndarray, plan: _PlanAt, scale: float, camera: str
-) -> tuple[dict[str, Any], plan_depth.Fit | None]:
-    """How a spot view's depth (`depth`, as the model gave it, in metres) is corrected, seen from `pose` with `focal`
-    (pixels), as its frame's entry keeps it, and the fit (None when the plan doesn't read): `1 / d' = a / d + b`
-    between `near` and `far` (`plan_depth.apply`), fitted to the plan's walls and floor (`fit` "plan") when that fit
-    holds, else `spot_fit`'s floor scale alone (`fit` "floor", with the fit's `why`), logged either way."""
-    geom = plan.geom()
-    got = None if geom is None else plan_depth.fit(depth, plan_depth.expected(geom, pose, focal, *depth.shape))
-    if got is not None and got.why is None:
+def _correction(fit: plan_depth.Fit) -> dict[str, Any]:
+    """A view's depth correction as its frame's entry keeps it (`Pictures.depth`): its fit to the plan."""
+    return {"fit": "plan", "a": fit.a, "b": fit.b, "near": fit.near, "far": fit.far}
+
+
+def _log_registration(camera: str, reg: registration.Registration) -> None:
+    """Log a view's registration: added, or left out and why, with the number that decided it."""
+    if reg.registered:
+        f = reg.fit
+        if f is None:
+            LOG.info("%s: its view registers by %s (%s %.0f)", camera, reg.by, reg.measure, reg.value)
+            return
         LOG.info(
-            "%s: its depth fitted to the plan's walls and floor (walls %+.1f%% -> %+.1f%%, floor %+.1f%% -> %+.1f%%)",
+            "%s: its view registers by %s; depth fitted (walls %+.1f%% -> %+.1f%%, floor %+.1f%% -> %+.1f%%)",
             camera,
-            100 * (got.wall_before or 0.0),
-            100 * (got.wall_after or 0.0),
-            100 * (got.floor_before or 0.0),
-            100 * (got.floor_after or 0.0),
+            reg.by,
+            100 * (f.wall_before or 0.0),
+            100 * (f.wall_after or 0.0),
+            100 * (f.floor_before or 0.0),
+            100 * (f.floor_after or 0.0),
         )
-        record = {"fit": "plan", "a": got.a, "b": got.b, "near": got.near, "far": got.far}
-        return record, got
-    why = "plan" if got is None else got.why
-    LOG.info("%s: its depth doesn't fit the plan (%s): scaled by its floor alone (%.3f)", camera, why, scale)
-    return {"fit": "floor", "why": why, "a": 1.0 / scale, "b": 0.0}, got
+        return
+    LOG.info(
+        "%s: its view doesn't register by %s (%s: %s %.3g, limit %.3g); left out of the map",
+        camera,
+        reg.by,
+        reg.why,
+        reg.measure,
+        reg.value,
+        reg.limit,
+    )
 
 
 def _write_depth(path: Path, depth: np.ndarray) -> None:
@@ -1376,7 +1492,12 @@ def spot_bases(state_dir: Path) -> dict[str, str] | None:
     """`bases` of the spots as they read now, or None when they can't be read (then no parked frame is taken for
     changed: a store that doesn't read must not start a step a minute)."""
     found = _read_spots(state_dir)
-    return None if found is None else bases(found)
+    return None if found is None else bases(found, _owner_plans(state_dir))
+
+
+def _owner_plans(state_dir: Path) -> dict[str, str]:
+    """Every place's owner plan as saved (a scene's text), by place."""
+    return {h.id: h.plan for h in places.places(state_dir) if h.plan_source == "owner" and h.plan}
 
 
 def in_plan_frame(state_dir: Path, place: str) -> bool:
@@ -1439,8 +1560,8 @@ def summary(
     frames are kept, how many of them a step is due for (`waiting`) and how many are parked until the map grows
     (`parked`, `due`; `parked_cameras` says why for each camera with one, a word of PARKED), any spot whose view fits
     the plan better past `spots.within_bounds` while the owner's spot holds (`spot_suggestions`), how many of each
-    spot camera's placed views have their depth fitted to the plan and how many kept the floor's scale, with why
-    (`depth_fit`), whether a step is
+    camera's views are in a map and how many were left out because they didn't register, by reason, with the main
+    one (`registration`), whether a step is
     running and what it's doing (`step`: `progress`, None while none runs), when the last step ended (`last_step`, Unix
     seconds, or None), each sampled camera's recent looks by outcome and when a frame of it was last kept (`cameras`,
     from the sampler's status), each learned place's newest revision, views, rounds, and when a step last added a view
@@ -1459,7 +1580,7 @@ def summary(
     state = State.read(folder)
     switch = surroundings.read()
     current_spots = _read_spots(state_dir) if spotted is None else spotted
-    basis = None if current_spots is None else bases(current_spots)
+    basis = None if current_spots is None else bases(current_spots, _owner_plans(state_dir))
     todo = due(index, state, time.time() if now is None else now, basis)
     due_ids = {f.id for f in todo}
     parked = {
@@ -1478,9 +1599,10 @@ def summary(
     for kept in index:
         if kept.camera not in newest or kept.t > newest[kept.camera].t:
             newest[kept.camera] = kept
-        if (state.frames.get(kept.id) or {}).get("pose") is not None and (
-            kept.camera not in newest_placed or kept.t > newest_placed[kept.camera].t
-        ):
+        entry_k = state.frames.get(kept.id) or {}
+        # A spot view in a map, or one left out at its spot (its suggestion is the likely why).
+        checked = entry_k.get("pose") is not None or entry_k.get("spot_pose") is not None
+        if checked and (kept.camera not in newest_placed or kept.t > newest_placed[kept.camera].t):
             newest_placed[kept.camera] = kept
     suggestions: dict[str, dict[str, float]] = {}
     if current_spots is not None:
@@ -1489,7 +1611,7 @@ def summary(
             sug = entry.get("suggestion")
             was_spot = entry.get("spot_pose") or entry.get("pose")
             if (
-                entry.get("spot")
+                (entry.get("spot") or entry.get("registration") is not None)
                 and isinstance(sug, dict)
                 and was_spot is not None
                 and _at(was_spot, current_spots.get(camera))
@@ -1502,20 +1624,24 @@ def summary(
                     "far_shift": bool(sug.get("far_shift", shift > spots.REFINE_M)),
                     "far_turn": bool(sug.get("far_turn", turn > spots.REFINE_DEG)),
                 }
-    # How each camera's placed spot views have their depth: fitted to the plan, or scaled by the floor alone (and why,
-    # for the newest such view). A place mixing both has walls that disagree where the views overlap.
-    depth_fit: dict[str, dict[str, Any]] = {}
-    for kept in sorted(index, key=lambda f: f.t):
+    # Each camera's views in a map and views left out because they didn't register, with how many for each reason.
+    registered: dict[str, dict[str, Any]] = {}
+    for kept in index:
         entry = state.frames.get(kept.id) or {}
-        record = entry.get("depth")
-        if entry.get("pose") is None or not entry.get("spot") or not isinstance(record, dict):
+        reg = entry.get("registration")
+        added = entry.get("pose") is not None
+        left = isinstance(reg, dict) and reg.get("registered") is False
+        if not added and not left:
             continue
-        row = depth_fit.setdefault(kept.camera, {"fitted": 0, "floor": 0, "why": None})
-        if record.get("fit") == "plan":
-            row["fitted"] += 1
+        row = registered.setdefault(kept.camera, {"added": 0, "left_out": 0, "reasons": {}})
+        if added:
+            row["added"] += 1
         else:
-            row["floor"] += 1
-            row["why"] = record.get("why")
+            row["left_out"] += 1
+            why = str(reg.get("why")) if isinstance(reg, dict) else "unknown"
+            row["reasons"][why] = row["reasons"].get(why, 0) + 1
+    for row in registered.values():
+        row["why"] = max(row["reasons"], key=lambda w: (row["reasons"][w], w)) if row["reasons"] else None
     return {
         "on": switch.on,
         "sampling": sampling,
@@ -1524,7 +1650,7 @@ def summary(
         "parked": len(waiting(index, state)) - len(todo),
         "parked_cameras": dict(sorted(parked.items())),
         "spot_suggestions": suggestions,
-        "depth_fit": dict(sorted(depth_fit.items())),
+        "registration": dict(sorted(registered.items())),
         "running": is_running,
         "step": progress(folder) if is_running else None,
         "last_step": float(began) + float(took or 0.0) if isinstance(began, (int, float)) else None,

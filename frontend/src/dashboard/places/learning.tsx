@@ -45,11 +45,12 @@ export interface SpotSuggestion {
   far_turn: boolean;
 }
 
-/** How a spot camera's placed views have their depth: fitted to the plan's walls and floor, or scaled by the floor
- *  alone (`floor`), with why for the newest such view (a word of the map step's `plan_depth.Fit.why`). */
-export interface DepthFit {
-  fitted: number;
-  floor: number;
+/** A camera's views in a map (`added`) and views left out because they didn't register against the plan or earlier
+ *  views (`left_out`), how many for each reason (a word of the map step's `registration.WHY`), and the main one. */
+export interface Registered {
+  added: number;
+  left_out: number;
+  reasons: Record<string, number>;
   why: string | null;
 }
 
@@ -66,8 +67,8 @@ export interface LearningStatus {
   parked_cameras?: Record<string, string>;
   /** Placed spot cameras whose views fit the plan's walls better beyond the spot bound, while the owner's spot holds. */
   spot_suggestions?: Record<string, SpotSuggestion>;
-  /** Spot cameras by how their placed views' depth was lined up with the plan. */
-  depth_fit?: Record<string, DepthFit>;
+  /** Each camera's views added to a map and left out, by reason. */
+  registration?: Record<string, Registered>;
   running: boolean;
   step: LearningStep | null;
   /** When the last step ended (epoch seconds), or null. */
@@ -233,20 +234,28 @@ const PARKED: Record<string, [label: string, full: string]> = {
   floor: ["Floor doesn't match", "The floor it sees doesn't sit on the plan's floor. Check its height on the plan."],
 };
 
-/** Why a view's depth couldn't be lined up with the plan, by the map step's word for it. */
-const UNFITTED: Record<string, string> = {
-  few: "too little of the plan's walls and floor is in view",
-  disagrees: "what it sees doesn't match the plan's walls",
-  bends: "what it sees doesn't match the plan's walls",
-  plan: "the plan doesn't read",
+/** Why a view was left out of the map, by the map step's word for it (`registration.WHY`). */
+const LEFT_OUT: Record<string, string> = {
+  few: "too little of the plan's walls and floor in view",
+  disagrees: 'could not be lined up with the plan',
+  bends: 'could not be lined up with the plan without bending its depth too far',
+  floor: "its floor isn't where the plan's is (check its height on the plan)",
+  weak: 'too few matches with views already in the map',
+  no_plan: "the plan doesn't read",
 };
 
-function depthFitWords(fit: DepthFit): [label: string, detail: string] {
-  const views = fit.fitted + fit.floor;
-  const why = UNFITTED[fit.why ?? ''] ?? "it doesn't fit the plan";
+function leftOutWords(reg: Registered): [label: string, detail: string] {
+  const why = LEFT_OUT[reg.why ?? ''] ?? "it didn't line up";
+  const kept = 'Views left out are kept, and tried again when the plan, the spot, or the lens changes.';
+  const n = reg.left_out;
+  if (reg.added === 0) {
+    const none = n === 1 ? "Its one view couldn't" : `None of its ${n} views could`;
+    return ['None in the map', `${none} be added to the map: ${why}. ${kept}`];
+  }
+  const was = n === 1 ? 'was' : 'were';
   return [
-    fit.fitted === 0 ? 'Walls not lined up with the plan' : `Walls not lined up in ${fit.floor} of ${views} views`,
-    `The depth of ${fit.floor === 1 ? 'one of its pictures' : `${fit.floor} of its pictures`} couldn't be lined up with the plan (${why}), so its walls there may sit short of the plan's.`,
+    `${n === 1 ? '1 view' : `${n} views`} left out`,
+    `${n} of its ${reg.added + n} views ${was} left out of the map: ${why}. ${kept}`,
   ];
 }
 
@@ -295,19 +304,25 @@ export interface CameraRow {
 }
 
 /** A row for each sampled camera, in the order sampled, then for any other camera with a parked frame, a spot
- *  suggestion, or views whose depth couldn't be lined up with the plan. A parked frame, a beyond-bound spot
- *  suggestion, or such views come first (it's what the owner can act on or should know), then that
+ *  suggestion, or views left out of the map. Views left out come first (the owner should know the map lacks them,
+ *  above all when it has none of the camera's), then a parked frame or a beyond-bound spot suggestion (what the
+ *  owner can act on), then that
  *  frames are being kept, then why none was lately, by what most of the camera's recent looks came to. */
 export function cameraRows(status: LearningStatus, now = Date.now() / 1000): CameraRow[] {
   const parked = status.parked_cameras ?? {};
   const suggestions = status.spot_suggestions ?? {};
-  const unfitted = Object.fromEntries(Object.entries(status.depth_fit ?? {}).filter(([, fit]) => fit.floor > 0));
-  const extra = new Set([...Object.keys(parked), ...Object.keys(suggestions), ...Object.keys(unfitted)]);
+  const leftOut = Object.fromEntries(Object.entries(status.registration ?? {}).filter(([, reg]) => reg.left_out > 0));
+  const extra = new Set([...Object.keys(parked), ...Object.keys(suggestions), ...Object.keys(leftOut)]);
   const names = [...status.sampling, ...[...extra].filter(c => !status.sampling.includes(c)).sort()];
   return names.map(camera => {
     const seen = status.cameras[camera];
     const frame = status.frames?.[camera] ?? null;
     const kept = seen?.last_kept ? `Last kept a picture ${ago(seen.last_kept, now)}.` : null;
+    const reg = leftOut[camera];
+    if (reg != null) {
+      const [label, full] = leftOutWords(reg);
+      return { camera, tone: 'warn', label, detail: full, frame };
+    }
     const why = parked[camera];
     if (why != null) {
       const [label, full] = PARKED[why] ?? ["Can't be placed yet", "Its kept frame can't be placed in the map yet."];
@@ -316,11 +331,6 @@ export function cameraRows(status: LearningStatus, now = Date.now() / 1000): Cam
     const suggestion = suggestions[camera];
     if (suggestion != null) {
       const [label, full] = spotSuggestionWords(suggestion);
-      return { camera, tone: 'warn', label, detail: full, frame };
-    }
-    const fit = unfitted[camera];
-    if (fit != null) {
-      const [label, full] = depthFitWords(fit);
       return { camera, tone: 'warn', label, detail: full, frame };
     }
     const recent = seen?.recent ?? {};
