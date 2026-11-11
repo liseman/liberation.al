@@ -27,7 +27,6 @@ import {
   learningNote,
   levelLine,
   loadingText,
-  moveSpotQuestion,
   pairLine,
   pictureLine,
   placedLine,
@@ -37,6 +36,7 @@ import {
   squareLine,
   viewNote,
   viewWhy,
+  wayBack,
 } from './status';
 
 afterEach(() => vi.restoreAllMocks());
@@ -488,13 +488,21 @@ it("leads a camera's cloud with whose view it is, then its points, when it was m
 const placedAs = (how: ScenePlaced['how'], more: Partial<ScenePlaced> = {}): ScenePlaced => ({
   camera: 'hall',
   points: 100,
-  placed: !['no_spot', 'no_facing', 'moved_unplaced'].includes(how),
+  placed: !['no_spot', 'no_facing', 'lost'].includes(how),
   how,
   size: 'approximate',
   against: [],
   shift_m: 0,
   turn_deg: 0,
-  suggest: null,
+  ...more,
+});
+
+const NOW = 1_762_500_000;
+const followed = (more: Partial<NonNullable<ScenePlaced['follow']>> = {}): ScenePlaced['follow'] => ({
+  by: 'turned',
+  since: NOW - 30,
+  lost: '',
+  pinned: false,
   ...more,
 });
 
@@ -505,20 +513,49 @@ it.each([
     'Placed from its spot, adjusted against porch by what their pictures share: 16 cm and 2° from the spot.',
   ],
   [
-    placedAs('moved', { shift_m: 0.5, turn_deg: 35.2 }),
-    'This camera was moved: by its pictures, 50 cm and 35° from its spot. Its cloud followed.',
+    placedAs('following', { shift_m: 0.004, turn_deg: 90.2, follow: followed() }),
+    "Following: turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
   ],
   [
-    placedAs('moved_against', { against: ['porch'] }),
-    "This camera was moved. It is placed from what its picture shares with porch's.",
+    placedAs('following', { shift_m: 4.53, turn_deg: 20, follow: followed({ by: 'walls', since: NOW - 240 }) }),
+    "Following: turned 20°, moved 4.5 m from your plan's spot, 4 min ago. Placed by the walls it now sees, where they fit your plan. Your plan is unchanged.",
+  ],
+  [
+    placedAs('following', { shift_m: 0.5, turn_deg: 0.2, follow: followed({ by: 'pictures', since: NOW - 7200 }) }),
+    "Following: moved 50 cm from your plan's spot, 2.0 h ago. Placed by what its new picture shares with an earlier one or another camera's. Your plan is unchanged.",
+  ],
+  [
+    placedAs('spot', { follow: followed({ by: '', pinned: true }) }),
+    'Placed from its spot on your plan, as you asked. It is followed again when its view next changes.',
   ],
   [placedAs('no_spot'), 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.'],
   [
-    placedAs('moved_unplaced'),
-    "This camera was moved and isn't placed: its picture matches neither its old one nor another camera's. Set its spot again in the plan editor.",
+    placedAs('lost', { follow: followed({ by: '', lost: 'no_walls' }) }),
+    "Not placed: its view changed, and there is no wall in view to place it by. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
   ],
+  [
+    placedAs('lost', { follow: followed({ lost: 'ambiguous' }) }),
+    "Not placed: its view changed, and the walls it sees fit your plan in more than one place. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
+  ],
+  [
+    placedAs('lost', { follow: followed({ lost: 'no_match' }) }),
+    "Not placed: its view changed, and the walls it sees don't fit your plan anywhere well enough. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
+  ],
+  [placedAs('lost', { follow: followed({ lost: 'pending' }) }), 'Its view changed. It is being placed again.'],
 ])('says how a camera is placed in the scene, or why it is not in it', (camera, text) => {
-  expect(placedLine(camera)).toBe(text);
+  expect(placedLine(camera, c => c, NOW)).toBe(text);
+});
+
+it.each([
+  [placedAs('following', { follow: followed() }), { use: 'spot', label: "Use the plan's spot" }],
+  [placedAs('lost', { follow: followed({ lost: 'no_walls' }) }), { use: 'spot', label: "Use the plan's spot" }],
+  [placedAs('spot', { follow: followed({ pinned: true }) }), { use: 'cloud', label: 'Follow it again' }],
+  [placedAs('lost', { follow: followed({ lost: 'pending' }) }), null],
+  [placedAs('spot'), null],
+  [placedAs('adjusted'), null],
+  [placedAs('no_spot'), null],
+])('offers one way back, only where a camera was placed again or could not be', (camera, way) => {
+  expect(wayBack(camera)).toEqual(way);
 });
 
 const pairOf = (state: ScenePair['state'], more: Partial<ScenePair> = {}): ScenePair => ({
@@ -647,7 +684,7 @@ it('says why a cloud was not squared, and nothing for a camera placed some other
   expect(squareLine(placedAs('spot', { square: squareOf({ state: 'no_plan' }) }))).toBe(
     'No wall of your plan near it to square it to: it faces the way its spot says.',
   );
-  expect(squareLine(placedAs('moved', { square: squareOf({ turn_deg: 3 }), squared: false }))).toBeNull();
+  expect(squareLine(placedAs('following', { square: squareOf({ turn_deg: 3 }), squared: false }))).toBeNull();
   expect(squareLine(placedAs('no_spot'))).toBeNull();
 });
 
@@ -684,20 +721,12 @@ it('says two squared cameras are checked by their pictures, not moved by them', 
 it.each([
   ['spot', 'Placed', 'plain'],
   ['adjusted', 'Adjusted', 'plain'],
-  ['moved', 'Moved', 'warn'],
-  ['moved_against', 'Moved', 'warn'],
-  ['moved_unplaced', 'Not placed', 'warn'],
+  ['following', 'Following', 'plain'],
+  ['lost', 'Not placed', 'warn'],
   ['no_spot', 'No spot', 'plain'],
   ['no_facing', 'No spot', 'plain'],
 ] as const)("names a camera's state in a word, and marks the ones that want the owner: %s", (how, label, tone) => {
   expect(placedState(how)).toEqual({ label, tone });
-});
-
-it("says what moving a camera's spot changes before it is done", () => {
-  expect(moveSpotQuestion(placedAs('moved', { shift_m: 0.31, turn_deg: 37.2 }), 'Kitchen')).toEqual({
-    title: "Move Kitchen's spot on your plan?",
-    body: "It moves 31 cm and turns 37 degrees to where its pictures now put it. The plan's earlier version stays in Versions.",
-  });
 });
 
 it('says what an overlapping pair of cameras came to, and nothing for a pair that shares no space', () => {

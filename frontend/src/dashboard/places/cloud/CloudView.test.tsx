@@ -532,7 +532,6 @@ const placedRow = (camera: string, more: object = {}) => ({
   against: [],
   shift_m: 0,
   turn_deg: 0,
-  suggest: null,
   ...more,
 });
 const allCameras = (cameras: object[], pairs: object[] = []) =>
@@ -588,11 +587,9 @@ it('shows every camera placed in one scene from above, each saying how it is pla
   expect(screen.getByText('Each camera shows only what it sees, so expect gaps and seams.')).toBeTruthy();
   // each row leads with its state in a word, and the camera that needs a spot says so and opens the plan editor
   const rows = screen.getAllByRole('listitem');
-  expect(rows.map(row => within(row).getByText(/^(Placed|Adjusted|Moved|Not placed|No spot)$/).textContent)).toEqual([
-    'Adjusted',
-    'Adjusted',
-    'No spot',
-  ]);
+  expect(
+    rows.map(row => within(row).getByText(/^(Placed|Adjusted|Following|Not placed|No spot)$/).textContent),
+  ).toEqual(['Adjusted', 'Adjusted', 'No spot']);
   await userEvent.click(within(rows[2] as HTMLElement).getByRole('button', { name: 'Set its spot' }));
   expect(editPlan).toHaveBeenCalledTimes(1);
   // the sentence behind the word opens under the row
@@ -689,40 +686,60 @@ it("hides a camera's points when its box is cleared, and the points outside the 
   expect(build).toHaveBeenCalledTimes(2); // nothing was loaded or built again
 });
 
-it("offers to move a moved camera's spot, asks first, and can take it back", async () => {
-  serveAll([placedRow('hall', { how: 'moved', shift_m: 0.5, turn_deg: 35.2, suggest: [3.4, -0.9, 212.4] })]);
+it('says a turned camera was placed again without asking, and offers the one way back', async () => {
+  const since = Date.now() / 1000 - 20;
+  const followed = { by: 'turned', since, lost: '', pinned: false };
+  let rows: object[] = [
+    placedRow('hall', { how: 'following', shift_m: 0.004, turn_deg: 90.2, follow: followed }),
+    placedRow('porch', { placed: false, how: 'lost', follow: { ...followed, by: '', lost: 'ambiguous' } }),
+  ];
   const posted: object[] = [];
-  const undone: object[] = [];
   server.use(
-    http.post('/places/scene/spot', async ({ request }) => {
-      posted.push((await request.json()) as object);
-      return HttpResponse.json({ ok: true, spot: { at: [3.4, -0.9], yaw: 212.4 }, previous: 'plan-v1' });
-    }),
-    http.post('/places/scene/spot/undo', async ({ request }) => {
-      undone.push((await request.json()) as object);
+    http.get('/places/scene', ({ request }) =>
+      HttpResponse.json(new URL(request.url).searchParams.get('all') === '1' ? allCameras(rows) : cloudOf('hall')),
+    ),
+    http.get('/places/map', () => bytes(MAP)),
+    http.post('/places/scene/follow', async ({ request }) => {
+      const body = (await request.json()) as { camera: string; use: string };
+      posted.push(body);
+      rows =
+        body.use === 'spot'
+          ? [placedRow('hall', { follow: { ...followed, by: '', pinned: true } }), rows[1] as object]
+          : [
+              placedRow('hall', { how: 'following', shift_m: 0.004, turn_deg: 90.2, follow: followed }),
+              rows[1] as object,
+            ];
       return HttpResponse.json({ ok: true });
     }),
   );
-  renderPage(<CloudView place="p1" />);
+  renderPage(<CloudView place="p1" onEditPlan={vi.fn()} />);
   await toAll();
-  expect(await screen.findByText(/This camera was moved: by its pictures, 50 cm and 35° from its spot/)).toBeTruthy();
-  expect(screen.getByText('Moved')).toBeTruthy();
-  // it changes the owner's plan, so it asks first, saying what changes and that the earlier version stays
-  await userEvent.click(screen.getByRole('button', { name: 'Move its spot' }));
-  const asking = await screen.findByRole('dialog');
-  expect(within(asking).getByText("Move hall's spot on your plan?")).toBeTruthy();
+  // what was done is said plainly, and nothing was asked: no dialog, no button in the row that changes the plan
   expect(
-    within(asking).getByText(
-      "It moves 50 cm and turns 35 degrees to where its pictures now put it. The plan's earlier version stays in Versions.",
+    await screen.findByText(
+      "Following: turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
     ),
   ).toBeTruthy();
-  expect(posted).toEqual([]);
-  await userEvent.click(within(asking).getByRole('button', { name: 'Move its spot' }));
-  await waitFor(() => expect(posted).toEqual([{ place: 'p1', camera: 'hall' }]));
-  // done, and how to take it back
-  expect(await screen.findByText("Moved hall's spot on your plan.")).toBeTruthy();
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Move its spot' })).toBeNull();
+  const [hall, porch] = screen.getAllByRole('listitem') as [HTMLElement, HTMLElement];
+  expect(within(hall).getByText('Following')).toBeTruthy();
+  // a view that can't be placed says why, isn't offered as a layer, and doesn't send the owner to the plan editor
+  expect(within(porch).getByText('Not placed')).toBeTruthy();
+  expect(within(porch).getByText(/the walls it sees fit your plan in more than one place/)).toBeTruthy();
+  expect((within(porch).getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
+  expect(within(porch).queryByRole('button', { name: 'Set its spot' })).toBeNull();
+  // the way back is in the row's detail, and is itself taken back from the message that says it was done
+  expect(within(hall).queryByRole('button', { name: "Use the plan's spot" })).toBeNull(); // not in the row itself
+  await userEvent.click(within(hall).getByRole('button', { name: 'Details of hall' }));
+  await userEvent.click(await within(hall).findByRole('button', { name: "Use the plan's spot" }));
+  await waitFor(() => expect(posted).toEqual([{ place: 'p1', camera: 'hall', use: 'spot' }]));
+  expect(await screen.findByText("hall is back on your plan's spot.")).toBeTruthy();
+  expect(await within(hall).findByText(/Placed from its spot on your plan, as you asked/)).toBeTruthy();
+  expect(within(hall).getByRole('button', { name: 'Follow it again' })).toBeTruthy();
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
-  await waitFor(() => expect(undone).toEqual([{ place: 'p1', camera: 'hall', record: 'plan-v1' }]));
+  await waitFor(() => expect(posted.at(-1)).toEqual({ place: 'p1', camera: 'hall', use: 'cloud' }));
+  expect(await within(hall).findByText(/^Following: turned 90°/)).toBeTruthy();
 });
 
 it('says so when no camera can be placed, with why for each', async () => {

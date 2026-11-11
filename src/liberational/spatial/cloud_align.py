@@ -7,6 +7,9 @@ walls of the owner's plan. Two rigid moves use that, and neither stretches or be
 **The flat surfaces** (`planes`). The big planes of a cloud, found one at a time: the plane with the most points
 within `TOL_M` of it, refitted to those points, taken out, and again, until none holds `MIN_SHARE` of the points or
 `MOST` are found. A plane counts only when its points spread over it (`MIN_SPREAD_M`): a strip gives no direction.
+The search then goes on for tall standing planes alone, down to `WALL_SHARE`: a camera hung high and looking down fills
+its picture with floor and table tops, and the one wall at its edge held 0.013 of one live cloud's points, under the
+bar for a plane, so that cloud was never squared or fitted and a pair's measurement pulled it off its wall.
 
 **Level** (`stand`). A cloud whose floor was found (spatial/camera_clouds.py `floor`) is level already: its tilt and
 roll are its floor's. One with no floor in view was taken to be upright, which a tilted camera isn't. Its walls say
@@ -16,7 +19,7 @@ floor. With no wall either, it stays as it was, and says so.
 
 **Square** (`square`). The levelled cloud's walls, where its camera's spot puts them, are compared with the plan's
 walls near the camera. *Turn:* the turn about the vertical, through the camera, that best lays the cloud's walls
-along the plan's (each wall votes with its points, each plan wall with its length), the smallest such turn when a
+along the plan's (each wall votes with its points and its length, each plan wall with its length), the smallest such turn when a
 room's right angles offer several; a turn past `TURN_DEG` from the facing the owner set is not made (a camera that
 far round was moved, which spatial/cloud_scene.py follows by its pictures). *Slide:* each cloud wall that has one
 clear counterpart on the plan (parallel, beside it, within `CLEAR_M`, and no other plan wall it could be) asks to
@@ -77,7 +80,10 @@ TOL_M = 0.03  # a point this near a plane is on it
 TRIES = 300
 SAMPLE = 20000
 MIN_SHARE = 0.03  # of the sampled points a plane must hold
+WALL_SHARE = 0.01  # and a standing plane (within `WALL_DEG` of vertical): a wall at a picture's edge holds few points
+TALL_M = 1.0  # and it must stand this tall: a console's front is low, and a few centimetres off the wall behind it
 MOST = 8  # planes looked for in one cloud
+MOST_TRIES = 20  # planes taken out of one cloud, kept or not, before the search stops
 MIN_SPREAD_M = 0.2  # a plane's points must spread at least this much (standard deviation) along both its axes
 WALL_DEG = 35.0  # a plane this near vertical, in a cloud not yet levelled, is taken for a wall: cameras tilt to 28
 UPRIGHT_DEG = 6.0  # and in a levelled one
@@ -89,6 +95,7 @@ PARALLEL_DEG = 3.0  # walls within this are parallel
 NEAR_M = 10.0  # the plan's walls this near the camera are the ones its cloud is squared to
 VOTE_DEG = 1.5  # how sharply a wall votes for a turn
 ALIGN = "align.json"
+MADE = 2  # 2: walls that hold few of a cloud's points are looked for (`WALL_SHARE`)
 
 
 @dataclass(frozen=True)
@@ -120,7 +127,10 @@ def planes(points: np.ndarray, seed: int = 0) -> list[Plane]:
         return []
     sample = points[rng.choice(len(points), min(len(points), SAMPLE), replace=False)].astype(np.float64)
     total, left, out = len(sample), sample, []
-    while len(out) < MOST and len(left) >= MIN_SHARE * total:
+    standing = math.sin(math.radians(WALL_DEG))
+    for _ in range(MOST_TRIES):
+        if len(left) < WALL_SHARE * total:
+            break
         quick = left[rng.choice(len(left), min(len(left), 4000), replace=False)]
         picks = quick[rng.integers(0, len(quick), (TRIES, 3))]
         normals = np.cross(picks[:, 1] - picks[:, 0], picks[:, 2] - picks[:, 0])
@@ -140,10 +150,13 @@ def planes(points: np.ndarray, seed: int = 0) -> list[Plane]:
                 break
             normal, offset, spread = _fit(left[on])
         on = np.abs(left @ normal - offset) < TOL_M
-        if on.sum() < MIN_SHARE * total:
+        if on.sum() < WALL_SHARE * total:
             break
         held = left[on]
-        if spread[1] >= MIN_SPREAD_M:
+        # Under the bar for a plane, or with `MOST` found, only a tall standing plane still counts.
+        only_walls = on.sum() < MIN_SHARE * total or len(out) >= MOST
+        wall = abs(float(normal[2])) < standing and float(np.ptp(held[:, 2])) >= TALL_M
+        if spread[1] >= MIN_SPREAD_M and (not only_walls or wall):
             rms = float(np.sqrt(np.mean((held @ normal - offset) ** 2)))
             out.append(
                 Plane(normal, offset, int(on.sum()), float(on.sum()) / total, held.mean(axis=0), spread, rms, held)
@@ -332,7 +345,9 @@ def square(found: Sequence[Line], x: float, y: float, bearing: float, plan: Sequ
     plan_length = np.array([math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in near])
     # A wall's direction in the scene is its direction in the cloud plus the camera's bearing; lines have no sense.
     wall_angle = np.array([math.atan2(-line.normal[1], line.normal[0]) for line in found]) + bearing
-    weight = np.array([line.weight for line in found])
+    # A wall's say grows with its points and with its length: a cupboard's front can hold more points than the wall
+    # behind it, and a metre of it says less about which way the room runs than four metres of wall.
+    weight = np.array([line.weight * (line.hi - line.lo) for line in found])
     turns = np.radians(np.arange(-45.0, 45.0 + 1e-9, 0.25))
     sigma = math.radians(VOTE_DEG)
     apart = _fold(wall_angle[None, :, None] + turns[:, None, None] - plan_angle[None, None, :], math.pi)
@@ -411,6 +426,7 @@ SAME_WALL_M = (
     0.3  # cloud planes this near the farthest one matched to a plan wall are that wall, bent; nearer ones are furniture
 )
 HOLD = 0.05  # how hard the slide is held to nothing, as a share of the walls' weight
+FRONT = 0.3  # how much a plane standing in the room, short of the plan's walls, counts against `Fit.share`
 
 
 @dataclass(frozen=True)
@@ -443,23 +459,36 @@ class Fit:
     turn_deg: float = 0.0  # the squaring turn it was fitted with
     walls: tuple[Matched, ...] = ()
     seen: int = 0  # the walls in the cloud
+    #: How well the plan explains the cloud's standing planes from where the camera is taken to be (`locate`): of
+    #: their points, the share on walls matched to the plan and left on them by the fit. A plane that is neither
+    #: (beyond a wall, or by a wall and running another way) counts in full against it; one standing in the room,
+    #: short of any wall (furniture), counts `FRONT` as much: a room has things in it, but a view of nothing else
+    #: says little.
+    share: float = 0.0
 
 
-def _first_hit(origin: np.ndarray, toward: np.ndarray, plan: Sequence[Edge]) -> int | None:
-    """The plan wall a sight line from `origin` through `toward` meets first, or None."""
+def _spans(plan: Sequence[Edge]) -> tuple[np.ndarray, np.ndarray]:
+    """The plan's walls as arrays: where each starts, and its run to its other end."""
+    ends = np.asarray(plan, dtype=np.float64).reshape(-1, 2, 2)
+    return ends[:, 0], ends[:, 1] - ends[:, 0]
+
+
+def _first_hit(
+    origin: np.ndarray, toward: np.ndarray, starts: np.ndarray, runs: np.ndarray
+) -> tuple[int, float] | None:
+    """The plan wall (`_spans`) a sight line from `origin` through `toward` meets first, and how far along the line
+    it meets it (1.0 is at `toward`), or None."""
     ray = toward - origin
-    best, which = math.inf, None
-    for index, (a, b) in enumerate(plan):
-        a0, edge = np.array(a), np.array(b) - np.array(a)
-        cross = ray[0] * edge[1] - ray[1] * edge[0]
-        if abs(cross) < 1e-12:
-            continue
-        gap = a0 - origin
-        t = (gap[0] * edge[1] - gap[1] * edge[0]) / cross  # along the ray
-        u = (gap[0] * ray[1] - gap[1] * ray[0]) / cross  # along the wall
-        if t > 1e-6 and -1e-9 <= u <= 1 + 1e-9 and t < best:
-            best, which = t, index
-    return which
+    cross = ray[0] * runs[:, 1] - ray[1] * runs[:, 0]
+    gap = starts - origin
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = (gap[:, 0] * runs[:, 1] - gap[:, 1] * runs[:, 0]) / cross  # along the ray
+        u = (gap[:, 0] * ray[1] - gap[:, 1] * ray[0]) / cross  # along the wall
+    met = (np.abs(cross) >= 1e-12) & (t > 1e-6) & (u >= -1e-9) & (u <= 1 + 1e-9)
+    if not met.any():
+        return None
+    first = int(np.argmin(np.where(met, t, np.inf)))
+    return first, float(t[first])
 
 
 def fit(
@@ -484,37 +513,46 @@ def fit(
         return Fit("no_walls")
     facing = bearing + math.radians(turn_deg)
     eye = np.array([x, y])
+    starts, runs = _spans(plan)
     rows, hit = [], []
+    fronts = 0.0  # the weight of the planes that stand in the room, short of any wall of the plan
     for line in found:
         placed = _moved(line, x, y, facing)
         normal = np.array(placed.normal)
         along = np.array([-normal[1], normal[0]])
         marks = np.linspace(placed.lo, placed.hi, RAYS + 2)[1:-1]
-        hits = [_first_hit(eye, normal * placed.offset + along * mark, plan) for mark in marks]
-        seen = [hit for hit in hits if hit is not None]
-        if not seen:
+        targets = [normal * placed.offset + along * mark for mark in marks]
+        hits = [_first_hit(eye, target, starts, runs) for target in targets]
+        # How many of its sight lines reach the plane well before any wall: a front of furniture, whichever way it
+        # runs, is in the room, and is no wall out of place.
+        short = sum(
+            got is not None and (got[1] - 1.0) * float(np.linalg.norm(target - eye)) > SAME_WALL_M
+            for target, got in zip(targets, hits, strict=True)
+        )
+        row = None
+        seen = [got[0] for got in hits if got is not None]
+        which = max(set(seen), key=seen.count) if seen else -1
+        if seen and seen.count(which) * 2 > RAYS:  # else the sight lines don't agree on a wall: an opening, a corner
+            a, b = plan[which]
+            edge = np.array(b) - np.array(a)
+            wall_normal = np.array([edge[1], -edge[0]]) / float(np.linalg.norm(edge))
+            if wall_normal @ (np.array(a) - eye) < 0:
+                wall_normal = -wall_normal
+            off = float(np.degrees(np.arccos(np.clip(wall_normal @ normal, -1.0, 1.0))))
+            # the cloud wall's distance from the camera along the plan wall's normal, at the middle of its reach
+            middle = normal * placed.offset + along * float(np.mean(marks)) - eye
+            d, g = float(middle @ wall_normal), float((np.array(a) - eye) @ wall_normal)
+            if off <= FACING_DEG and d > 0.3 and SIZE[0] <= g / d <= SIZE[1]:
+                row = (line, (a, b), wall_normal, d, g, off)
+        if row is None:
+            fronts += line.weight if short * 2 > RAYS else 0.0
             continue
-        which = max(set(seen), key=seen.count)
-        if seen.count(which) * 2 <= RAYS:
-            continue  # the sight lines don't agree on a wall: an opening, or a corner
-        a, b = plan[which]
-        edge = np.array(b) - np.array(a)
-        wall_normal = np.array([edge[1], -edge[0]]) / float(np.linalg.norm(edge))
-        if wall_normal @ (np.array(a) - eye) < 0:
-            wall_normal = -wall_normal
-        off = float(np.degrees(np.arccos(np.clip(wall_normal @ normal, -1.0, 1.0))))
-        if off > FACING_DEG:
-            continue
-        # the cloud wall's distance from the camera along the plan wall's normal, at the middle of its reach
-        middle = normal * placed.offset + along * float(np.mean(marks)) - eye
-        d, g = float(middle @ wall_normal), float((np.array(a) - eye) @ wall_normal)
-        if d <= 0.3 or not SIZE[0] <= g / d <= SIZE[1]:
-            continue
-        rows.append((line, (a, b), wall_normal, d, g, off))
+        rows.append(row)
         hit.append(which)
     # Several planes of a cloud can face one plan wall: the wall itself, in pieces where it bends, and the fronts of
     # what stands against it. The wall is the farthest; a cupboard's front is not laid on it.
     farthest = {which: max(row[3] for row, w in zip(rows, hit, strict=True) if w == which) for which in set(hit)}
+    fronts += sum(row[0].weight for row, which in zip(rows, hit, strict=True) if row[3] < farthest[which] - SAME_WALL_M)
     rows = [row for row, which in zip(rows, hit, strict=True) if row[3] >= farthest[which] - SAME_WALL_M]
     if not rows:
         return Fit("no_match", turn_deg=turn_deg, seen=len(found))
@@ -543,8 +581,11 @@ def fit(
     if height is not None and height[1] > 0 and 1 / SIZE[1] <= height[0] / height[1] <= SIZE[1]:
         up = height[0] / height[1]
     state = "fitted" if SIZE[0] <= scale <= SIZE[1] and float(np.linalg.norm(slide)) <= FIT_SLIDE_M else "beyond"
+    on = sum(row[0].weight for row in rows)
+    off_the_plan = sum(line.weight for line in found) - on - fronts
+    share = on / max(on + off_the_plan + FRONT * fronts, 1e-9)
     return Fit(state, round(scale, 4), round(up, 4), round(float(slide[0]), 3), round(float(slide[1]), 3), turn_deg,
-               matched, len(found))  # fmt: skip
+               matched, len(found), round(float(share), 3))  # fmt: skip
 
 
 FLOOR_BAND_M = 0.05  # a point this near the cloud's floor is the floor's
@@ -584,6 +625,226 @@ def flatten(own: np.ndarray, move: np.ndarray, found: Fit) -> tuple[np.ndarray, 
     return scene, kind
 
 
+# ---- finding where a camera stands
+
+MARGIN_M = 0.3  # a point this far outside every room of the plan still belongs to the room
+MIN_SCORE = 0.5  # of a cloud's walls (by their points) the plan must explain, less the share of points outside it
+RIVAL = 0.15  # another answer scoring within this of the best is as good: the view fits two places
+SAME = (0.75, 20.0)  # metres and degrees: two answers this near each other are one
+CROSS_DEG = 30.0  # walls this far from parallel pin a camera down in both directions
+TOP = 5  # the cloud's walls, by their points, that candidates are made from
+GRID = (0.2, 2.0)  # metres and degrees: candidates nearer each other than this are tried once
+SAMPLE_XY = 1500  # points of the cloud checked against the plan's rooms
+
+
+def outside(xy: np.ndarray, rooms: Sequence[Sequence[tuple[float, float]]], margin: float = MARGIN_M) -> np.ndarray:
+    """Which of the points `xy` (N x 2) lie outside every one of `rooms` by more than `margin`. With no rooms, none:
+    there is nothing to be outside of."""
+    if not len(rooms) or not len(xy):
+        return np.zeros(len(xy), dtype=bool)
+    inside = np.zeros(len(xy), dtype=bool)
+    x, y = xy[:, 0], xy[:, 1]
+    for ring in rooms:
+        corners = np.asarray(ring, dtype=np.float64)
+        within = np.zeros(len(xy), dtype=bool)
+        for (x1, y1), (x2, y2) in zip(corners, np.roll(corners, -1, axis=0), strict=True):
+            crosses = (y1 > y) != (y2 > y)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                within ^= crosses & (x < (x2 - x1) * (y - y1) / (y2 - y1) + x1)
+        inside |= within
+    out = np.flatnonzero(~inside)
+    near = np.zeros(len(out), dtype=bool)
+    for ring in rooms:  # a point just past a wall still belongs to the room
+        corners = np.asarray(ring, dtype=np.float64)
+        for a, b in zip(corners, np.roll(corners, -1, axis=0), strict=True):
+            edge = b - a
+            along = np.clip(((xy[out] - a) @ edge) / max(float(edge @ edge), 1e-12), 0.0, 1.0)
+            near |= np.linalg.norm(xy[out] - (a + along[:, None] * edge), axis=1) <= margin
+    inside[out[near]] = True
+    return ~inside
+
+
+@dataclass(frozen=True)
+class Located:
+    """Where a cloud's own walls put its camera on the plan, or why they can't say."""
+
+    #: "placed"; "no_walls" (no wall in the cloud); "no_plan" (the plan has no walls); "no_match" (its walls fit the
+    #: plan nowhere well enough); "ambiguous" (they fit two places, or two facings, about as well)
+    state: str
+    x: float = 0.0
+    y: float = 0.0
+    bearing: float = 0.0
+    #: "turned" (where it stood, facing another way) or "walls" (somewhere else, by its walls alone)
+    by: str = ""
+    score: float = 0.0  # of the answer: `Fit.share` less the share of the cloud's points outside the plan's rooms
+    rival: float = 0.0  # and of the best answer somewhere else
+    walls: int = 0  # the cloud's walls matched to the plan's
+
+
+@dataclass(frozen=True)
+class _Try:
+    score: float
+    x: float
+    y: float
+    bearing: float
+    walls: int
+    crossed: bool  # its matched walls run in two directions
+
+    def near(self, other: _Try) -> bool:
+        turn = abs((self.bearing - other.bearing + math.pi) % (2 * math.pi) - math.pi)
+        return math.hypot(self.x - other.x, self.y - other.y) <= SAME[0] and math.degrees(turn) <= SAME[1]
+
+
+def _try(
+    found: Sequence[Line],
+    x: float,
+    y: float,
+    bearing: float,
+    plan: Sequence[Edge],
+    rooms: Sequence[Sequence[tuple[float, float]]],
+    sample: np.ndarray,
+) -> _Try | None:
+    """How well the plan explains a cloud whose camera is taken to stand at x, y facing `bearing`: squared and
+    fitted from there as any cloud is, then scored. None when it can't be fitted from there."""
+    squared = square(found, x, y, bearing, plan)
+    turn = squared.turn_deg if squared.state == "squared" else 0.0
+    fitted = fit(found, x, y, bearing, plan, turn)
+    if fitted.state != "fitted" or fitted.share < MIN_SCORE:
+        return None
+    facing = bearing + math.radians(turn)
+    at = (x + fitted.dx, y + fitted.dy)
+    s, c = math.sin(facing), math.cos(facing)
+    own = sample * fitted.scale
+    placed = np.c_[own[:, 0] * c + own[:, 1] * s + at[0], -own[:, 0] * s + own[:, 1] * c + at[1]]
+    beyond = float(outside(placed, rooms).mean()) if len(placed) else 0.0
+    normals = np.array([wall.normal for wall in fitted.walls])
+    cross = np.abs(normals[:, None, 0] * normals[None, :, 1] - normals[:, None, 1] * normals[None, :, 0])
+    crossed = bool((cross > math.sin(math.radians(CROSS_DEG))).any())
+    return _Try(fitted.share - beyond, at[0], at[1], facing, len(fitted.walls), crossed)
+
+
+def _bearings(found: Sequence[Line], plan: Sequence[Edge]) -> list[float]:
+    """The facings that lay one of the cloud's walls along one of the plan's: every way round a wall can run."""
+    runs = {round(math.degrees(math.atan2(b[0] - a[0], b[1] - a[1])) % 180.0 / GRID[1]) for a, b in plan}
+    out: dict[int, float] = {}
+    for line in found:
+        wall = math.degrees(math.atan2(-line.normal[1], line.normal[0]))
+        for run in runs:
+            for flip in (0.0, 180.0):
+                bearing = (run * GRID[1] - wall + flip) % 360.0
+                out.setdefault(round(bearing / GRID[1]) % round(360.0 / GRID[1]), math.radians(bearing))
+    return list(out.values())
+
+
+def _corners(
+    found: Sequence[Line], bearing: float, plan: Sequence[Edge], rooms: Sequence[Sequence[tuple[float, float]]]
+) -> np.ndarray:
+    """Where a camera facing `bearing` could stand (N x 2): every spot inside a room that puts two of the cloud's
+    walls that cross, each at its own distance, on two walls of the plan that run their way and reach that far."""
+    starts, runs = _spans(plan)
+    lengths = np.linalg.norm(runs, axis=1)
+    along = runs / lengths[:, None]
+    placed = [_moved(line, 0.0, 0.0, bearing) for line in found]
+    out = []
+    for i, first in enumerate(placed):
+        for second in placed[i + 1 :]:
+            n1, n2 = np.array(first.normal), np.array(second.normal)
+            if abs(n1[0] * n2[1] - n1[1] * n2[0]) <= math.sin(math.radians(CROSS_DEG)):
+                continue
+            inverse = np.linalg.inv(np.stack([n1, n2]))
+            sides = []
+            for line, normal in ((first, n1), (second, n2)):
+                runs_its_way = np.flatnonzero(np.abs(along @ normal) < math.sin(math.radians(FACING_DEG)))
+                sides.append((runs_its_way, starts[runs_its_way] @ normal - line.offset))
+            (p, want1), (q, want2) = sides
+            if not len(p) or not len(q):
+                continue
+            eyes = np.stack(np.meshgrid(want1, want2, indexing="ij"), axis=-1).reshape(-1, 2) @ inverse.T
+            which = np.stack(np.meshgrid(p, q, indexing="ij"), axis=-1).reshape(-1, 2)
+            reaches = np.ones(len(eyes), dtype=bool)
+            for line, normal, wall in ((first, n1, which[:, 0]), (second, n2, which[:, 1])):
+                middle = eyes + normal * line.offset + np.array([-normal[1], normal[0]]) * (line.lo + line.hi) / 2
+                run = ((middle - starts[wall]) * along[wall]).sum(axis=1)
+                reaches &= (run > -0.5) & (run < lengths[wall] + 0.5)
+            eyes = eyes[reaches]
+            out.append(eyes[~outside(eyes, rooms, 0.0)])
+    return np.concatenate(out) if out else np.zeros((0, 2))
+
+
+def _pick(tries: Sequence[_Try], need_crossed: bool) -> tuple[_Try | None, float]:
+    """The best of `tries` that counts, and the score of the best one that isn't the same answer."""
+    counted = [t for t in tries if t.score >= MIN_SCORE and (t.crossed or not need_crossed)]
+    if not counted:
+        return None, 0.0
+    best = max(counted, key=lambda t: t.score)
+    return best, max((t.score for t in counted if not t.near(best)), default=0.0)
+
+
+def locate(
+    found: Sequence[Line],
+    plan: Sequence[Edge],
+    rooms: Sequence[Sequence[tuple[float, float]]],
+    points: np.ndarray,
+    near: tuple[float, float] | None = None,
+    anywhere: bool = True,
+) -> Located:
+    """Where on the plan a levelled cloud's camera stands, by the cloud alone: `found` are its walls (its own frame,
+    the camera at the origin), `points` the cloud (N x 3), `plan` and `rooms` the plan's walls and rooms. There is no
+    limit to how far it may have turned or gone.
+
+    Every facing that lays a wall of the cloud along a wall of the plan is tried, at two kinds of place: where the
+    camera stood (`near`: a camera that was re-aimed), and, with `anywhere`, wherever two crossing walls of the
+    cloud land on two walls of the plan at their distances (one that was carried). Each try is squared and fitted as
+    any cloud is (`square`, `fit`) and scored: the share of the cloud's walls, by their points, that the plan's
+    walls account for from there (`Fit.share`), less the share of the cloud's points that would lie outside every
+    room.
+
+    **The test of confidence.** An answer counts when it is fitted and scores `MIN_SCORE`; one found anywhere must
+    also hold walls in two directions (`CROSS_DEG`), since one wall says how far the camera is from it and nothing
+    about where along it. The camera is taken to have stayed where it stood when an answer there scores within
+    `RIVAL` of the best anywhere: a camera that still fits its place was turned, not carried. And the answer must
+    stand alone: when another, more than `SAME` away, scores within `RIVAL` of it, the view fits two places (a
+    corner like other corners, one wall like other walls), and it is "ambiguous": nothing is placed."""
+    if not found:
+        return Located("no_walls")
+    if not plan:
+        return Located("no_plan")
+    rng = np.random.default_rng(0)
+    xy = np.asarray(points, dtype=np.float64)[:, :2]
+    sample = xy[rng.choice(len(xy), min(len(xy), SAMPLE_XY), replace=False)] if len(xy) else xy
+    top = sorted(found, key=lambda line: -line.weight)[:TOP]
+    bearings = _bearings(top, plan)
+    here: list[_Try] = []
+    if near is not None:
+        here = [t for b in bearings if (t := _try(found, near[0], near[1], b, plan, rooms, sample)) is not None]
+    there: list[_Try] = []
+    if anywhere:
+        seen: set[tuple[int, int, int]] = set()
+        for bearing in bearings:
+            for x, y in _corners(top, bearing, plan, rooms):
+                key = (round(x / GRID[0]), round(y / GRID[0]), round(math.degrees(bearing) / GRID[1]))
+                if key in seen:
+                    continue
+                seen.add(key)
+                tried = _try(found, float(x), float(y), bearing, plan, rooms, sample)
+                if tried is not None:
+                    there.append(tried)
+    stayed, _ = _pick(here, False)
+    carried, _ = _pick(there, True)
+    if stayed is not None and (carried is None or stayed.score >= carried.score - RIVAL):
+        best, rival = _pick(here, False)
+        by = "turned"
+    elif carried is not None:
+        best, rival = _pick([*there, *(t for t in here if t.crossed)], True)
+        by = "walls"
+    else:
+        return Located("no_match")
+    assert best is not None
+    told = {"x": best.x, "y": best.y, "bearing": best.bearing, "by": by, "score": round(best.score, 3),
+            "rival": round(rival, 3), "walls": best.walls}  # fmt: skip
+    return Located("ambiguous" if rival >= best.score - RIVAL else "placed", **told)
+
+
 # ---- what is kept
 
 
@@ -596,10 +857,12 @@ class Align:
     basis: str  # the spot it was squared from (spatial/cloud_scene.py `SpotAt.basis`)
     plan: str  # and the plan's walls (`plan_key`)
     fit: Fit | None = None  # None in a record kept before clouds were fitted: it is made again
+    made: int = 0  # which search for walls made it (`MADE`): one made by an earlier search is made again
 
     def holds(self, cloud: str, basis: str, plan: str) -> bool:
-        """Whether it is still of this cloud, spot, and plan."""
-        return self.fit is not None and (self.cloud, self.basis, self.plan) == (cloud, basis, plan)
+        """Whether it is still of this cloud, pose, and plan, and made the way one is made now."""
+        same = (self.cloud, self.basis, self.plan, self.made) == (cloud, basis, plan, MADE)
+        return self.fit is not None and same
 
 
 def plan_key(rooms: Sequence[Sequence[tuple[float, float]]]) -> str:
@@ -615,15 +878,16 @@ def make(
     basis: str,
     rooms: Sequence[Sequence[tuple[float, float]]],
     height: tuple[float, float] | None = None,
+    found: Sequence[Line] | None = None,
 ) -> Align:
     """A levelled cloud's `Align`: `points` (its own frame, its camera on the z axis looking along +y) squared to the
-    plan's `rooms` and fitted to them, for a camera the owner put at `at` (x, y, and bearing in the scene). `height`
-    is `fit`'s."""
-    found = lines(planes(points))
+    plan's `rooms` and fitted to them, for a camera taken to stand at `at` (x, y, and bearing in the scene). `height`
+    is `fit`'s; `found` are the cloud's walls, looked for here when not given."""
+    found = lines(planes(points)) if found is None else found
     walls = edges_of(rooms)
     squared = square(found, at[0], at[1], at[2], walls)
     turn = squared.turn_deg if squared.state == "squared" else 0.0
-    return Align(cloud, squared, basis, plan_key(rooms), fit(found, at[0], at[1], at[2], walls, turn, height))
+    return Align(cloud, squared, basis, plan_key(rooms), fit(found, at[0], at[1], at[2], walls, turn, height), MADE)
 
 
 def fit_of(raw: Mapping[str, Any]) -> Fit:
@@ -651,6 +915,7 @@ def fit_of(raw: Mapping[str, Any]) -> Fit:
         float(raw["turn_deg"]),
         walls,
         int(raw["seen"]),
+        float(raw.get("share", 0.0)),
     )
 
 
@@ -666,6 +931,7 @@ def kept(folder: Path) -> Align | None:
         return None
     try:
         fitted = None if raw.get("fit") is None else fit_of(raw["fit"])
-        return Align(str(raw["cloud"]), Square(**raw["square"]), str(raw["basis"]), str(raw["plan"]), fitted)
+        made = int(raw.get("made", 0))
+        return Align(str(raw["cloud"]), Square(**raw["square"]), str(raw["basis"]), str(raw["plan"]), fitted, made)
     except KeyError, TypeError, ValueError:
         return None

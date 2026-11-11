@@ -1,38 +1,38 @@
 // The cameras of a scene of all cameras' clouds (#445), under the 3D view: a row a camera, made to be scanned. A box
 // that shows or hides its points, its colour (its outline in the scene, and its points' tint when coloured by camera),
-// its name, its state in a word (Placed, Adjusted, Moved, Not placed, No spot), and at the right what can be done:
-// look from it, move its spot to where its pictures put it, or set its spot in the plan editor. The sentence behind
-// the word, how its cloud was levelled and squared to the plan, what its pair's pictures said, when its picture was
-// taken, and how many of its points are left out open under the row on demand.
-// Moving a spot changes the owner's plan, so it asks first and says how to take it back.
+// its name, its state in a word (Placed, Adjusted, Following, Not placed, No spot), and at the right what can be done:
+// look from it, or set its spot in the plan editor. The sentence behind the word, how its cloud was levelled and
+// squared to the plan, what its pair's pictures said, when its picture was taken, and how many of its points are left
+// out open under the row on demand.
+// A camera that was turned or carried is placed again by itself (#509): nothing is asked. Its detail says what was
+// done and offers the one way back, to the plan's spot, which changes nothing of the owner's plan and can be undone.
 import { ActionIcon, Badge, Button, Checkbox, Collapse, ColorSwatch, Group, Stack, Text } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { messageOf } from '../../../shared/http';
-import { confirm } from '../../lib/confirm';
 import { Toast } from '../../lib/Toast';
 import { viewName } from '../../review/views';
-import { acceptSpot, type ScenePair, type ScenePlaced, undoSpot } from '../api';
+import { followCamera, type ScenePair, type ScenePlaced } from '../api';
 import { tintCss } from './layers';
 import {
   APPROXIMATE,
   bendLine,
   fitLine,
   levelLine,
-  moveSpotQuestion,
   pairLine,
   pictureLine,
   placedLine,
   placedState,
   SCENE_LIMITS,
   squareLine,
+  wayBack,
 } from './status';
 
-/** A spot that was moved, and the plan version to put back to undo it. */
-interface Moved {
+/** A way back that was taken: the camera, and which way it went. */
+interface Went {
   camera: string;
-  previous: string | null;
+  use: 'spot' | 'cloud';
 }
 
 export function SceneLayers({
@@ -63,33 +63,22 @@ export function SceneLayers({
 }) {
   const client = useQueryClient();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
-  const [moved, setMoved] = useState<Moved | null>(null);
+  const [went, setWent] = useState<Went | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
-  const refresh = () => client.invalidateQueries({ queryKey: ['places'] });
-  const accept = useMutation({
-    mutationFn: (camera: string) => acceptSpot(place, camera),
-    onSuccess: (reply, camera) => {
-      setMoved({ camera, previous: reply.previous });
-      return refresh();
+  const back = useMutation({
+    mutationFn: (to: Went) => followCamera(place, to.camera, to.use),
+    onSuccess: (_, to) => {
+      setFailed(null);
+      setWent(to);
+      return client.invalidateQueries({ queryKey: ['places'] });
     },
-    onError: error => setFailed(`Couldn't move the spot: ${messageOf(error)}`),
-  });
-  const undo = useMutation({
-    mutationFn: (was: Moved) => undoSpot(place, was.camera, was.previous ?? ''),
-    onSuccess: () => {
-      setMoved(null);
-      return refresh();
-    },
-    onError: error => {
-      setMoved(null);
-      setFailed(`Couldn't put the spot back: ${messageOf(error)}`);
+    onError: (error, to) => {
+      setWent(null);
+      setFailed(
+        `Couldn't ${to.use === 'spot' ? "put it back on the plan's spot" : 'follow it again'}: ${messageOf(error)}`,
+      );
     },
   });
-  const moveSpot = async (camera: ScenePlaced) => {
-    const asked = moveSpotQuestion(camera, viewName(camera.camera));
-    if (await confirm({ ...asked, confirm: 'Move its spot', id: `move-spot-${camera.camera}` }))
-      accept.mutate(camera.camera);
-  };
   const toggle = (camera: string) =>
     setOpen(was => {
       const next = new Set(was);
@@ -106,6 +95,7 @@ export function SceneLayers({
           const name = viewName(camera.camera);
           const state = placedState(camera.how);
           const shown = open.has(camera.camera);
+          const way = wayBack(camera);
           const lines = [
             camera.fit ? fitLine(camera.fit) : null,
             squareLine(camera),
@@ -140,17 +130,7 @@ export function SceneLayers({
                 >
                   {state.label}
                 </Badge>
-                {camera.suggest ? (
-                  <Button
-                    size="compact-xs"
-                    variant="light"
-                    flex="0 0 auto"
-                    loading={accept.isPending && accept.variables === camera.camera}
-                    onClick={() => void moveSpot(camera)}
-                  >
-                    Move its spot
-                  </Button>
-                ) : !camera.placed && onEditPlan ? (
+                {!camera.placed && camera.how !== 'lost' && onEditPlan ? (
                   <Button size="compact-xs" variant="subtle" flex="0 0 auto" onClick={onEditPlan}>
                     Set its spot
                   </Button>
@@ -198,6 +178,17 @@ export function SceneLayers({
                         : ''}
                     </Text>
                   )}
+                  {way && (
+                    <Button
+                      size="compact-xs"
+                      variant="subtle"
+                      w="fit-content"
+                      loading={back.isPending && back.variables?.camera === camera.camera}
+                      onClick={() => back.mutate({ camera: camera.camera, use: way.use })}
+                    >
+                      {way.label}
+                    </Button>
+                  )}
                   {camera.placed && (
                     <Button
                       size="compact-xs"
@@ -216,17 +207,28 @@ export function SceneLayers({
         })}
       </Stack>
       <Toast
-        text={moved ? `Moved ${viewName(moved.camera)}'s spot on your plan.` : failed}
-        error={!moved && !!failed}
+        text={
+          went
+            ? went.use === 'spot'
+              ? `${viewName(went.camera)} is back on your plan's spot.`
+              : `${viewName(went.camera)} is followed again.`
+            : failed
+        }
+        error={!went && !!failed}
         action={
-          moved?.previous ? (
-            <Button size="compact-xs" variant="subtle" disabled={undo.isPending} onClick={() => undo.mutate(moved)}>
+          went?.use === 'spot' ? (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              disabled={back.isPending}
+              onClick={() => back.mutate({ camera: went.camera, use: 'cloud' })}
+            >
               Undo
             </Button>
           ) : undefined
         }
         onClose={() => {
-          setMoved(null);
+          setWent(null);
           setFailed(null);
         }}
       />

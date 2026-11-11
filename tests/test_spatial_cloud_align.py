@@ -79,6 +79,24 @@ def test_a_rooms_floor_and_walls_are_found_as_planes_the_largest_first():
     assert all(p.rms < 0.01 for p in found)
 
 
+def test_a_wall_at_the_edge_of_a_view_that_is_mostly_floor_is_still_found_and_fitted():
+    # A camera hung high and looking down: floor and a table top fill its picture, and the far wall holds 1.5
+    # percent of the points, under the bar for a plane. A shelf as small as the wall is not a wall.
+    rng = np.random.default_rng(4)
+    table = np.c_[1.0 + rng.random(2000) * 2.0, 1.5 + rng.random(2000) * 1.5, np.full(2000, 0.7)]
+    shelf = np.c_[0.2 + rng.random(130), 3.0 + rng.random(130), np.full(130, 1.2)]
+    room = np.concatenate([floor(), table, shelf, wall(ROOM[3], ROOM[2], n=130, seed=1)])
+    found = align.planes(seen_from(room, at(2.0, 1.0, 0.0)))
+    small = [plane for plane in found if plane.share < align.MIN_SHARE]
+    assert [abs(float(plane.normal[2])) < 0.1 for plane in small] == [True]  # the wall, and not the shelf
+    walls = align.lines(found)
+    assert [round(line.distance, 1) for line in walls] == [4.0]
+    got = align.fit(walls, 2.0, 1.2, 0.0, align.edges_of((ROOM,)))  # its spot is 20 cm nearer the wall than it is
+    assert (got.state, len(got.walls)) == ("fitted", 1)
+    assert got.walls[0].before_m == pytest.approx(0.2, abs=0.02)
+    assert got.walls[0].after_m == pytest.approx(0.0, abs=0.02)
+
+
 def test_a_strip_of_points_is_not_a_plane():
     strip = wall((0.0, 3.0), (4.0, 3.0), tall=0.2)
     assert align.planes(strip) == []
@@ -334,6 +352,20 @@ def test_a_record_kept_before_clouds_were_fitted_no_longer_holds_so_it_is_made_a
     kept = align.kept(tmp_path)
     assert kept is not None and kept.fit is None
     assert not kept.holds("cloud-1", "spot-1", align.plan_key((ROOM,)))
+
+
+def test_a_record_made_by_an_earlier_search_for_walls_no_longer_holds_so_it_is_made_again(tmp_path):
+    import json
+
+    own = seen_from(np.concatenate([floor(), far_corner()]), at(1.0, 1.0, 20.0))
+    align.keep(tmp_path, align.make("cloud-1", own, (1.0, 1.0, math.radians(23.0)), "spot-1", (ROOM,)))
+    kept = align.kept(tmp_path)
+    assert kept is not None and kept.holds("cloud-1", "spot-1", align.plan_key((ROOM,)))
+    record = json.loads((tmp_path / align.ALIGN).read_text())
+    del record["made"]  # as one kept before small walls were looked for
+    (tmp_path / align.ALIGN).write_text(json.dumps(record))
+    older = align.kept(tmp_path)
+    assert older is not None and not older.holds("cloud-1", "spot-1", align.plan_key((ROOM,)))
 
 
 def test_a_record_that_doesnt_read_is_no_squaring(tmp_path):

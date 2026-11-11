@@ -1,6 +1,6 @@
 """A place's scene of its cameras' clouds (spatial/cloud_scene.py): placed from their spots, tightened where two
-cameras' pictures match, and following a camera that moved. The model never runs: a match is made up from where
-the two cameras really stand."""
+cameras' pictures match, and following a camera that was turned or carried. The model never runs: a match is made
+up from where the two cameras really stand, and a cloud from what a camera standing in made-up rooms would see."""
 
 import math
 
@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from liberational.spatial import camera_clouds as clouds
+from liberational.spatial import cloud_align, ply
 from liberational.spatial import cloud_scene as scenes
-from liberational.spatial import ply
 from liberational.spatial import pointmap_runner as runner
 
 T = 1_762_500_000.0
@@ -135,12 +135,6 @@ def test_the_scenes_points_are_each_clouds_own_moved_to_its_place_and_marked_wit
     assert rows["view"].tolist() == [0, 1, 1]  # hall's point, then porch's two: nothing is merged
 
 
-@pytest.mark.parametrize("mirrored", [False, True])
-@pytest.mark.parametrize(("x", "y", "yaw"), [(0.0, 0.0, 0.0), (3.2, -1.5, 90.0), (-2.0, 4.0, 247.5), (1.0, 1.0, 359.0)])
-def test_a_spot_read_into_the_scene_reads_back_as_the_same_spot(mirrored, x, y, yaw):
-    assert scenes.plan_spot(scenes.scene_at(x, y, yaw, mirrored), mirrored) == pytest.approx((x, y, yaw), abs=1e-9)
-
-
 def test_a_page_drawn_spot_facing_up_the_page_looks_along_the_scenes_y_and_east_is_to_its_right():
     north = scenes.scene_at(2.0, 3.0, 0.0, mirrored=False)  # a page is x east, y south
     assert (north.x, north.y) == (2.0, -3.0)
@@ -215,14 +209,17 @@ def test_a_squaring_is_dropped_when_the_spot_the_plan_or_the_cloud_is_another(st
     assert placed(scenes.scene(store, PLACE, spots, (HOUSE,)), "hall").squared
 
 
-def test_walls_that_line_up_only_past_the_bound_leave_the_camera_at_its_spot_and_say_so(store):
-    spots = {"hall": spot("hall", at(1.0, 1.0, 45.0))}
-    keep(store, "hall", points=corner_seen_from(at(1.0, 1.0, 20.0)))
+def test_a_spot_set_facing_the_wrong_way_is_turned_to_where_its_walls_fit_however_far(store):
+    truth = at(1.0, 1.0, 20.0)
+    spots = {"hall": spot("hall", at(1.0, 1.0, 85.0))}  # 65 degrees out: far past what a squaring turns
+    keep(store, "hall", points=corner_seen_from(truth))
     scenes.align(store, "hall", spots, rooms_of_the_plan)
     found = scenes.scene(store, PLACE, spots, (HOUSE,))
     hall = placed(found, "hall")
-    assert (hall.squared, (hall.square or {})["state"]) == (False, "beyond")
-    assert xyb(stands(found, "hall")) == pytest.approx(xyb(at(1.0, 1.0, 45.0)))
+    assert (hall.how, hall.squared, (hall.follow or {})["by"]) == ("following", True, "turned")
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
+    assert hall.turn_deg == pytest.approx(65.0, abs=0.5)
+    assert spots["hall"].at == at(1.0, 1.0, 85.0)  # the spot itself is the owner's: it stays
 
 
 def test_a_camera_with_no_spot_has_nothing_to_be_squared_from(store):
@@ -464,24 +461,69 @@ def test_with_no_measurement_the_solved_positions_are_the_spots():
     assert scenes.solve(spots, []) == spots
 
 
-# ---- 3. a camera that moved
+# ---- 3. a camera that was turned or carried is followed
+
+#: Two made-up rooms that share a wall: a hall 4 m by 5 m, and beside it a den shaped like an L.
+HALL = ((0.0, 0.0), (4.0, 0.0), (4.0, 5.0), (0.0, 5.0))
+DEN = ((4.0, 0.0), (10.0, 0.0), (10.0, 3.5), (7.0, 3.5), (7.0, 6.0), (4.0, 6.0))
+ROOMS = (HALL, DEN)
 
 
-def anchored(store, spots, camera="hall") -> None:
+def view_from(truth: scenes.At, fov: float = 100.0, walls: bool = True) -> np.ndarray:
+    """What a camera really standing at `truth` in ROOMS sees, as its own levelled cloud: along each sight line
+    across its field of view, the floor as far as the first wall, and that wall up to 2.4 m (or, without `walls`,
+    the floor alone)."""
+    rng = np.random.default_rng(3)
+    ends = np.array([[ring[i], ring[(i + 1) % len(ring)]] for ring in ROOMS for i in range(len(ring))])
+    starts, runs = ends[:, 0], ends[:, 1] - ends[:, 0]
+    eye = np.array([truth.x, truth.y])
+    out = []
+    for angle in truth.bearing + np.radians(np.linspace(-fov / 2, fov / 2, 500)):
+        ray = np.array([math.sin(angle), math.cos(angle)])
+        cross = ray[0] * runs[:, 1] - ray[1] * runs[:, 0]
+        gap = starts - eye
+        with np.errstate(divide="ignore", invalid="ignore"):
+            along_ray = (gap[:, 0] * runs[:, 1] - gap[:, 1] * runs[:, 0]) / cross
+            along_wall = (gap[:, 0] * ray[1] - gap[:, 1] * ray[0]) / cross
+        met = (np.abs(cross) > 1e-12) & (along_ray > 1e-6) & (along_wall >= 0) & (along_wall <= 1)
+        far = float(along_ray[met].min())
+        out.append(np.c_[eye + ray * (rng.random(6)[:, None] * far), np.zeros(6)])
+        if walls:
+            out.append(np.c_[np.tile(eye + ray * far, (8, 1)), rng.random(8) * 2.4])
+    move = scenes._transform(truth)
+    return (np.concatenate(out) - move[:3, 3]) @ move[:3, :3]
+
+
+def two_rooms(place: str, mirrored: bool):
+    return ROOMS
+
+
+def anchored(store, spots, camera="hall", points=None) -> None:
     """`camera` gets its first cloud at its spot: that picture is its anchor."""
-    scenes.record(store, keep(store, camera), {}, spots)
+    scenes.record(store, keep(store, camera, points=points), {}, spots)
 
 
-def test_a_moved_camera_that_registers_against_its_old_picture_follows_and_a_new_spot_is_suggested(store):
+def looks_elsewhere(store, spots, camera: str, truth: scenes.At | None, n: int = 2, **view) -> clouds.Cloud:
+    """`camera`'s `n`th cloud, of what it sees from `truth` (nothing to speak of, with None): its picture shares
+    nothing with the one it was placed with, or with another camera's."""
+    points = np.array([[0.0, 9.0, 0.0]]) if truth is None else view_from(truth, **view)
+    cloud = keep(store, camera, n=n, points=points)
+    scenes.record(store, cloud, {"anchor": APART, **{other: APART for other in spots if other != camera}}, spots)
+    return cloud
+
+
+def test_a_camera_that_registers_against_its_old_picture_is_placed_by_what_the_pictures_measured(store):
     spots = {"hall": spot("hall", at(3.0, 2.0, 90.0))}
     anchored(store, spots)
     now = at(3.0, 2.0, 90.0).step(0.4, 0.1, math.radians(35.0))  # turned 35 degrees on its mount
     scenes.record(store, keep(store, "hall", n=2), {"anchor": seen(now, at(3.0, 2.0, 90.0))}, spots)
+    assert placed(scenes.scene(store, PLACE, spots), "hall").how == "lost"  # until it is placed again, it isn't drawn
+    assert scenes.align(store, "hall", spots, two_rooms)
     found = scenes.scene(store, PLACE, spots)
     hall = placed(found, "hall")
-    assert hall.how == "moved" and xyb(stands(found, "hall")) == pytest.approx(xyb(now))
+    assert hall.how == "following" and xyb(stands(found, "hall")) == pytest.approx(xyb(now))
     assert (hall.shift_m, hall.turn_deg) == pytest.approx((math.hypot(0.4, 0.1), 35.0), abs=0.05)
-    assert hall.suggest == pytest.approx(scenes.plan_spot(now, False))
+    assert hall.follow == {"by": "pictures", "since": T + 2, "lost": "", "pinned": False}
     assert spots["hall"].at == at(3.0, 2.0, 90.0)  # the spot itself is the owner's: it stays
 
 
@@ -491,46 +533,168 @@ def test_a_camera_whose_new_picture_matches_its_old_one_closely_hasnt_moved(stor
     nudged = at(3.0, 2.0, 90.0).step(0.05, 0.02, math.radians(1.5))
     scenes.record(store, keep(store, "hall", n=2), {"anchor": seen(nudged, at(3.0, 2.0, 90.0))}, spots)
     hall = placed(scenes.scene(store, PLACE, spots), "hall")
-    assert (hall.how, hall.suggest, hall.shift_m) == ("spot", None, 0.0)
+    assert (hall.how, hall.follow, hall.shift_m) == ("spot", None, 0.0)
 
 
-def test_a_moved_camera_that_only_registers_against_another_camera_is_placed_from_that_one(store):
+def test_a_camera_that_only_registers_against_another_camera_is_placed_from_that_one(store):
     spots = {"hall": spot("hall", at(0.0, 0.0, 0.0)), "porch": spot("porch", at(2.0, 2.5, -80.0))}
     anchored(store, spots, "hall")
     anchored(store, spots, "porch")
     now = at(1.0, 4.0, 170.0)  # the porch camera was carried across the room: its old picture shows other space
-    moved = keep(store, "porch", n=2)
-    scenes.record(store, moved, {"anchor": APART, "hall": seen(where(spots["hall"]), now)}, spots)
+    carried = keep(store, "porch", n=2)
+    scenes.record(store, carried, {"anchor": APART, "hall": seen(where(spots["hall"]), now)}, spots)
+    scenes.align(store, "porch", spots, two_rooms)
     found = scenes.scene(store, PLACE, spots)
     porch = placed(found, "porch")
-    assert (porch.how, porch.against) == ("moved_against", ("hall",))
+    assert (porch.how, (porch.follow or {})["by"]) == ("following", "pictures")
     assert xyb(stands(found, "porch")) == pytest.approx(xyb(now), abs=1e-6)
-    assert porch.suggest == pytest.approx(scenes.plan_spot(now, False), abs=1e-6)
     assert placed(found, "hall").how == "spot"  # the camera that stayed isn't moved by it
 
 
-def test_a_moved_camera_that_registers_with_nothing_leaves_the_scene(store):
-    spots = {"hall": spot("hall", at(0.0, 0.0, 0.0)), "porch": spot("porch", at(2.0, 2.5, -80.0))}
-    anchored(store, spots, "hall")
-    anchored(store, spots, "porch")
-    scenes.record(
-        store, keep(store, "porch", n=2, points=np.array([[0.0, 9.0, 0.0]])), {"anchor": APART, "hall": APART}, spots
-    )
-    found = scenes.scene(store, PLACE, spots)
-    porch = placed(found, "porch")
-    assert (porch.how, porch.placed, porch.transform, porch.suggest) == ("moved_unplaced", False, None, None)
+def test_a_camera_turned_ninety_degrees_is_placed_again_by_its_walls_without_being_asked(store, tmp_path):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    scenes.align(store, "hall", spots, two_rooms)
+    truth = at(1.0, 1.0, 110.0)
+    looks_elsewhere(store, spots, "hall", truth)
+    assert scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    hall = placed(found, "hall")
+    assert (hall.how, hall.fitted, (hall.follow or {})["by"]) == ("following", True, "turned")
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
+    assert (hall.shift_m, hall.turn_deg) == (pytest.approx(0.0, abs=0.03), pytest.approx(90.0, abs=0.5))
+    # the wall it now faces is drawn on the plan's wall between the two rooms
     rows = drawn(store, found)
-    assert set(rows["view"].tolist()) == {0}  # none of its points are drawn at its old spot, or anywhere
-    assert store.current("porch") is not None  # its own cloud is still its own
+    ahead = rows[(rows["z"] > 0.3) & (rows["y"] > 0.3)]
+    assert ahead["x"] == pytest.approx(4.0, abs=0.03)
+    # nothing but the camera's own folder was written: the owner's spots and plan are as they were
+    assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]
+    assert spots["hall"].at == at(1.0, 1.0, 20.0)
 
 
-def test_setting_the_moved_cameras_spot_again_places_it_from_the_new_spot(store):
-    spots = {"hall": spot("hall", at(0.0, 0.0, 0.0))}
-    anchored(store, spots)
-    scenes.record(store, keep(store, "hall", n=2), {"anchor": APART}, spots)
-    assert placed(scenes.scene(store, PLACE, spots), "hall").how == "moved_unplaced"
+def test_a_cupboard_that_fills_the_new_view_doesnt_keep_a_turned_camera_from_being_placed(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    truth = at(1.0, 1.0, 110.0)
+    # a cupboard 60 cm out from the wall it now faces, askew to it, holding more points than the walls do
+    rng = np.random.default_rng(5)
+    run = np.array([math.sin(math.radians(13.0)), math.cos(math.radians(13.0))])
+    front = np.c_[np.array([3.4, 0.9]) + (rng.random(6000)[:, None] - 0.5) * run, rng.random(6000) * 1.6]
+    move = scenes._transform(truth)
+    cloud = np.concatenate([view_from(truth), (front - move[:3, 3]) @ move[:3, :3]])
+    scenes.record(store, keep(store, "hall", n=2, points=cloud), {"anchor": APART}, spots)
+    scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    assert placed(found, "hall").how == "following"
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.05)
+
+
+def test_a_camera_carried_to_another_room_is_placed_on_that_rooms_walls(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    truth = at(5.5, 1.5, 40.0)  # in the den, looking at the corner that makes it an L
+    looks_elsewhere(store, spots, "hall", truth)
+    scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    hall = placed(found, "hall")
+    assert (hall.how, (hall.follow or {})["by"]) == ("following", "walls")
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
+    assert hall.shift_m == pytest.approx(math.hypot(4.5, 0.5), abs=0.03)
+    assert not drawn(store, found)["outside"].any()  # every point of its cloud lies in the plan's rooms
+
+
+def test_two_cameras_moved_at_once_are_each_placed_again_and_neither_is_taken_to_be_fixed(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0)), "porch": spot("porch", at(8.0, 1.0, -30.0))}
+    anchored(store, spots, "hall", view_from(at(1.0, 1.0, 20.0)))
+    anchored(store, spots, "porch", view_from(at(8.0, 1.0, -30.0)))
+    truth = {"hall": at(5.0, 5.0, 150.0), "porch": at(8.0, 1.0, 60.0)}  # one carried into the den, one turned there
+    looks_elsewhere(store, spots, "hall", truth["hall"])
+    looks_elsewhere(store, spots, "porch", truth["porch"])
+    scenes.align(store, "hall", spots, two_rooms)
+    scenes.align(store, "porch", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    assert [(p.camera, p.how) for p in found.cameras] == [("hall", "following"), ("porch", "following")]
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth["hall"]), abs=0.03)
+    assert xyb(stands(found, "porch")) == pytest.approx(xyb(truth["porch"]), abs=0.03)
+
+
+@pytest.mark.parametrize(
+    ("truth", "view", "why"),
+    [
+        pytest.param(None, {}, "no_walls", id="nothing-to-go-by"),
+        pytest.param(at(2.0, 2.5, 0.0), {"walls": False}, "no_walls", id="floor-alone"),
+        # from the middle of the hall, its end wall and both sides look the same facing either end
+        pytest.param(at(2.0, 2.5, 0.0), {}, "ambiguous", id="a-view-that-fits-two-ways"),
+    ],
+)
+def test_a_view_that_cant_be_placed_with_confidence_is_not_drawn_keeps_its_last_pose_and_says_why(
+    store, truth, view, why
+):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0)), "porch": spot("porch", at(8.0, 1.0, -30.0))}
+    anchored(store, spots, "hall", view_from(at(1.0, 1.0, 20.0)))
+    anchored(store, spots, "porch")
+    stood = at(1.0, 1.0, 110.0)
+    looks_elsewhere(store, spots, "hall", stood)
+    scenes.align(store, "hall", spots, two_rooms)  # followed once: that is its last good pose
+    looks_elsewhere(store, spots, "hall", truth, n=3, **view)
+    scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    hall = placed(found, "hall")
+    assert (hall.how, hall.placed, hall.transform, (hall.follow or {})["lost"]) == ("lost", False, None, why)
+    assert set(drawn(store, found)["view"].tolist()) == {1}  # none of its points are drawn, anywhere
+    kept = scenes.following(store, "hall", spots["hall"].basis)
+    assert kept is not None and kept.at == pytest.approx(xyb(stood), abs=0.03)
+    assert store.current("hall") is not None  # its own cloud is still its own
+
+
+def test_a_lost_camera_whose_old_view_comes_back_stands_where_it_last_did(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    looks_elsewhere(store, spots, "hall", None)
+    scenes.align(store, "hall", spots, two_rooms)
+    assert placed(scenes.scene(store, PLACE, spots, ROOMS), "hall").how == "lost"
+    back = keep(store, "hall", n=3, points=view_from(at(1.0, 1.0, 20.0)))
+    scenes.record(store, back, {"anchor": seen(at(1.0, 1.0, 20.0), at(1.0, 1.0, 20.0))}, spots)
+    scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    assert placed(found, "hall").how == "spot" and xyb(stands(found, "hall")) == pytest.approx(
+        (1.0, 1.0, math.radians(20.0)), abs=0.03
+    )
+
+
+def test_the_way_back_puts_a_followed_camera_on_the_plans_spot_until_its_view_next_changes(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    looks_elsewhere(store, spots, "hall", at(5.5, 1.5, 40.0))
+    scenes.align(store, "hall", spots, two_rooms)
+    assert placed(scenes.scene(store, PLACE, spots, ROOMS), "hall").how == "following"
+
+    assert scenes.use_spot(store, "hall", spots["hall"].basis)
+    scenes.align(store, "hall", spots, two_rooms)
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    hall = placed(found, "hall")
+    assert (hall.how, hall.shift_m, (hall.follow or {})["pinned"]) == ("spot", 0.0, True)
+    assert xyb(stands(found, "hall")) == pytest.approx(xyb(at(1.0, 1.0, 20.0)))  # as the plan has it, not re-turned
+
+    assert scenes.follow_again(store, "hall", spots["hall"].basis)  # and the way back can itself be taken back
+    scenes.align(store, "hall", spots, two_rooms)
+    again = scenes.scene(store, PLACE, spots, ROOMS)
+    assert placed(again, "hall").how == "following"
+    assert xyb(stands(again, "hall")) == pytest.approx(xyb(at(5.5, 1.5, 40.0)), abs=0.03)
+    assert not scenes.follow_again(store, "hall", spots["hall"].basis)  # nothing to take back twice
+
+    scenes.use_spot(store, "hall", spots["hall"].basis)
+    looks_elsewhere(store, spots, "hall", at(1.0, 1.0, 110.0), n=3)  # its view changes again: it is followed again
+    scenes.align(store, "hall", spots, two_rooms)
+    assert placed(scenes.scene(store, PLACE, spots, ROOMS), "hall").how == "following"
+
+
+def test_setting_a_followed_cameras_spot_again_places_it_from_the_new_spot(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, points=view_from(at(1.0, 1.0, 20.0)))
+    looks_elsewhere(store, spots, "hall", at(5.5, 1.5, 40.0))
+    scenes.align(store, "hall", spots, two_rooms)
     reset = {"hall": spot("hall", at(5.0, 1.0, 45.0), basis="set again")}
-    scenes.accept(store, "hall", reset["hall"].basis)
     hall = scenes.scene(store, PLACE, reset)
     assert placed(hall, "hall").how == "spot" and xyb(stands(hall, "hall")) == pytest.approx(xyb(at(5.0, 1.0, 45.0)))
 
@@ -559,8 +723,8 @@ ROOM = [((0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0))]
 
 def test_points_well_outside_every_room_of_the_plan_are_marked_and_those_just_past_a_wall_are_not():
     xy = np.array([[2.0, 1.5], [4.2, 1.5], [4.6, 1.5], [-0.2, -0.2], [2.0, 9.0]])
-    assert scenes.outside(xy, ROOM).tolist() == [False, False, True, False, True]
-    assert not scenes.outside(xy, []).any()  # with no plan there is nothing to be outside of
+    assert cloud_align.outside(xy, ROOM).tolist() == [False, False, True, False, True]
+    assert not cloud_align.outside(xy, []).any()  # with no plan there is nothing to be outside of
 
 
 def test_the_scenes_points_say_which_lie_outside_the_plan_without_dropping_them(store):
