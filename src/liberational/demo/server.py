@@ -389,13 +389,20 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
             if not 0 < length <= 8192:
                 return self._json({"error": "Invalid question size"}, 400)
             body = json.loads(self.rfile.read(length))
+            if body.get("deep") is True:
+                # Deep research goes the real way (memory/ask.py): queued for the Inbox where research can run, else
+                # refused with why. The demo runs no research worker, so a queued report stays waiting.
+                from liberational.memory import ask
+
+                try:
+                    return ask._deep_http(self, body, ask.validate_day(body.get("day")))
+                except ValueError as exc:
+                    return self._json({"error": str(exc)}, 400)
             question = str(body.get("question", ""))
             now, key = clock(), uuid.uuid4().hex
             job = {
                 "id": key,
                 "poll_url": f"/pack-ask/jobs/{key}",
-                "mode": "local",
-                "scope": "history",
                 "question": question,
                 "created_at": now,
                 "started_at": now,

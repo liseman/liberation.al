@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import pytest
@@ -147,6 +147,11 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
             result = json.loads(read(job["poll_url"]))
             assert result["status"] == "completed"
             assert "pasta" in result["result"]["answer"]
+            # Deep research takes the real way: the demo has no Ask server of its own, so it says research can't run
+            with pytest.raises(HTTPError) as refused:
+                read("/pack-ask/jobs", {"question": "What changed in the garden?", "deep": True})
+            assert refused.value.code == 409
+            assert json.loads(read("/research/jobs"))["jobs"] == []
             pets = json.loads(read("/pets"))
             photo = pets["pets"][0]["photo"]
             assert Image.open(io.BytesIO(read(f"/pets/sightings/photo?track={photo}"))).size == (800, 800)
