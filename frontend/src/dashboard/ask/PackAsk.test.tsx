@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
 import { server } from '../../test/server';
 import { openAsk, useAsk } from './openAsk';
-import { deepWords, PackAsk, thin } from './PackAsk';
+import { DEEP_HELP, PackAsk, readyWords, thin } from './PackAsk';
 import {
   alertText,
   buttons,
@@ -37,7 +37,7 @@ const deep = () => screen.getByRole('switch', { name: /^Deep research/ });
 const evidenceCards = () => screen.queryAllByRole('article').filter(a => !a.querySelector('header'));
 
 /** Wait for the server to acknowledge the question just sent. */
-const queued = () => waitFor(() => expect(status()).toHaveTextContent(/ · (queued|running)$/));
+const queued = () => waitFor(() => expect(status()).toHaveTextContent(/^Looking through your recordings/));
 
 /** Type a question and submit it with Enter. */
 async function ask(text: string) {
@@ -95,7 +95,7 @@ describe('one Ask: a quick answer by default', () => {
     await user.keyboard('{Enter}');
     await wait(0);
     expect(net.posts).toHaveLength(1);
-    await waitFor(() => expect(status()).toHaveTextContent('Ask · queued'));
+    await queued();
     expect(saved(KEY)).toEqual({
       active: {
         id: 'j1',
@@ -186,9 +186,8 @@ describe('one Ask: a quick answer by default', () => {
     await wait(1000);
     expect(await screen.findByText('Dana came by at noon.')).toBeInTheDocument();
     expect(screen.queryByLabelText('Answer so far')).not.toBeInTheDocument();
-    expect(status()).toHaveTextContent(/^Ask · completed · /);
-    expect(status().querySelector('time')).toHaveAttribute('datetime', '2023-11-14T22:15:00.000Z');
-    expect(screen.queryByRole('button', { name: 'Research it in depth' })).not.toBeInTheDocument();
+    expect(status()).toHaveTextContent(/^$/); // no machine status once the answer is there
+    expect(screen.queryByRole('button', { name: 'Try Deep research' })).not.toBeInTheDocument();
   });
 
   it("reports a failed job's structured error", async () => {
@@ -199,7 +198,7 @@ describe('one Ask: a quick answer by default', () => {
     await queued();
     await wait(1000);
     await waitFor(() => expect(alertText()).toBe('Structured job failure'));
-    expect(status()).toHaveTextContent(/^Ask · failed$/);
+    expect(status()).toHaveTextContent(/^$/);
   });
 
   it('says so when a completed job has no result', async () => {
@@ -220,7 +219,7 @@ describe('one Ask: a quick answer by default', () => {
     await queued();
     await wait(1000);
     await waitFor(() => expect(alertText()).toMatch(/server restart or expired/));
-    expect(status()).toHaveTextContent(/^Ask · interrupted or expired$/);
+    expect(status()).toHaveTextContent(/^$/);
     expect(question()).toHaveValue('Preserve this question');
     expect(buttons().every(b => !(b as HTMLButtonElement).disabled)).toBe(true);
     await wait(10_000);
@@ -237,7 +236,7 @@ describe('one Ask: a quick answer by default', () => {
         'Could not confirm submission (HTTP 500). The server may have accepted it. No automatic resubmit; retrying may create another job.',
       ),
     );
-    expect(status()).toHaveTextContent('Ask · submission not confirmed');
+    expect(status()).toHaveTextContent(/^$/);
     expect(buttons().every(b => !(b as HTMLButtonElement).disabled)).toBe(true);
   });
 
@@ -410,7 +409,7 @@ describe('a hint from the page that opened Ask', () => {
         draft: 'And when',
       }),
     );
-    expect(await screen.findByText('Who came by this week?')).toBeInTheDocument();
+    expect(await screen.findByText('Following up: Who came by this week?')).toBeInTheDocument();
     expect(question()).toHaveValue('And when');
     expect(deep()).toBeDisabled();
     expect(deep()).toHaveAccessibleDescription('A follow-up on a report gets a quick answer.');
@@ -420,7 +419,7 @@ describe('a hint from the page that opened Ask', () => {
       expect(net.posts).toEqual([{ question: 'And when?', day: '2026-11-05', followup: { report: 'r1' } }]),
     );
     await user.click(screen.getByRole('button', { name: 'Stop following up on this report' }));
-    expect(screen.queryByText('Who came by this week?')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Who came by this week\?/)).not.toBeInTheDocument();
   });
 
   it('starts again from no hint when the top bar opens it off Review, keeping the draft', async () => {
@@ -454,17 +453,15 @@ describe('Deep research', () => {
     return posts;
   }
 
-  it('says what it looks through when switched on, and sends the question to research, not the quick path', async () => {
+  it('says in one line what it does, and sends the question to research, not the quick path', async () => {
     researchServer();
     const posts = deepServer();
     renderAsk();
     act(() => openAsk({ hint: DAY }));
+    // The same line on or off, so the box doesn't jump when it flips
+    await waitFor(() => expect(deep()).toHaveAccessibleDescription(DEEP_HELP));
     await user.click(deep());
-    await waitFor(() =>
-      expect(deep()).toHaveAccessibleDescription(
-        'Up to 8 search rounds over up to 30 minutes (a quick answer: 3 rounds in 80 s), answered by big-model. The report lands in the Inbox. Research here usually takes about 10 minutes.',
-      ),
-    );
+    expect(deep()).toHaveAccessibleDescription(DEEP_HELP);
     expect(screen.getByRole('button', { name: 'Research' })).toBeInTheDocument();
     await ask('What changed in the garden?');
     await waitFor(() =>
@@ -473,13 +470,12 @@ describe('Deep research', () => {
     const sent = await screen.findByText('Research started');
     const note = sent.closest('[data-ask-sent]') as HTMLElement;
     expect(note).toHaveTextContent(
-      '“What changed in the garden?” is being looked into in the background. The report will be in the Inbox in about 10 minutes.',
+      '“What changed in the garden?” is being looked into. The report will be in the Inbox. Usually ready in about 10 minutes.',
     );
     expect(within(note).getByRole('link', { name: 'Inbox' })).toHaveAttribute('href', '/inbox');
     // Not sticky: the next question is quick unless switched on again; the box is empty for it
     expect(deep()).not.toBeChecked();
     expect(question()).toHaveValue('');
-    expect(screen.queryByText(/^Ask · /)).not.toBeInTheDocument();
   });
 
   it('opens switched on from the Inbox, for that question only', async () => {
@@ -520,6 +516,7 @@ describe('no quick answer: research offered', () => {
         answer: 'No matching safe, timestamped evidence in the available history.',
         status: 'ok',
         evidence: [],
+        found: false,
       },
     });
     renderAsk();
@@ -529,40 +526,43 @@ describe('no quick answer: research offered', () => {
     const offer = (await screen.findByText('Nothing in your recordings answered this quickly.')).closest(
       '[data-ask-offer]',
     ) as HTMLElement;
+    // Only the line and the offer: not the same words again as an answer, and no rating
+    expect(screen.queryByRole('heading', { name: 'Answer' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Mark this answer' })).not.toBeInTheDocument();
     await user.clear(question());
     await user.type(question(), 'something else'); // the offer researches the question answered, not a new draft
-    await user.click(within(offer).getByRole('button', { name: 'Research it in depth' }));
+    await user.click(within(offer).getByRole('button', { name: 'Try Deep research' }));
     await waitFor(() => expect(net.posts.at(-1)).toEqual({ question: 'When did Rex last go out?', deep: true }));
     expect(await screen.findByText('Research started')).toBeInTheDocument();
     expect(question()).toHaveValue('something else');
   });
 
   it.each([
-    [{ status: 'error', answer: 'x', evidence: [{ id: 1 }] }, "Ask couldn't answer this quickly."],
-    [{ status: 'ok', answer: 'x', evidence: [] }, 'Nothing in your recordings answered this quickly.'],
     [
-      { status: 'partial', answer: 'x', evidence: [{ id: 1 }] },
-      'This quick answer rests on only part of the evidence.',
+      { status: 'error', answer: 'x', evidence: [{ id: 1 }] },
+      { kind: 'none', why: "Ask couldn't answer this quickly." },
     ],
-    [{ status: 'ok', answer: 'x', evidence: [{ id: 1 }] }, null],
+    [
+      { status: 'ok', answer: 'x', evidence: [], found: false },
+      { kind: 'none', why: 'Nothing in your recordings answered this quickly.' },
+    ],
+    [
+      { status: 'partial', answer: 'x', evidence: [{ id: 1 }], found: true },
+      { kind: 'thin', why: 'This quick answer rests on only part of the evidence.' },
+    ],
+    [{ status: 'ok', answer: 'x', evidence: [{ id: 1 }], found: true }, null],
+    // A recorded count is an answer without an evidence list
+    [{ status: 'ok', answer: 'The lights went off twice.', evidence: [], found: true }, null],
     [{ status: 'ok', answer: 'Forgotten.', is_history: false }, null],
-  ])('thin(%o) is %s', (result, why) => {
-    expect(thin(result)).toBe(why);
+  ])('thin(%o) is %o', (result, expected) => {
+    expect(thin(result)).toEqual(expected);
   });
 });
 
-it('words deep research from what the server says, without a typical time before any report', () => {
-  const reach = (rounds: number, search_s: number, model: string) => ({
-    deep: true,
-    rounds,
-    search_s,
-    sources: [],
-    model,
-    day: null,
-  });
-  expect(deepWords(reach(1, 90, 'ollama/m'), undefined, null)).toBe(
-    'Up to 1 search round over up to 2 minutes, answered by m. The report lands in the Inbox.',
-  );
+it('says when research is usually ready: the typical time here, else within half an hour', () => {
+  expect(readyWords(600)).toBe('Usually ready in about 10 minutes.');
+  expect(readyWords(50)).toBe('Usually ready in about 1 minute.');
+  expect(readyWords(null)).toBe('Usually ready within half an hour.');
 });
 
 describe('restoring a saved job', () => {
@@ -572,7 +572,7 @@ describe('restoring a saved job', () => {
     const net = jobServer();
     store(KEY, { active, question: 'Q draft' });
     renderAsk();
-    expect(status()).toHaveTextContent('Ask · recovering job g1');
+    expect(status()).toHaveTextContent(/^Looking through your recordings/);
     expect(question()).toHaveValue('Q draft');
     expect(buttons().every(b => (b as HTMLButtonElement).disabled)).toBe(true);
     net.replies.push({ status: 'completed', result: { answer: 'Recovered answer.', evidence: [{ id: 1 }] } });

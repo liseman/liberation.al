@@ -6,17 +6,29 @@
 //
 // Deep research is off again after each question it sends: it takes minutes of the GPU, so a question is quick unless
 // the person asks for more that time. The Mantine conventions have nothing on it either way; the Inbox's "Research a
-// question" switches it on for the one question that follows.
-import { Anchor, Button, CloseButton, Paper, Switch, Text, Textarea, UnstyledButton } from '@mantine/core';
+// question" switches it on for the one question that follows. Its limits (rounds, time, model) are settings, not words
+// here: the toggle says one plain line, the same on or off, so the box doesn't jump when it flips.
+import {
+  Anchor,
+  Badge,
+  Button,
+  CloseButton,
+  Group,
+  Paper,
+  Switch,
+  Text,
+  Textarea,
+  UnstyledButton,
+} from '@mantine/core';
+import { IconCircleCheck } from '@tabler/icons-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { type KeyboardEvent, useEffect, useId, useMemo, useState } from 'react';
 import { messageOf } from '../../shared/http';
-import { type Reach, researchQuery, startResearch } from '../inbox/api';
+import { researchQuery, startResearch } from '../inbox/api';
 import { PageError } from '../lib/page';
 import { href, linkClick, useRoute } from '../router';
 import classes from './ask.module.css';
-import { Stamp } from './bits';
-import { isRec, list } from './format';
+import { isRec } from './format';
 import { History } from './History';
 import { useAskJob } from './job';
 import { MarkAnswer } from './MarkAnswer';
@@ -38,24 +50,27 @@ export const STARTERS = ['What was I doing this afternoon?', 'Who came by today?
 const markable = (r: unknown): boolean =>
   isRec(r) && typeof r.answer === 'string' && (r.status === 'ok' || r.status === 'partial') && r.is_history !== false;
 
-/** Why a quick answer falls short, in plain words, or null when it stands: Ask then offers deep research. */
-export function thin(result: unknown): string | null {
+/** How a quick answer falls short, or null when it stands: Ask then offers deep research. `none` is no answer at
+ *  all (an error, or the server's `found` false: nothing in the recordings), which shows only the offer; `thin` keeps
+ *  the answer above it. A recorded count is an answer even without an evidence list, so `found` decides, not the list. */
+export function thin(result: unknown): { kind: 'none' | 'thin'; why: string } | null {
   if (!isRec(result) || result.is_history === false) return null;
-  if (result.status === 'error') return "Ask couldn't answer this quickly.";
-  if (!list(result.evidence).length) return 'Nothing in your recordings answered this quickly.';
-  if (result.status === 'partial') return 'This quick answer rests on only part of the evidence.';
+  if (result.status === 'error') return { kind: 'none', why: "Ask couldn't answer this quickly." };
+  if (result.found === false) return { kind: 'none', why: 'Nothing in your recordings answered this quickly.' };
+  if (result.status === 'partial')
+    return { kind: 'thin', why: 'This quick answer rests on only part of the evidence.' };
   return null;
 }
 
-const minutes = (s: number) => Math.max(1, Math.round(s / 60));
+export const DEEP_HELP = 'Takes longer and looks deeper. The report arrives in the Inbox.';
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** What deep research does beyond the quick answer, from what the server says each path looks through. */
-export function deepWords(deep: Reach, quick: Reach | undefined, typical: number | null | undefined): string {
-  const model = deep.model ? `, answered by ${deep.model.replace(/^ollama\//, '')}` : '';
-  const vs = quick ? ` (a quick answer: ${plural(quick.rounds, 'round')} in ${Math.round(quick.search_s)} s)` : '';
-  const usual = typical ? ` Research here usually takes about ${plural(minutes(typical), 'minute')}.` : '';
-  return `Up to ${plural(deep.rounds, 'search round')} over up to ${plural(minutes(deep.search_s), 'minute')}${vs}${model}. The report lands in the Inbox.${usual}`;
+/** When research is usually ready: the median of this machine's recent reports, else the usual half hour. */
+export function readyWords(typical: number | null | undefined): string {
+  return typical
+    ? `Usually ready in about ${plural(Math.max(1, Math.round(typical / 60)), 'minute')}.`
+    : 'Usually ready within half an hour.';
 }
 
 /** The moments an answer cites, as time chips that play from there (Ask opened on Review's day). */
@@ -80,21 +95,28 @@ function Moments({ result, onSeek }: { result: unknown; onSeek: (t: number) => v
   );
 }
 
-/** The hint over the box, closed with its x. */
+/** The hint over the box, as a chip with its own remove cross. */
 function HintChip({ hint, onClose }: { hint: AskHint; onClose: () => void }) {
-  const [lead, text, close] =
+  const [text, close] =
     hint.kind === 'report'
-      ? ['Following up on: ', hint.question, 'Stop following up on this report']
-      : ['About ', hint.label, `Stop asking about ${hint.label}`];
+      ? [`Following up: ${hint.question}`, 'Stop following up on this report']
+      : [hint.label, `Stop asking about ${hint.label}`];
   return (
     <div className={classes.context} data-ask-hint={hint.kind}>
-      <Text span size="sm" className={classes.contextText}>
-        <Text span size="sm" c="dimmed">
-          {lead}
-        </Text>
+      {/* Mantine's Pill hides its remove button from the keyboard (it is meant for a pills input, removed with
+          Backspace), so this is a Badge with a labelled CloseButton inside it. */}
+      <Badge
+        size="lg"
+        variant="light"
+        color="gray"
+        tt="none"
+        fw={500}
+        className={classes.hint}
+        title={text}
+        rightSection={<CloseButton size="xs" aria-label={close} onClick={onClose} />}
+      >
         {text}
-      </Text>
-      <CloseButton size="sm" aria-label={close} onClick={onClose} />
+      </Badge>
     </div>
   );
 }
@@ -145,7 +167,6 @@ export function PackAsk() {
 
   const day = hint?.day;
   const reason = research.data && !research.data.available ? research.data.reason : null;
-  const reach = research.data?.reach;
   const followup = hint?.kind === 'report';
 
   const sendDeep = async (question: string, asDay: string | undefined) => {
@@ -204,16 +225,7 @@ export function PackAsk() {
         checked={deep}
         onChange={e => setDeep(e.currentTarget.checked)}
         disabled={busy || !!reason || followup}
-        description={
-          reason ??
-          (followup
-            ? 'A follow-up on a report gets a quick answer.'
-            : deep && reach
-              ? deepWords(reach.deep, reach.quick, research.data?.typical_s)
-              : deep
-                ? 'Looked into slowly, with more searching and a bigger model. The report lands in the Inbox.'
-                : null)
-        }
+        description={reason ?? (followup ? 'A follow-up on a report gets a quick answer.' : DEEP_HELP)}
         classNames={{ description: classes.deepHelp }}
       />
       <Button
@@ -239,6 +251,7 @@ export function PackAsk() {
           ref={ask.input}
           rows={2}
           resize="none"
+          enterKeyHint="send"
           label="Your question"
           inputContainer={box => (
             <>
@@ -267,34 +280,29 @@ export function PackAsk() {
           onKeyDown={onKeyDown}
           classNames={{ input: classes.input, label: classes.quietLabel, description: classes.scopeHelp }}
         />
+        {/* Progress while an answer is coming, in plain words; nothing at rest or once it's there */}
         <p className={classes.status} role="status" aria-live="polite">
-          {ask.status.text}
-          {!!ask.status.finished && (
-            <>
-              {' · '}
-              <Stamp value={ask.status.finished} />
-            </>
-          )}
+          {ask.busy ? `Looking through your recordings${ask.elapsed ? ` · ${ask.elapsed}` : ''}` : ''}
         </p>
-        <Text component="span" className={`${classes.muted} ${classes.elapsed}`}>
-          {ask.elapsed}
-        </Text>
         {ask.error && <PageError title={ask.error}>{null}</PageError>}
         {deepError && <PageError title={deepError}>{null}</PageError>}
         <div className={classes.output}>
           {sent && (
-            <Paper className={classes.sent} role="status" data-ask-sent>
-              <Text size="sm" fw={600}>
-                Research started
-              </Text>
+            <div className={classes.sent} role="status" data-ask-sent>
+              <Group gap={6} wrap="nowrap">
+                <IconCircleCheck size={18} color="var(--lib-ok)" aria-hidden />
+                <Text size="sm" fw={600}>
+                  Research started
+                </Text>
+              </Group>
               <Text size="sm">
-                “{sent.question}” is being looked into in the background. The report will be in the{' '}
+                “{sent.question}” is being looked into. The report will be in the{' '}
                 <Anchor href={href('/inbox')} onClick={linkClick} inherit>
                   Inbox
-                </Anchor>{' '}
-                {sent.typical ? `in about ${plural(minutes(sent.typical), 'minute')}` : 'when it is ready'}.
+                </Anchor>
+                . {readyWords(sent.typical)}
               </Text>
-            </Paper>
+            </div>
           )}
           {starters && nothingYet && (
             <ul className={classes.suggest} aria-label="Suggested questions">
@@ -314,14 +322,14 @@ export function PackAsk() {
           )}
           {short && answered && (
             <Paper className={classes.offer} data-ask-offer>
-              <Text size="sm">{short}</Text>
+              <Text size="sm">{short.why}</Text>
               <Button
                 size="xs"
                 variant="default"
                 disabled={!!reason || sending}
                 onClick={() => void sendDeep(answered.question, answered.day)}
               >
-                Research it in depth
+                Try Deep research
               </Button>
               {reason && (
                 <Text size="xs" c="dimmed">
@@ -330,10 +338,15 @@ export function PackAsk() {
               )}
             </Paper>
           )}
-          <Result result={ask.result} history />
-          {seek && !ask.busy && <Moments result={ask.result} onSeek={seek} />}
-          {!ask.busy && ask.asked && markable(ask.result) && (
-            <MarkAnswer key={ask.asked.at} result={ask.result} asked={ask.asked} />
+          {/* No answer at all: only the line and the offer above, not the same words again or a rating */}
+          {short?.kind !== 'none' && (
+            <>
+              <Result result={ask.result} history />
+              {seek && !ask.busy && <Moments result={ask.result} onSeek={seek} />}
+              {!ask.busy && ask.asked && markable(ask.result) && (
+                <MarkAnswer key={ask.asked.at} result={ask.result} asked={ask.asked} />
+              )}
+            </>
           )}
           <History refresh={!ask.busy ? ask.result : null} onSeek={seek ?? undefined} />
         </div>

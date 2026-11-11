@@ -72,11 +72,6 @@
 .status:empty {
   display: none;
 }
-/* Keep the controls in place when a pending job's timer appears. */
-.elapsed {
-  display: block;
-  min-height: 1.6em;
-}
 .error {
   color: var(--lib-bad);
 }
@@ -339,8 +334,17 @@
   margin-left: auto;
 }
 
-/* Research sent, and the offer under a quick answer that fell short: a quiet box on the Ask's surface. */
-.sent,
+/* Research sent (a result, on the ok tint), and the offer under a quick answer that fell short (a quiet box). */
+.sent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--mantine-radius-md);
+  background: var(--lib-ok-tint);
+}
 .offer {
   display: flex;
   flex-direction: column;
@@ -349,6 +353,10 @@
   margin-top: 8px;
   padding: 10px 12px;
   background: var(--lib-bg2);
+}
+.sent p,
+.offer p {
+  margin: 0;
 }
 
 /* The answer as the model writes it: plain text until the finished result, with its citations, replaces it. */
@@ -379,20 +387,15 @@
   background: var(--lib-bg2);
 }
 
-/* The hint a question starts from (openAsk: a report to follow up on, or Review's day): one plain line over the box, on the Ask's own surface
-   (no band of its own), closed with its x. */
+/* The hint a question starts from (openAsk: a report to follow up on, or Review's day): a chip over the box, left
+   aligned, with its remove cross inside it. */
 .context {
   display: flex;
-  align-items: center;
-  gap: 6px;
   margin-bottom: 6px;
 }
-.contextText {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.hint {
+  max-width: 100%;
+  padding-right: 4px;
 }
 
 /* The question box: the one field set into the Ask's surface, on the page's colour. */

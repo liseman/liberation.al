@@ -44,6 +44,13 @@ const when = (ts: number) => momentWords(ts); // "Today, 13:31", in the app's 24
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** The list's count: finished reports, and the questions still waiting for one ("2 reports · 1 waiting"). */
+export function count(jobs: readonly Pick<Job, 'status'>[]): string {
+  const waiting = jobs.filter(j => j.status === 'queued' || j.status === 'running').length;
+  const done = jobs.length - waiting;
+  return [done && plural(done, 'report'), waiting && `${waiting} waiting`].filter(Boolean).join(' · ');
+}
+
 /** What a search was for, from its arguments: the words, the day, the camera. */
 function searchText(args: Record<string, unknown> | null): string {
   if (!args) return '';
@@ -202,16 +209,19 @@ function ReportView({
           {job.took_s !== undefined && ` · took ${took(job.took_s)}`}
         </Text>
         <Group gap="xs">
-          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere */}
-          <Button
-            size="xs"
-            variant="default"
-            component="a"
-            href={reviewURL({ day: job.day ?? isoDay(new Date(job.created_at * 1000)) })}
-            onClick={linkClick}
-          >
-            Open in Review
-          </Button>
+          {/* The day it's about, else the day it was asked: a report with no day of its own still opens somewhere.
+              Not before the research has started: there's nothing of it to look at yet. */}
+          {job.status !== 'queued' && (
+            <Button
+              size="xs"
+              variant="default"
+              component="a"
+              href={reviewURL({ day: job.day ?? isoDay(new Date(job.created_at * 1000)) })}
+              onClick={linkClick}
+            >
+              Open in Review
+            </Button>
+          )}
           {finished && (
             // The same question, researched now: "the last 30 minutes" is about a moment that has passed
             <Button
@@ -342,7 +352,7 @@ export function InboxTab() {
         q.isPending ? (
           <CountSkeleton chars={10} label="Loading how many reports" />
         ) : jobs.length ? (
-          plural(jobs.length, 'report')
+          count(jobs)
         ) : undefined
       }
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
@@ -391,6 +401,8 @@ export function InboxTab() {
                             <Badge
                               size="xs"
                               variant="light"
+                              tt="none"
+                              fw={500}
                               color={j.status === 'failed' ? 'red' : partial ? 'yellow' : undefined}
                               // Mantine's yellow label read at 2.7:1 on its tint; the app's amber text reads at 4.7:1
                               c={partial ? 'var(--lib-warn-text)' : undefined}

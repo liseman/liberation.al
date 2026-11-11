@@ -103,6 +103,29 @@ export function AskPanel({
     return () => window.removeEventListener('resize', resize);
   }, [opened, place]);
 
+  // A phone's on-screen keyboard covers the bottom of the layout viewport without resizing it (iOS), so the sheet
+  // follows the visual viewport: it sits on the keyboard's top edge and fits the space left, so the question box and
+  // its Ask button stay in view while typing.
+  const [keyboard, setKeyboard] = useState<{ bottom: number; height: number } | null>(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!opened || !sheet || !vv) {
+      setKeyboard(null);
+      return;
+    }
+    const follow = () => {
+      const bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboard(bottom > 0 ? { bottom, height: vv.height } : null);
+    };
+    follow();
+    vv.addEventListener('resize', follow);
+    vv.addEventListener('scroll', follow);
+    return () => {
+      vv.removeEventListener('resize', follow);
+      vv.removeEventListener('scroll', follow);
+    };
+  }, [opened, sheet]);
+
   const moveTo = (spot: Spot, save: boolean) => {
     const next = fitWindow(spot, viewport(), headerBottom());
     setBox(next);
@@ -170,7 +193,10 @@ export function AskPanel({
   }, [opened]);
 
   const style = sheet
-    ? { display: opened ? 'flex' : 'none' }
+    ? {
+        display: opened ? 'flex' : 'none',
+        ...(keyboard ? { bottom: keyboard.bottom, maxHeight: Math.round(keyboard.height * 0.9) } : {}),
+      }
     : // Its height is a cap, not a size: the window fits what's in it (no blank half-window under
       // the question box), and scrolls inside once an answer runs past it.
       { display: opened ? 'flex' : 'none', left: box.left, top: box.top, width: box.width, maxHeight: box.height };

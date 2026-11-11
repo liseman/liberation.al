@@ -722,7 +722,25 @@ def test_a_recorded_answer_needs_no_model(tmp_path):
     collect.assert_called_once_with(
         "how many times did the lights go off", state_dir=tmp_path, now=None, day="2026-10-20"
     )
-    assert (result["answer"], result["status"]) == (answer, "partial")
+    assert (result["answer"], result["status"], result["found"]) == (answer, "partial", True)
+
+
+@pytest.mark.parametrize(
+    "found, model_evidence, expected",
+    [
+        pytest.param(h.NO_EVIDENCE, None, False, id="recorded-nothing"),
+        pytest.param(None, [], False, id="model-with-no-evidence"),
+        pytest.param(None, [{"id": "T1", "text": "Dana booked the venue."}], True, id="model-with-evidence"),
+    ],
+)
+def test_found_says_whether_the_recordings_held_anything(found, model_evidence, expected):
+    collected = {"is_history": True, "answer": found, "evidence": model_evidence or [], "query": {}}
+    with (
+        cfg.override({"recall": {"enabled": False}}),
+        patch.object(h, "collect", autospec=True, return_value=collected),
+        patch.object(p, "local_answer", autospec=True, return_value=("Nothing about that.", "ollama/test")),
+    ):
+        assert p.execute("What was said yesterday?")["found"] is expected
 
 
 def test_evidence_context_keeps_what_fits_and_says_so():

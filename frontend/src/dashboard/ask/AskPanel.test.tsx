@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
@@ -115,4 +115,28 @@ it('is a bottom sheet on a phone, with nothing to drag', () => {
   const dialog = screen.getByRole('dialog', { name: 'Ask' });
   expect(dialog).toHaveAttribute('data-ask-sheet', 'true');
   expect(screen.queryByRole('button', { name: /Move Ask/ })).not.toBeInTheDocument();
+});
+
+it('rides above a phone keyboard, fitting the space it leaves, and drops back when it goes', () => {
+  screenSize(390, 844);
+  const listeners: Record<string, () => void> = {};
+  const vv = {
+    height: 844,
+    offsetTop: 0,
+    addEventListener: (type: string, fn: () => void) => {
+      listeners[type] = fn;
+    },
+    removeEventListener: () => {},
+  };
+  vi.stubGlobal('visualViewport', vv);
+  renderPage(<Window />);
+  const dialog = screen.getByRole('dialog', { name: 'Ask' });
+  expect(dialog.style.bottom).toBe('');
+  vv.height = 500; // the keyboard takes the bottom 344 px
+  act(() => listeners.resize?.());
+  expect(dialog).toHaveStyle({ bottom: '344px', maxHeight: '450px' });
+  vv.height = 844;
+  act(() => listeners.resize?.());
+  expect(dialog.style.bottom).toBe('');
+  vi.unstubAllGlobals();
 });

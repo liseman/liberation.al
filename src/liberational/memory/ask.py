@@ -715,7 +715,11 @@ def execute(
     if recall_rounds and deterministic == history_qa.NO_EVIDENCE:
         deterministic = None  # the rounds can still search the journal and other ranges
     if deterministic and not followup:
-        result.update(answer=deterministic, model="local-history-evidence")
+        # `found`: whether the recordings held anything for it, so Ask can offer deep research instead of an answer
+        # that says it found nothing. A recorded count is found even with no evidence list.
+        result.update(
+            answer=deterministic, model="local-history-evidence", found=deterministic != history_qa.NO_EVIDENCE
+        )
         return result
     context, truncated = evidence_context(history, evidence_budget())
     if recall_rounds:
@@ -765,7 +769,7 @@ def execute(
             if now is None
             else local_answer(question, context, now=now, **extra)
         )
-        result.update(answer=answer, model=model)
+        result.update(answer=answer, model=model, found=bool(result["evidence"]))
     except Exception as exc:
         result.update(
             status="error",

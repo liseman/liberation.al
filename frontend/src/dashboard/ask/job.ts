@@ -106,7 +106,7 @@ export function useAskJob() {
 
   useEffect(() => {
     const update = () =>
-      setElapsed(started.current ? `${Math.max(0, Math.floor((Date.now() - started.current) / 1000))}s elapsed` : '');
+      setElapsed(started.current ? `${Math.max(0, Math.floor((Date.now() - started.current) / 1000))} s` : '');
     update();
     if (!busy) return;
     const tick = setInterval(update, 1000);

@@ -8,7 +8,7 @@ import { AskBar } from '../AskBar';
 import { useAsk } from '../ask/openAsk';
 import type { Job } from './api';
 import { InboxLabel } from './InboxLabel';
-import { InboxTab } from './InboxTab';
+import { count, InboxTab } from './InboxTab';
 
 const T = 1_793_000_000;
 const done: Job = {
@@ -67,6 +67,25 @@ it('lists reports newest first, with the unread one marked new', async () => {
     await screen.findByRole('button', { name: /What did Dana say about the garden\?.*Done, unread/ }),
   ).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Who came by\?.*Waiting/ })).toBeInTheDocument();
+  // Reports apart from the questions still waiting for one
+  expect(screen.getByText('1 report · 1 waiting')).toBeInTheDocument();
+});
+
+it.each([
+  [[], ''],
+  [[{ status: 'done' }, { status: 'failed' }], '2 reports'],
+  [[{ status: 'queued' }, { status: 'running' }], '2 waiting'],
+  [[{ status: 'done' }, { status: 'queued' }], '1 report · 1 waiting'],
+] as const)('counts %o as %o', (jobs, words) => {
+  expect(count(jobs)).toBe(words);
+});
+
+it('opens a waiting report without a way into Review, since nothing of it exists yet', async () => {
+  server.use(http.get(`/research/jobs/${waiting.id}`, () => HttpResponse.json(waiting)));
+  renderPage(<InboxTab />);
+  await userEvent.click(await screen.findByRole('button', { name: /Who came by\?.*Waiting/ }));
+  expect(await screen.findByText('Waiting for the research before it to finish.')).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Open in Review' })).not.toBeInTheDocument();
 });
 
 it('opens a report: its answer, the time it took, what it looked at, and marks it read', async () => {
@@ -300,7 +319,7 @@ it('Research a question opens the one Ask here with Deep research on, and the pe
   );
   await waitFor(() => expect(sent).toEqual([{ question: 'What changed in the garden?', deep: true }]));
   const note = (await within(ask).findByText('Research started')).closest('[data-ask-sent]');
-  expect(note).toHaveTextContent('The report will be in the Inbox in about 5 minutes.');
+  expect(note).toHaveTextContent('The report will be in the Inbox. Usually ready in about 5 minutes.');
   // The pending report is in the list at once, and the page never moved
   expect(await screen.findByRole('button', { name: /^What changed in the garden\?.*Waiting/ })).toBeInTheDocument();
   expect(location.pathname).toBe('/inbox');
