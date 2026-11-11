@@ -127,10 +127,24 @@ def _owner_pause_detail(paused: Mapping[str, tuple[Sequence[str], int]]) -> str:
     return " ".join(lines)
 
 
+# The names the window last said were still starting. A service waiting out its backoff reports "activating" for
+# the whole wait (supervisor.BACKOFF_MAX_S), and the window asks every REFRESH_MS, so an unchanged set is said once.
+_said_starting: tuple[str, ...] = ()
+
+
 def _log_still_starting(daemons: Mapping[str, Mapping[str, Any]]) -> None:
-    waiting = sorted(name for name, s in daemons.items() if s.get("state") == "activating")
+    """Say which services are waiting out a restart when that set changes; per-item detail otherwise."""
+    global _said_starting
+    waiting = tuple(sorted(name for name, s in daemons.items() if s.get("state") == "activating"))
+    if waiting == _said_starting:
+        if waiting:
+            LOG.debug(f"services still starting: {', '.join(waiting)}")
+        return
+    _said_starting = waiting
     if waiting:
         LOG.info(f"services still starting: {', '.join(waiting)}")
+    else:
+        LOG.debug("no service is starting any more")
 
 
 def summary(
