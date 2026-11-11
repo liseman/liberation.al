@@ -299,6 +299,7 @@ describe("Pets in People's form", () => {
         automatic_percent: 90,
         references: 120,
         stranded: 30,
+        no_photo: 4,
       },
     };
     serve();
@@ -307,6 +308,9 @@ describe("Pets in People's form", () => {
     const card = await screen.findByRole('article', { name: 'Card of Mia' });
     expect(within(card).getByText(/90% correctly named automatically in 20 held-out sightings/)).toHaveTextContent(
       '30 earlier taught sightings have no usable reference',
+    );
+    expect(within(card).getByText(/90% correctly named automatically in 20 held-out sightings/)).toHaveTextContent(
+      '4 taught sightings keep no saved picture',
     );
   });
   it('lists the named pets with where they were last seen, and opens a card for each', async () => {
