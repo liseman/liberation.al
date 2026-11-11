@@ -75,7 +75,9 @@ def _earlier(state: Path, surface: str, before: float, depth: int) -> str | None
     try:
         from liberational.memory import ask_history
 
-        entries = ask_history.at(state).list_entries(surface=surface, limit=10)
+        # Only a question within RECENT_S can set the subject, so the read is bounded to that window: this runs on
+        # every question that says she, he, or they, up to DEPTH times.
+        entries = ask_history.at(state).list_entries(surface=surface, limit=10, since=before - RECENT_S)
     except Exception:
         return None
     for e in entries:
