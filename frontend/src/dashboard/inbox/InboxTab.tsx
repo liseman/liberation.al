@@ -13,7 +13,7 @@ import { Paged } from '../ask/Paged';
 import { Evidence, Result } from '../ask/Result';
 import { confirm } from '../lib/confirm';
 import { Disclosure } from '../lib/Disclosure';
-import { dayWords, isoDay, momentWords } from '../lib/format';
+import { dayWords, isoDay, momentWords, plural } from '../lib/format';
 import { CountSkeleton } from '../lib/loading';
 import { PageEmpty, PageError, PageFrame, PageLoading } from '../lib/page';
 import { reviewURL } from '../review/url';
@@ -41,8 +41,6 @@ function took(seconds: number | undefined): string {
 }
 
 const when = (ts: number) => momentWords(ts); // "Today, 13:31", in the app's 24-hour times
-
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** The list's count: finished reports, and the questions still waiting for one ("2 reports · 1 waiting"). */
 export function count(jobs: readonly Pick<Job, 'status'>[]): string {

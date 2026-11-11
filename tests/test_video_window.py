@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import continuum_py
+import pytest
 from continuum_py import Client
 
 from liberational import video_window as V
@@ -77,6 +78,33 @@ async def nothing() -> None:
 def run(broker: FakeBroker, state: Path, *, now: float = NOW, free=lambda: 0.5, dry: bool = False) -> dict[str, int]:
     r = V.Run(cast(Client, broker), state, SETTINGS, now, broker.age_out, free, dry=dry, settle=nothing)
     return asyncio.run(r.run())
+
+
+def marks_of(broker: FakeBroker, state: Path) -> dict[str, int]:
+    """The marks a run starts from; a dry run, so nothing is written."""
+    return V.Run(
+        cast(Client, broker), state, SETTINGS, NOW, broker.age_out, lambda: 0.5, dry=True, settle=nothing
+    ).marks
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        pytest.param("{not json", id="truncated"),
+        pytest.param('{"patio.video": "later"}', id="mark-not-a-sequence"),
+        pytest.param('["patio.video"]', id="not-an-object"),
+    ],
+)
+def test_a_damaged_marks_file_does_not_stop_the_nights_age_out(tmp_path, saved):
+    (tmp_path / V.MARKS).write_text(saved)
+    broker = FakeBroker({"patio.video": [(uid(1), NOW - 40 * DAY), (uid(2), NOW - 29 * DAY)]})
+    assert marks_of(broker, tmp_path) == {}
+    assert run(broker, tmp_path, dry=True) == {"patio.video": 1}
+
+
+def test_only_whole_number_marks_are_kept(tmp_path):
+    (tmp_path / V.MARKS).write_text('{"patio.video": 12, "kitchen.video": "later", "wave3.audio": true}')
+    assert marks_of(FakeBroker({}), tmp_path) == {"patio.video": 12}
 
 
 def test_only_video_older_than_the_window_goes(tmp_path):

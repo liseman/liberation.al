@@ -107,7 +107,7 @@ def test_a_walk_by_question_whose_sources_both_fail_says_so_never_zero(tmp_path,
     monkeypatch.setattr(
         movement_counts, "collect", lambda *a, **k: {"available": False, "errors": ["OSError"], "cameras": {}}
     )
-    with config.override({"presence": {"enabled": True, "support_cadence_s": 0}}):
+    with config.override({"presence": {"enabled": True}}):
         result = history.collect("how many times did someone come into view today?", tmp_path, now=NOW)
     assert result["coverage"]["read_error"]
     assert result["paths"] == ["presence"]
@@ -122,6 +122,6 @@ def test_a_walk_by_question_whose_sources_both_fail_says_so_never_zero(tmp_path,
     ],
 )
 def test_an_unwatched_count_says_what_it_was_asked_about(tmp_path, question, happened):
-    with config.override({"presence": {"enabled": True, "support_cadence_s": 0}}):
+    with config.override({"presence": {"enabled": True}}):
         result = history.collect(question, tmp_path, now=NOW)
     assert f"can't say how many times someone {happened}." in result["answer"]

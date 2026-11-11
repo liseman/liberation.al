@@ -10,7 +10,9 @@ import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, V
 const when = (at: number) =>
   new Date(at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-/** What to say under the view about the place's splat, or null when the splat shown is this map's own. */
+/** What to say under the view about the place's splat, or null when the splat shown is this map's own. No producer
+ *  writes a splat today (`memory/places.SHOWN_PRODUCERS` is empty), so no scene carries a `splat_state` and this is
+ *  reached once one does. Its `default` branch takes a state it doesn't name ("improving", or none). */
 export function splatNote(scene: Scene): string | null {
   if (scene.view || scene.combined) return null; // cameras' clouds are points alone: no splat goes with them
   switch (scene.splat_state) {
@@ -271,7 +273,8 @@ export function sceneEmpty(cameras: readonly ScenePlaced[]): string {
 
 /** What to say about the owner's plan on this map: nothing while it's drawn where it belongs (or the place has no
  *  plan of the owner's), and that it isn't drawn on a map it isn't lined up with. The plan itself is never replaced:
- *  the Plan view shows it as drawn. */
+ *  the Plan view shows it as drawn. No reachable scene sets an unaligned owner plan (the combined scene always says
+ *  it is aligned), so this says nothing today. */
 export function planNote(scene: Scene): string | null {
   if (scene.plan_source !== 'owner' || !scene.revision) return null;
   if (!scene.plan_aligned)
@@ -279,7 +282,8 @@ export function planNote(scene: Scene): string | null {
   return null;
 }
 
-/** A splat's loading, as text: how much of it has come, then that it's being drawn. */
+/** A splat's loading, as text: how much of it has come, then that it's being drawn. No producer writes a splat today
+ *  (`memory/places.SHOWN_PRODUCERS` is empty), so this waits with the rest of the splat path (`splatNote`). */
 export function loadingText(received: number, total: number, drawing: boolean): string {
   if (drawing) return 'Drawing the splat…';
   const mb = (n: number) => `${(n / 1e6).toFixed(1)} MB`;

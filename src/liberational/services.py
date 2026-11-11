@@ -35,7 +35,7 @@ import threading
 import time
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 from liberational import config as cfg
 from liberational import logs
@@ -1011,15 +1011,18 @@ def history(state: pathlib.Path, hours: int = 24) -> HistoryView:
         if _supervised() is not None:  # the application's own record of each start and exit (#165)
             from liberational import supervisor
 
-            return supervisor.history(supervisor.home(), names, start, end)  # ty: ignore[invalid-return-type]
-        try:
-            if DARWIN or not names:
-                raise OSError("Exact lifecycle history is unavailable")
-            view = _read_journal(names, start, end)
-        except OSError, ValueError, subprocess.SubprocessError:
-            from liberational.dashboard import report_health
+            # supervisor.history() builds the same HistoryView (its docstring says so) but is typed as a plain dict,
+            # since the supervisor does not depend on this module's history types.
+            view = cast(HistoryView, supervisor.history(supervisor.home(), names, start, end))
+        else:
+            try:
+                if DARWIN or not names:
+                    raise OSError("Exact lifecycle history is unavailable")
+                view = _read_journal(names, start, end)
+            except OSError, ValueError, subprocess.SubprocessError:
+                from liberational.dashboard import report_health
 
-            view = report_health.service_history(state, names, start, end)
+                view = report_health.service_history(state, names, start, end)
         # At most the two supported ranges for the current state/platform/roster are retained.
         for old in list(_history_cache):
             if old[0] != str(state) or old[2:] != key[2:]:

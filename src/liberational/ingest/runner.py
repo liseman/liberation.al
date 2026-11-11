@@ -11,7 +11,9 @@
 `poll` is the `ingest` service (services/services.toml, off by default). It first finishes any item a restart cut
 off, then asks each source for what's new, fetches each item into `<paths.ingest>/incoming/`, and sends it through
 the pipeline (pipeline.py), marking it seen in the source's state. A source that isn't set up is reported and
-skipped; a fetch that fails is tried again on the next pass.
+skipped; a fetch that fails is tried again on the next pass. An item that can't be added (it is being deleted, or
+the move failed) or processed (it was fenced away between the two) is counted as failed and the pass goes on, so
+one bad item never takes the service down.
 """
 
 import argparse
@@ -86,24 +88,31 @@ def poll_source(pipeline: Pipeline, source: src.Source) -> Pass:
     for item in items:
         into = incoming(pipeline)
         try:
-            path = source.fetch(item, into)
-        except Exception as e:  # a fetch is the network or another program: try again next pass
-            LOG.warning(f"{source.name}: couldn't fetch {item.name}: {e}")
-            out.unfetched.append(item.key)
-            cleanup(into)
-            continue
-        result, new = pipeline.add(
-            Incoming(path, source.name, item.name, key=item.key, taken_at=item.taken_at, stream=item.stream)
-        )
-        cleanup(into)
-        if not new:
-            out.duplicate += 1
-            continue
-        result = pipeline.process(result.id)
-        if result.status == "done":
-            out.done += 1
-        else:
+            try:
+                path = source.fetch(item, into)
+            except Exception as e:  # a fetch is the network or another program: try again next pass
+                LOG.warning(f"{source.name}: couldn't fetch {item.name}: {e}")
+                out.unfetched.append(item.key)
+                continue
+            result, new = pipeline.add(
+                Incoming(path, source.name, item.name, key=item.key, taken_at=item.taken_at, stream=item.stream)
+            )
+            if not new:
+                out.duplicate += 1
+                continue
+            result = pipeline.process(result.id)
+            if result.status == "done":
+                out.done += 1
+            else:
+                out.failed += 1
+        except sqlite3.Error:
+            # The shared ingest store failing is systemic, not one bad item (as for `list_new` above).
+            raise
+        except Exception as e:  # one item that can't be added or is being deleted must not stop the poll
+            LOG.warning(f"{source.name}: couldn't ingest {item.name}: {e}")
             out.failed += 1
+        finally:
+            cleanup(into)
     return out
 
 

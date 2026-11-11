@@ -177,7 +177,8 @@ Other = tuple[Path, bool]
 def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None, others: Sequence[Other] = ()) -> Pointmap:
     """`picture` (BGR) through the runner in `found`, niced, on the GPU with the most free memory, and compared with
     each of `others` in the same run (one load of the model). Raises NoGpu when none has NEED_GB free, and
-    RuntimeError when the runner fails."""
+    RuntimeError when the runner fails. `nice` is what lowers the priority: this runs on a worker thread, where
+    `preexec_fn` is unsafe (CPython documents it as such), so the priority is set by the command instead."""
     import cv2
 
     gpu = free_gpu()
@@ -208,13 +209,19 @@ def pointmap(found: Runtime, picture: np.ndarray, overlay: np.ndarray | None, ot
         env = {**os.environ, "CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": str(gpu[0])}
         try:
             subprocess.run(
-                [str(found.python), str(Path(__file__).with_name("pointmap_runner.py")), str(folder / "job.json")],
+                [
+                    "nice",
+                    "-n",
+                    str(NICE),
+                    str(found.python),
+                    str(Path(__file__).with_name("pointmap_runner.py")),
+                    str(folder / "job.json"),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=TIMEOUT_S,
                 check=True,
                 env=env,
-                preexec_fn=lambda: os.nice(NICE),
             )
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"the point map runner failed: {(e.stderr or '').strip()[-400:]}") from e

@@ -173,9 +173,10 @@ def test_choosing_which_services_run_leaves_the_cameras_and_the_journal_running(
 # where it is written, so each of these was checked by hand: the keys it can read are written in the same module.
 COMPUTED_KEYS = {
     "audio/twins.py": 'f"audio.{key}" over "dedup_window_s" and "dedup_similarity", both in the same module',
-    "memory/presence_counts.py": '"presence.gap_s", "presence.support_cadence_s", and "presence.absence_s", a loop over literals',
+    "memory/presence_counts.py": '"presence.gap_s" and "presence.absence_s", a loop over literals',
     "ollama_health.py": 'f"models.ollama.{role}"',
     "services.py": "{section.key} templates in services.toml, which readers.py reads itself",
+    "spatial/camera_clouds.py": '"spatial.pointmap_runtime" and "spatial.pointmap_weights", both named in this module',
     "unifi.py": 'setting(section, key) over unifi.CONSOLES, which writes "unifi." and "unifi_protect." whole',
     "dashboard/network_cameras.py": 'unifi.setting(section, "mode"), its sections those of unifi.CONSOLES',
     "vision/crossings.py": '"crossings." + key over the settings() literals',

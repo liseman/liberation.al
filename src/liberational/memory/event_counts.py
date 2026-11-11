@@ -19,6 +19,7 @@ Retired rules-based activity kinds are unavailable during the model-detector reb
 counted from old rows; history_qa answers those requests explicitly before consulting evidence.
 """
 
+import dataclasses
 import datetime as dt
 import re
 import time
@@ -27,9 +28,12 @@ from typing import Any
 from urllib.parse import urlencode
 
 from liberational import config as cfg
+from liberational import logs
 from liberational.memory import activity_kinds
 from liberational.memory import question as reader
 from liberational.memory.events import RETIRED_KINDS
+
+LOG = logs.get("memory-event-counts")
 
 WORD = re.compile(r"[a-z0-9]+")
 # Words a name and a question share without saying what happened: left out of both before they're compared.
@@ -116,44 +120,41 @@ def module() -> Any:
     return events
 
 
-# state -> (when read, the names events have, the detector kinds each name was given to by its content words)
-_NAMES: dict[str, tuple[float, list[str], dict[tuple[str, ...], set[str]]]] = {}
+# state -> (when read, the names the owner has given events)
+_NAMES: dict[str, tuple[float, list[str]]] = {}
 NAMES_TTL_S = 60.0
 
 
 def known_names(state: Any) -> list[str]:
-    """The names the detector or the owner has given events, as first spelled, read at most once a minute."""
+    """The names the owner has given events, as first spelled, read at most once a minute."""
     return _read_names(state)[1]
 
 
-def _read_names(state: Any) -> tuple[float, list[str], dict[tuple[str, ...], set[str]]]:
+def _read_names(state: Any) -> tuple[float, list[str]]:
+    """(when read, the owner's names for events), from the knowledge store alone.
+
+    A read that fails is logged and not cached: an empty list means nothing is named, and a busy store must not say
+    that for the next minute. Retired kinds and a name that is only its kind are not names anyone asked about.
+    """
     key = str(state)
     hit = _NAMES.get(key)
     if hit is not None and time.monotonic() - hit[0] < NAMES_TTL_S:
         return hit
-    names: dict[tuple[str, ...], str] = {}
-    kinds: dict[tuple[str, ...], set[str]] = {}
     act = module()
-    if act is not None:
-        try:
-            projection = getattr(act, "count_evidence", None)
-            if callable(projection):
-                promoted, unverified = projection(state, 0.0, 1e12)
-                rows = [*promoted, *unverified]
-            else:
-                rows = act.events(state, 0.0, 1e12)
-            for e in rows:
-                if e.get("kind") in RETIRED_KINDS:
-                    continue
-                if name := owner_name(e):
-                    words = tuple(sorted(content(name)))
-                    names.setdefault(words, name)
-                    if isinstance(e.get("kind"), str):
-                        kinds.setdefault(words, set()).add(e["kind"])
-        except Exception:
-            names, kinds = {}, {}
+    if act is None:
+        return (time.monotonic(), [])
+    names: dict[tuple[str, ...], str] = {}
+    try:
+        for name, kind in act.named(state):
+            if kind in RETIRED_KINDS or name == kind:
+                continue
+            if words := tuple(sorted(content(name))):
+                names.setdefault(words, name)
+    except Exception as error:
+        LOG.warning("the names the owner gave events could not be read: %r", error)
+        return (time.monotonic(), [])
     found = [n for k, n in names.items() if k]
-    _NAMES[key] = (time.monotonic(), found, kinds)
+    _NAMES[key] = (time.monotonic(), found)
     return _NAMES[key]
 
 
@@ -161,10 +162,9 @@ def zone_names(state: Any) -> list[str]:
     """The names of the zones drawn on cameras' views: a count of visits to one is answered here too."""
     try:
         from liberational.memory import zone_counts
-
-        return zone_counts.names(state)
-    except Exception:
+    except ImportError:
         return []
+    return zone_counts.names(state)
 
 
 def _is_zone(state: Any, asked: str) -> bool:
@@ -279,6 +279,32 @@ def _model_kind_unchecked(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class Scan:
+    """count_evidence's promoted and unverified spans and the coverage over one range, read once for a run of count
+    windows inside it: each window filters them to itself (memory/typical_counts.py's periods are the run)."""
+
+    promoted: list[dict[str, Any]]
+    unverified: list[dict[str, Any]]
+    covered: list[tuple[str, float, float]]
+    model_kinds: frozenset[str]
+
+
+def scan(asked: str, state: Any, start: float, end: float) -> Scan | None:
+    """One read of the store over [start, end) for a run of count windows inside it, or None when the count would go
+    to zone visits instead or no detector is installed: then each window keeps its own reads."""
+    act = module()
+    if act is None or _is_zone(state, asked):
+        return None
+    model_kinds = activity_kinds.model_kinds(state)
+    projection = getattr(act, "count_evidence", None)
+    promoted, unverified = (
+        projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
+    )
+    covered = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
+    return Scan([*promoted], [*unverified], [*covered], model_kinds)
+
+
 def answer(
     asked: str,
     query: Mapping[str, Any],
@@ -286,6 +312,8 @@ def answer(
     stamp: Callable[[float], str],
     tz: dt.tzinfo | None = None,
     person: Any = None,
+    *,
+    scanned: Scan | None = None,
 ) -> dict[str, Any]:
     """{answer, evidence, coverage, warnings, count, dwell_s} for how many times `asked` happened in query's window;
     `count` is there only when the window could be counted (memory/typical_counts.py reads it), and `dwell_s` beside
@@ -295,7 +323,8 @@ def answer(
         from liberational.memory import zone_counts
 
         return zone_counts.answer(asked, query, state, stamp, tz, same=same, person=person)
-    model_kinds = activity_kinds.model_kinds(state)  # the owner's activities read from a model
+    # The owner's activities read from a model: a scan read them once for the run of windows it covers.
+    model_kinds = scanned.model_kinds if scanned is not None else activity_kinds.model_kinds(state)
     if asked not in model_kinds and (asked in REBUILDING_KINDS or asked in reader.ACTIONS):
         return dict(
             answer=UNSUPPORTED, evidence=[], coverage={"available": False, "reason": "unsupported"}, warnings=[]
@@ -309,10 +338,13 @@ def answer(
             coverage={"recordings": 0, "available": False},
             warnings=["memory/events.py is not installed."],
         )
-    projection = getattr(act, "count_evidence", None)
-    promoted, unverified = (
-        projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
-    )
+    if scanned is not None:
+        promoted, unverified = scanned.promoted, scanned.unverified
+    else:
+        projection = getattr(act, "count_evidence", None)
+        promoted, unverified = (
+            projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
+        )
     promoted = [e for e in promoted if e.get("kind") not in RETIRED_KINDS]
     unverified = [e for e in unverified if e.get("kind") not in RETIRED_KINDS]
 
@@ -320,7 +352,10 @@ def answer(
         # A model kind counts its own spans, named or not; any other event counts by the owner's name.
         return (asked in model_kinds and e.get("kind") == asked) or same(owner_name(e), asked)
 
-    found = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
+    if scanned is not None:
+        found = scanned.covered
+    else:
+        found = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
     covered = [(c, a, z) for c, a, z in found if not cameras or c in cameras]
     covered = [(c, a, z) for c, a, z in covered if a < end and z > start]
     spans = [e for e in promoted if not cameras or e.get("camera") in cameras]

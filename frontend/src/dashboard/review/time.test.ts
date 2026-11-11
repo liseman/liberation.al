@@ -94,21 +94,21 @@ it.each([
 
 describe('latestVideo', () => {
   it('opens a minute before the end of the newest finished video', () => {
-    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 600)] }, 10_000)).toBe(540);
+    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 600)] })).toBe(540);
   });
   it('opens in the stretch still being recorded: the gateway plays it to its end', () => {
-    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 590)] }, 600)).toBe(530);
+    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 590)] })).toBe(530);
   });
   it('skips segments that failed to load', () => {
-    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 600, { broken: 'cut' })] }, 10_000)).toBe(240);
+    expect(latestVideo({ cam0: [seg(0, 300), seg(300, 600, { broken: 'cut' })] })).toBe(240);
   });
   it('prefers a moment more cameras can play a full minute from', () => {
     // cam1's newest minute starts at 840, but only cam1 has video then; at 540 both do.
     const segs = { cam0: [seg(0, 600)], cam1: [seg(0, 600, { cam: 'cam1' }), seg(620, 900, { cam: 'cam1' })] };
-    expect(latestVideo(segs, 10_000)).toBe(540);
+    expect(latestVideo(segs)).toBe(540);
   });
   it('is null without a full minute of video', () => {
-    expect(latestVideo({ cam0: [seg(0, 50)] }, 10_000)).toBeNull();
+    expect(latestVideo({ cam0: [seg(0, 50)] })).toBeNull();
   });
 });
 

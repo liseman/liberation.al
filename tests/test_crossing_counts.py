@@ -47,6 +47,45 @@ def test_walk_bys_are_counted_per_camera_and_direction_with_what_was_analysed(tm
     assert "people walked past about 3 times" in cc.answer_text(result)
 
 
+def test_a_walk_by_while_the_camera_moved_flags_the_count_as_uncertain(tmp_path, vision):
+    still = vision.add(
+        segment_log.WALKBY_SPANS,
+        ts_start=T + 3,
+        ts_end=T + 3,
+        cam="cam0",
+        kind="crossing",
+        attributes={"direction": "left_to_right", "crossings": 1, "followed": True},
+        camera_moved=False,
+    )
+    shaken = vision.add(
+        segment_log.WALKBY_SPANS,
+        ts_start=T + 9,
+        ts_end=T + 9,
+        cam="cam0",
+        kind="crossing",
+        attributes={"direction": "right_to_left", "crossings": 1, "followed": True},
+        camera_moved=True,
+        uncertainty={"camera_motion": "unknown"},
+    )
+    motion = cc.from_spans(tmp_path, T, T + 60)["cameras"]["cam0"]["camera_motion"]
+    assert motion == {"uncertain": True, "flagged_files": [shaken["id"]]}
+    assert still["id"] not in motion["flagged_files"]
+
+
+def test_a_still_camera_reports_no_motion_caution(tmp_path, vision):
+    vision.add(
+        segment_log.WALKBY_SPANS,
+        ts_start=T + 3,
+        ts_end=T + 3,
+        cam="cam0",
+        kind="crossing",
+        attributes={"direction": "left_to_right", "crossings": 1, "followed": True},
+        camera_moved=False,
+    )
+    motion = cc.from_spans(tmp_path, T, T + 60)["cameras"]["cam0"]["camera_motion"]
+    assert motion == {"uncertain": False, "flagged_files": []}
+
+
 def test_a_window_with_nothing_analysed_is_unknown_not_zero(tmp_path, vision):
     result = cc.from_spans(tmp_path, T, T + 60)
     assert result["cameras"] == {} and result["partial"]

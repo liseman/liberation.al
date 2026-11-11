@@ -91,6 +91,18 @@ def test_what_was_kept_is_read_back_by_the_next_process(store):
     assert again.decide(view(90), 100.0).keep is False  # its descriptors came back with it
 
 
+def test_the_descriptors_are_one_view_over_the_kept_rows_that_offers_and_drops_keep_in_step(store):
+    _, a = offer(store, 0)
+    before = store.descriptors
+    _, b = offer(store, 90, now=5.0)  # no restacking: the offer grows the store's own buffer
+    assert before.shape == (1, 3) and store.descriptors.shape == (2, 3)
+    assert np.shares_memory(before, store.descriptors)
+    assert np.allclose(store.descriptors, np.stack([view(0), view(90)]))
+    store.remove(a.id)  # a drop compacts the rows in place, in kept's order
+    assert store.descriptors.shape == (1, 3) and np.allclose(store.descriptors, np.stack([view(90)]))
+    assert [f.id for f in store.kept] == [b.id]
+
+
 def test_a_row_with_a_field_of_an_earlier_version_is_still_kept(store):
     _, a = offer(store, 0)
     index = store.folder / "index.json"

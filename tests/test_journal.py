@@ -296,6 +296,40 @@ def test_skips_quiet_windows_and_unchanged_scenes(env):
     assert len(entry_calls(env)) == 3
 
 
+def test_scenes_merges_a_near_copy_and_keeps_dissimilar_captions_apart():
+    rows = [
+        dict(ts=T0, cam="cam0", caption="A person sits at the desk.", faces=[], objects=[]),
+        dict(ts=T0 + 3, cam="cam1", caption="A person sat at the desk.", faces=[], objects=[]),
+        dict(ts=T0 + 6, cam="cam0", caption="An empty desk with a lamp.", faces=[], objects=[]),
+        dict(ts=T0 + 9, cam="cam0", caption="The window shows a grey afternoon sky.", faces=[], objects=[]),
+    ]
+    kept = journal.scenes(rows)
+    assert [k["caption"] for k in kept] == [
+        "A person sits at the desk.",
+        "An empty desk with a lamp.",
+        "The window shows a grey afternoon sky.",
+    ]
+    assert kept[0]["cams"] == ["cam0", "cam1"]
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("", "a person sits at the desk"),
+        ("a person sits at the desk", "a person sits at the desk"),
+        ("a person sits at the desk", "a person sat at the desk"),
+        ("a person sits at the desk", "a person sits at the desk with a cup"),
+        ("an empty desk with a lamp", "a person sits at the desk"),
+        ("the window shows a grey afternoon sky", "a cat on the sofa"),
+    ],
+)
+def test_the_caption_prefilter_keeps_exactly_the_pairs_difflib_would(a, b):
+    """The multiset bound only skips pairs ratio() could not accept, so it changes no merge."""
+    matcher = journal.difflib.SequenceMatcher(None, a, b, autojunk=False)
+    exact = a == b or (matcher.quick_ratio() >= journal.SAME and matcher.ratio() >= journal.SAME)
+    assert journal._alike(a, b) is exact
+
+
 def test_owner_is_named_and_unnamed_speakers(env):
     say(env, T0 + 1, "Morning.", sid=1)
     say(env, T0 + 2, "Hi there.", label="Alice")  # no voice id, but the owner's label
@@ -414,7 +448,7 @@ def test_first_person_gets_one_retry_and_is_never_stored(env, second, succeeds, 
         p.close()
     assert len(env.calls) == 2
     assert "entirely in third person" in env.calls[1]["user"]
-    assert "total_rejections=" in caplog.text
+    assert "journal narration rejected" in caplog.text
 
 
 def test_rewrite_preserves_original_evidence_and_resumes_newest_first(env, monkeypatch):

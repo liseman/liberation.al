@@ -74,6 +74,7 @@ from liberational.vision import views
 if TYPE_CHECKING:
     from continuum_py.search import Hit
 
+    from liberational.listen.revisions import Corrections
     from liberational.memory_log import MemoryLog
 
 MAX_ERRORS = 2  # failed rounds before the loop stops and answers with what it has
@@ -82,6 +83,8 @@ SHOW_ITEMS = 8  # items per round the next round's prompt shows
 SHOW_CHARS = 220  # characters of each shown item
 RANK_CHARS = 600  # characters of each journal entry shown to the ranking call
 RRF_K = 60  # reciprocal rank fusion's constant, as in Cormack, Clarke, and Buettcher (2009)
+CLUSTER_GAP_S = 300  # hit spans this close are read together: neighbouring journal windows come from one stretch
+MAX_CLUSTER_READS = 8  # more clusters than this in one search and reading per hit, as before, is cheaper
 # Ask's local deadline is 180 s and its answer call may take 90 s, so the rounds stop in time to leave it that.
 LOOP_BUDGET_S: float = 80  # memory/research.py raises it in the research process
 CALL_TIMEOUT_S = 90
@@ -466,25 +469,62 @@ def _hits(
         return [], []
 
 
+def _clusters(spans: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Hit spans merged where they overlap or sit within CLUSTER_GAP_S, so neighbouring hits are one read."""
+    out: list[list[float]] = []
+    for lo, hi in sorted(spans):
+        if out and lo <= out[-1][1] + CLUSTER_GAP_S:
+            out[-1][1] = max(out[-1][1], hi)
+        else:
+            out.append([lo, hi])
+    return [(lo, hi) for lo, hi in out]
+
+
 def _entries(
-    hits: Sequence[Hit], by: MemoryLog, subjects: set[str] | None, *, semantic: bool = False
+    hits: Sequence[Hit],
+    by: MemoryLog,
+    subjects: set[str] | None,
+    *,
+    semantic: bool = False,
+    review: Corrections | None = None,
 ) -> list[dict[str, Any]]:
     """The current journal entries the hits name, in hit order, each once: read over the hit's own span, so a
     superseded entry, a quiet marker, or one purged since it was filed is left out, as is one no longer about the
     person (`subjects`). Semantic hits name embedding payloads whose parent is the journal entry; lexical hits
     name journal entries themselves, and their parents are source evidence rather than entries to hydrate.
-    A semantic hit without a parent retains compatibility with indexes that return journal IDs directly."""
-    out: dict[str, dict[str, Any]] = {}
+    A semantic hit without a parent retains compatibility with indexes that return journal IDs directly.
+
+    Hits whose spans overlap or nearly touch are read in one cluster, since a search's hits come from one stretch of
+    the day; a single read over the union of hit spans scattered across a year would be far bigger than the hits, so
+    a search that still leaves more than MAX_CLUSTER_READS clusters reads per hit as before. One `review` snapshot
+    covers every read."""
+    from liberational import memory_log
+
+    wanted: dict[str, tuple[float, float]] = {}
     for h in hits:
         pid = (h.get("parent_id") or h["payload_id"]) if semantic else h["payload_id"]
-        if pid in out:
+        if pid not in wanted:
+            wanted[pid] = (h["start_ns"] / 1e9, max(h["end_ns"], h["start_ns"] + 1) / 1e9)
+    if review is None:
+        review = memory_log.review_snapshot(by.state)
+    found: dict[str, dict[str, Any]] = {}
+    clusters = _clusters(wanted.values())
+    if len(clusters) <= MAX_CLUSTER_READS:
+        for lo, hi in clusters:
+            for record in by.entries(lo, hi, review=review):
+                found.setdefault(str(record["id"]), record)
+    else:
+        for pid, (lo, hi) in wanted.items():
+            hit = next((r for r in by.entries(lo, hi, review=review) if str(r["id"]) == pid), None)
+            if hit is not None:
+                found[pid] = hit
+    out: list[dict[str, Any]] = []
+    for pid in wanted:
+        record = found.get(pid)
+        if record is None or (subjects is not None and not subjects & {str(x) for x in record.get("subjects") or []}):
             continue
-        lo, hi = h["start_ns"] / 1e9, max(h["end_ns"], h["start_ns"] + 1) / 1e9
-        found = next((r for r in by.entries(lo, hi) if str(r["id"]) == pid), None)
-        if found is None or (subjects is not None and not subjects & {str(x) for x in found.get("subjects") or []}):
-            continue
-        out[pid] = found
-    return list(out.values())
+        out.append(record)
+    return out
 
 
 def _per_level(records: Sequence[dict[str, Any]], per_level: int) -> list[dict[str, Any]]:
@@ -543,8 +583,9 @@ def search(
         else _hits(words, vector, lo, hi, subjects)
     )
     log = memory_log.at(state)
-    found = _entries(lexical, log, subjects)
-    nearest = _entries(near, log, subjects, semantic=True)
+    review = memory_log.review_snapshot(state)
+    found = _entries(lexical, log, subjects, review=review)
+    nearest = _entries(near, log, subjects, semantic=True, review=review)
     # Fuse the complete bounded candidate lists before capping each level: a hit below
     # either list's individual cutoff can be the strongest agreement between both.
     found = fused(found, nearest, per_level) if nearest else _per_level(found, per_level)

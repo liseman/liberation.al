@@ -28,8 +28,10 @@ from urllib.parse import urlencode
 
 import numpy as np
 
-from liberational import segment_log
+from liberational import logs, segment_log
 from liberational.see import zones
+
+LOG = logs.get("memory-zone-counts")
 
 MIN_DWELL_S = 10.0  # shorter is passing by: walking past the litter box isn't using it
 MERGE_S = 30.0  # same zone, same kind of subject, closer than this: one visit split by its track
@@ -42,15 +44,20 @@ _NAMES: dict[str, tuple[float, list[str]]] = {}
 
 
 def names(state: Path) -> list[str]:
-    """The names of every zone on every camera now, read at most once a minute."""
+    """The names of every zone on every camera now, read at most once a minute.
+
+    A read that fails is logged and not cached: an empty list means no zone is named, and a busy store must not say
+    that for the next minute.
+    """
     key = str(state)
     hit = _NAMES.get(key)
     if hit is not None and time.monotonic() - hit[0] < NAMES_TTL_S:
         return hit[1]
     try:
         found = sorted({z.name for d in zones.current(state).values() for z in zones.counted(d.zones)})
-    except Exception:
-        found = []
+    except Exception as error:
+        LOG.warning("the zones' names could not be read: %r", error)
+        return []
     _NAMES[key] = (time.monotonic(), found)
     return found
 
@@ -83,7 +90,10 @@ def _union(spans: list[tuple[float, float]]) -> list[tuple[float, float]]:
 
 
 def merged(visits: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Visits of one zone by one kind of subject, joined when one starts within MERGE_S of the last one's end."""
+    """Visits of one zone by one kind of subject, joined when one starts within MERGE_S of the last one's end.
+
+    A joined visit is the first part's dict with `ts_end`, `dwell_s`, and `ended` recomputed over the parts, so its
+    dwell is this merge's, not the producer's."""
     out: list[dict[str, Any]] = []
     for v in sorted(visits, key=lambda v: v["ts_start"]):
         last = out[-1] if out else None
@@ -199,10 +209,7 @@ def answer(
             coverage={**coverage, "count_available": False},
             warnings=["Nothing covers the zone in the window: this is not a count of zero."],
         )
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    for v in visits:
-        groups.setdefault((str(v["zone"]), str(v.get("label"))), []).append(v)
-    joined = sorted((m for g in groups.values() for m in merged(g)), key=lambda v: v["ts_start"])
+    joined = sorted((m for g in _by_zone(visits) for m in merged(g)), key=lambda v: v["ts_start"])
     counted = [v for v in joined if v["dwell_s"] >= MIN_DWELL_S]
     cut = [v for v in joined if v["dwell_s"] < MIN_DWELL_S and v.get("ended") in GAP_ENDINGS]
     who = (

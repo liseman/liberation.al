@@ -297,6 +297,33 @@ def test_filtered_pagination_and_delete_are_newest_first_and_review_day_scoped(m
     assert [row["id"] for row in history.list_entries()] == [live, other_day]
 
 
+def test_finish_returns_false_when_the_exchange_is_purged_during_the_write(memory, monkeypatch):
+    history = ask_history.History()
+    ident = history.start("Question", created_at=T0)
+    written = history.log.append
+
+    def purge_first(stream, record, **kwargs):
+        if stream == memory_log.ASK_ANSWER and not memory.records.get(stream):
+            memory.purge([str(uuid.UUID(ident))], "deleted while the answer was written")
+        return written(stream, record, **kwargs)
+
+    monkeypatch.setattr(history.log, "append", purge_first)
+    assert not complete(history, ident, {"answer": "Four"})
+
+
+def test_list_entries_reads_a_bounded_window_and_pages_from_the_newest(memory):
+    history = ask_history.History()
+    old = history.start("Old", created_at=T0)
+    recent = history.start("Recent", created_at=T0 + 3600)
+    now = T0 + 3600
+    assert [row["id"] for row in history.list_entries(since=now - 60)] == [recent]
+    assert [row["id"] for row in history.list_entries(since=T0 - 1)] == [recent, old]
+    assert [row["id"] for row in history.list_entries(since=T0 - 1, before=recent)] == [old]
+    assert [row["id"] for row in history.list_entries(since=T0 - 1, limit=1)] == [recent]
+    with pytest.raises(ValueError, match="since"):
+        history.list_entries(since=float("nan"))
+
+
 def test_export_uses_retrieval_drafts_with_execution_time_and_only_available_canonical_moments(memory):
     history = ask_history.History()
     evidence = source(memory)
