@@ -1590,15 +1590,47 @@ def forget_embedding(embedding_id: str, *, base: Path | None = None) -> None:
     forget_segments_where(root, "id", embedding_id, streams=[EMBEDDINGS])
 
 
+def _deletions_stamp(base: Path) -> tuple[int, int]:
+    """The store's deletion log as (size, mtime): the only cheap stat that moves when a forget takes a row."""
+    try:
+        st = (base / ".deletions").stat()
+    except OSError:
+        return (0, 0)
+    return (st.st_size, st.st_mtime_ns)
+
+
+# Each base's newest tail per voice set, extended as rows are filed: "Who's this?" rebuilds its voice groups every
+# time a speech commit lands, and reading the whole embedding stream each time is what the cache avoids. A forget
+# moves the deletion stamp and drops the whole cache; a row written late into a part older than the newest row read
+# is missed until the next purge or a restart (the stream is time-ordered, so only that case needs the full read).
+_prints_lock = threading.Lock()
+_prints: dict[Path, tuple[tuple[int, ...], int, tuple[int, int], tuple[float, str], dict[int, list[np.ndarray]]]] = {}
+
+
 def prints(ns: Sequence[int], limit: int = 64, *, base: Path | None = None) -> dict[int, list[np.ndarray]]:
     """The embeddings stored for each voiceprint in `ns` (its newest `limit`), as unit vectors: what "Who's this?"
     compares voices by (people/voice_guess.py). A voiceprint with none maps to an empty list."""
-    wanted = {subject(n): n for n in ns}
-    out: dict[int, list[np.ndarray]] = {n: [] for n in ns}
-    rows = segment_log.Log(base if base is not None else segment_log.root()).range(EMBEDDINGS, 0.0, time.time() + 1.0)
-    for r in rows:  # oldest first, so the newest `limit` are each list's tail
-        if (n := wanted.get(r["voiceprint"])) is not None:
-            v = np.asarray(r["vector"], np.float32)
-            if len(v) and np.all(np.isfinite(v)):
-                out[n].append(v / (np.linalg.norm(v) + 1e-9))
-    return {n: vectors[-limit:] for n, vectors in out.items()}
+    key = tuple(sorted(set(ns)))
+    wanted = {subject(n): n for n in key}
+    where = base if base is not None else segment_log.root()
+    stamp = _deletions_stamp(where)
+    with _prints_lock:
+        cached = _prints.get(where)
+        if cached is not None and cached[0] == key and cached[1] == limit and cached[2] == stamp:
+            _, _, _, cursor, vectors = cached
+            rows = segment_log.Log(where).range(EMBEDDINGS, cursor[0], time.time() + 1.0)
+            rows = [r for r in rows if (r["ts_start"], r["id"]) > cursor]
+        else:  # a different voice set, limit, or a forget: read the whole stream
+            vectors = {n: [] for n in key}
+            cursor = (0.0, "")
+            rows = segment_log.Log(where).range(EMBEDDINGS, 0.0, time.time() + 1.0)
+        for r in rows:  # oldest first, so the newest `limit` are each list's tail
+            if (n := wanted.get(r["voiceprint"])) is not None:
+                v = np.asarray(r["vector"], np.float32)
+                if len(v) and np.all(np.isfinite(v)):
+                    vectors[n].append(v / (np.linalg.norm(v) + 1e-9))
+        if rows:
+            cursor = (rows[-1]["ts_start"], str(rows[-1]["id"]))
+        trimmed = {n: v[-limit:] for n, v in vectors.items()}
+        _prints[where] = (key, limit, stamp, cursor, trimmed)
+        return {n: list(v) for n, v in trimmed.items()}

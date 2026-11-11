@@ -63,7 +63,6 @@ def label(state: pathlib.Path, n: int, name: str) -> str:
         reg.claim_many([registry.Claim(registry.voiceprint(n), name)], Basis.OWNER_TAG, SOURCE)
     else:
         reg.retract_many([registry.voiceprint(n)], SOURCE)
-    transcript_view.rebuild_quietly(state, voices=[n])
     return registry.voice_names(state, [n]).get(n) or f"Speaker {n}"
 
 
@@ -73,7 +72,6 @@ def forget(state: pathlib.Path, n: int) -> bool:
         return False
     registry.at(state).retract_many([registry.voiceprint(n)], SOURCE)
     voices.forget_voice(n, base=segment_log.root(state))
-    transcript_view.rebuild_quietly(state, voices=[n])
     return True
 
 

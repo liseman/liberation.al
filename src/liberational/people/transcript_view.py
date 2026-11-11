@@ -1,7 +1,7 @@
-"""Who said each transcript line: transcript.jsonl read through the person_of projection (docs/DOMAIN-MODEL.md,
-rules 1 and 2).
+"""Who said each transcript line: the speech log's lines read through the person_of projection
+(docs/DOMAIN-MODEL.md, rules 1 and 2).
 
-transcript.jsonl is layer 1. The microphone service appends each line with the voice it matched, and nothing
+The microphone service files each utterance in the speech log's segment store with the voice it matched, and nothing
 rewrites a line to relabel it. A hand label, an unlabel, a "multiple speakers", a voice merge, and a backfill voice
 match are events in the log instead (people/registry.py). Every reader that shows or uses a speaker name reads lines
 through `View`, which gives each line the label fields the old rewrites would have given it:
@@ -31,42 +31,25 @@ gives each line its person's current name.
 A line goes to the person person_of names when it reads as one of their names, so a renamed person keeps their old
 lines even after someone new takes the old name.
 
-Forgetting a person still rewrites the lines that carry them ("Forgetting" in docs/DOMAIN-MODEL.md, audio/ambient.py
-forget_lines).
-
-`rebuild_markdown` rebuilds transcript/<day>.md, the human-readable copy, from transcript.jsonl and the projection.
-The microphone service appends a day's file live, and the label writers rebuild the days they touch. A line in the
-file that transcript.jsonl does not hold is kept, so a rebuild never loses text. `pack-registry transcript` rebuilds
-every day, and `pack-registry lines` lists lines that read differently from before step 4 (see MIGRATING.md).
+Forgetting a person is an event (`PersonForgotten`, "Forgetting" in docs/DOMAIN-MODEL.md): the lines that carried
+them stay where they are, and the projection reads them as nobody's, so a replay cannot hand them to someone who
+later takes the name. Nothing rewrites the speech log for a label or a forgetting.
 """
 
-import collections
 import functools
 import json
 import math
-import os
 import pathlib
-import re
-import time
 from collections.abc import Iterable
 from typing import Any
 
 from liberational import config as cfg
-from liberational import locking
 from liberational.domain.identity import Decision, Person, SubjectRef, Tier, tier
 from liberational.domain.kernel import PersonId
 from liberational.people import registry
 
 UNKNOWN, MULTI = "unknown", "multiple speakers"
-VOICE_TAG = "ambient"  # the source of a voice tag's assertion (audio/ambient.py Transcriber.tag_line)
-_MD = re.compile(r"^\[(\d\d:\d\d:\d\d)\] ([^:]+): (.*)$")
-
-
-def _json(path: pathlib.Path, default: Any) -> Any:
-    try:
-        return json.loads(path.read_text())
-    except OSError, ValueError:
-        return default
+VOICE_TAG = "ambient"  # the source of a voice tag's assertion (listen/voices.py VoiceTags)
 
 
 def _ts(e: object) -> float | None:
@@ -117,23 +100,6 @@ def clone_only_ids(state: str | pathlib.Path) -> frozenset[int]:
         except OSError, ValueError, AttributeError:
             continue
     return frozenset(ids)
-
-
-def entries(path: pathlib.Path) -> list[dict]:
-    """The JSON objects of a JSONL file, skipping anything that does not parse."""
-    out: list[dict] = []
-    try:
-        with pathlib.Path(path).open(errors="replace") as f:
-            for ln in f:
-                try:
-                    e = json.loads(ln)
-                except ValueError:
-                    continue
-                if isinstance(e, dict):
-                    out.append(e)
-    except OSError:
-        pass
-    return out
 
 
 def _same_items(a: list[Any], b: list[Any]) -> bool:
@@ -487,114 +453,3 @@ def once(lines: Iterable[Any]) -> list[Any]:
 def view(items: Iterable[Any], state: str | pathlib.Path | None = None) -> list[Any]:
     """`items` read through a new View."""
     return View(state).lines(items)
-
-
-def heard(v: View, e: dict) -> str:
-    """The name history answers gave a stored line before step 4: an automatic label resolved through its voice
-    (`View.voice_name`), any other label as stored."""
-    stored = e.get("speaker") or UNKNOWN
-    if re.fullmatch(r"(?:speaker\s*\d+|unknown)", stored, re.I):
-        return v.voice_name(e.get("speaker_id")) or stored
-    return stored
-
-
-def changed_names(state: str | pathlib.Path | None = None) -> list[tuple[float, str, str]]:
-    """Lines whose name differs between the label stored on them and the projection, as (ts_start, before, after):
-    the name the dashboard shows, else the `speaker` that history answers and the other readers use. Run right after
-    the step 4 update (and `pack-registry backfill`): it should find none."""
-    v = View(state)
-    from liberational.listen import revisions
-
-    stored = revisions.filter_lines(v.state, entries(v.state / "transcript.jsonl"))
-    out = []
-    for e, w in zip(stored, v.lines(stored)):
-        if w.get("twin_of"):
-            continue  # another mic's copy reads as the line it repeats, not as a change
-        before, after = v.shown(e), v.shown(w)
-        if before == after:
-            before, after = heard(v, e), w.get("speaker") or UNKNOWN
-        if before != after and (ts := _ts(e)) is not None:
-            out.append((ts, before, after))
-    return out
-
-
-def day_of(ts: float) -> str:
-    return time.strftime("%Y-%m-%d", time.localtime(ts))
-
-
-def md_line(e: dict) -> str:
-    """One line of transcript/<day>.md, in local time as the microphone service writes it."""
-    at = time.strftime("%H:%M:%S", time.localtime(e["ts_start"]))
-    return f"[{at}] {e.get('speaker') or UNKNOWN}: {e.get('text', '')}"
-
-
-def rebuild_markdown(
-    state: str | pathlib.Path | None = None,
-    days: Iterable[str] | None = None,
-    voices: Iterable[int | str] | None = None,
-    drop_within: Iterable[tuple[float, float]] = (),
-) -> list[str]:
-    """Rebuild transcript/<day>.md for these days (every day in transcript.jsonl by default), or only the days that
-    have a line from one of `voices`. Returns the days rebuilt.
-
-    A line in the day file that transcript.jsonl doesn't hold is kept, unless its time falls inside one of the
-    `drop_within` spans (epoch seconds, start and end): audio/retranscribe.py passes the spans of the lines it just
-    wrote, which replace what an older transcript left there.
-
-    Holds each file's lock (liberational.locking), which the microphone service also holds while it appends, so a
-    line it adds meanwhile is never lost or doubled."""
-    state = pathlib.Path(state) if state is not None else cfg.path("paths.state")
-    v = View(state)
-    spans = [(float(a), float(b)) for a, b in drop_within]
-    by_day: collections.defaultdict[str, list[dict]] = collections.defaultdict(list)
-    for e in entries(state / "transcript.jsonl"):
-        if (ts := _ts(e)) is not None and not e.get("assistant"):
-            by_day[day_of(ts)].append(e)
-    want = set(by_day) if days is None else set(days) & set(by_day)
-    if voices is not None:
-        ids = {v.canonical(x) for x in voices}
-        want = {d for d in want if any(v.canonical(e.get("speaker_id")) in ids for e in by_day[d])}
-    done = []
-    for day in sorted(want):
-        rows = [(time.strftime("%H:%M:%S", time.localtime(e["ts_start"])), md_line(e)) for e in v.lines(by_day[day])]
-        # The microphone service stamped older lines from the unrounded time, up to half a millisecond earlier.
-        covered = {
-            (time.strftime("%H:%M:%S", time.localtime(e["ts_start"] - back)), str(e.get("text", "")).strip())
-            for e in by_day[day]
-            for back in (0, 0.0005)
-        }
-        replaced = [
-            (time.strftime("%H:%M:%S", time.localtime(a)), time.strftime("%H:%M:%S", time.localtime(b)))
-            for a, b in spans
-            if day_of(a) == day == day_of(b)
-        ]
-        path = state / "transcript" / f"{day}.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with locking.locked(path):
-            try:
-                old = path.read_text(errors="replace").splitlines()
-            except OSError:
-                old = []
-            kept: list[tuple[str, str]] = []
-            last = "00:00:00"
-            for ln in old:  # a line transcript.jsonl does not hold stays, at its time
-                m = _MD.match(ln)
-                last = m[1] if m else last
-                if not m or ((m[1], m[3].strip()) not in covered and not any(lo <= m[1] <= hi for lo, hi in replaced)):
-                    kept.append((last, ln))
-            merged = sorted(kept + rows, key=lambda r: r[0])
-            tmp = path.with_name(path.name + ".tmp")
-            tmp.write_text("".join(ln + "\n" for _, ln in merged))
-            os.replace(tmp, path)
-        done.append(day)
-    return done
-
-
-def rebuild_quietly(
-    state: str | pathlib.Path, days: Iterable[str] | None = None, voices: Iterable[int | str] | None = None
-) -> None:
-    """`rebuild_markdown` for a label writer: the label already stands, so a failure here is only logged."""
-    try:
-        rebuild_markdown(state, days, voices)
-    except Exception as e:
-        registry.LOG.error(f"transcript/<day>.md not rebuilt: {e!r}")

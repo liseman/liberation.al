@@ -68,6 +68,13 @@ def _local_audio() -> dict[str, Any]:
         return _seen[1]
 
 
+def stamp() -> Any:
+    """The stamp of pack.toml's [audio] table as `_local_audio` last read it (None when there is no file), so a
+    caller that caches a tuning can tell when a rewrite moved it."""
+    _local_audio()
+    return _seen[0] if _seen is not None else None
+
+
 def shipped() -> int:
     """audio.sensitivity as defaults.toml ships it."""
     return _checked(tomllib.loads(cfg.DEFAULTS.read_text())["audio"]["sensitivity"], "audio.sensitivity")

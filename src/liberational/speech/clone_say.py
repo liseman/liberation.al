@@ -20,7 +20,7 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,7 @@ def _cloned() -> set[int]:
 
 
 def speakers(
-    raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None
+    raw: Sequence[dict[str, Any]] | None = None, view: transcript_view.View | None = None
 ) -> tuple[dict[int, dict[str, Any]], Callable[[Any], Any]]:
     """Every voice heard, known to the registry, or cloned, by voiceprint number, with its name as "label" (its person by person_of, else
     "Speaker <id>": a line never holds a name), and a function that follows an id through merges (as the
@@ -74,7 +74,9 @@ def speakers(
     return {n: {"id": n, "label": names.get(n) or f"Speaker {n}"} for n in sorted(ids)}, view.canonical
 
 
-def lines(raw: list[dict[str, Any]] | None = None, view: transcript_view.View | None = None) -> list[dict[str, Any]]:
+def lines(
+    raw: Sequence[dict[str, Any]] | None = None, view: transcript_view.View | None = None
+) -> list[dict[str, Any]]:
     """Utterances as readers see them (people/transcript_view.py): a line someone labeled as another person, or took
     away from its voice, no longer counts as that voice's speech. Each also says whether the owner named it
     ("confirmed", see `confirmed`)."""

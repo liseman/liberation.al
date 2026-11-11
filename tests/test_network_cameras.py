@@ -234,6 +234,8 @@ def test_onvif_credentials_are_encoded_into_private_stream_only(manifest, monkey
 def test_discovery_rejects_remote_or_cross_origin_mutations_before_network(
     monkeypatch, control, origin, content_type, path
 ):
+    from liberational.dashboard.server import H
+
     headers = Message()
     headers["Host"] = "localhost:8765"
     headers["Content-Type"] = content_type
@@ -247,6 +249,8 @@ def test_discovery_rejects_remote_or_cross_origin_mutations_before_network(
         _can_control=lambda: control,
         _json=lambda body, code: replies.append((body, code)),
     )
+    # The route asks the server's own guard, so the fake carries the real one over these headers.
+    handler._same_origin_json = lambda: H._same_origin_json(cast("H", handler))
     # The fake has no request body or socket: reaching discovery would fail instead of touching the LAN.
     assert cameras.handle(cast("H", handler))
     assert replies[0][1] == 403

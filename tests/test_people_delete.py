@@ -23,6 +23,7 @@ from liberational.dashboard import (
 )
 from liberational.domain.identity import Basis
 from liberational.memory import ask, history_qa, journal
+from liberational.memory.ask import execute as ask_the_model
 from liberational.people import contacts, face_shots, forgotten, registry
 from liberational.speech import clone_say
 from speech_fake import fake
@@ -263,7 +264,7 @@ def test_asking_about_them_afterwards_doesnt_look_like_anything(world, question)
         patch.object(history_qa, "collect", side_effect=AssertionError("looked for evidence")),
         patch.object(ask, "local_answer", side_effect=AssertionError("asked the model")),
     ):
-        assert ask.execute(question, state_dir=world.state)["answer"] == forgotten.LINE
+        assert ask_the_model(question, state_dir=world.state)["answer"] == forgotten.LINE
     assert forgotten.store().has("dana") and forgotten.store().has("dana cole")
 
 
@@ -313,7 +314,7 @@ def test_owner_and_remote_requests_are_refused(world):
     assert named_voices(world.state) == {1: "Alice", 3: "Dana Cole", 4: "Dana Cole"}
 
 
-def test_concurrent_reference_attach_cannot_survive_deletion(world, serve_dashboard, monkeypatch):
+def test_concurrent_reference_attach_cannot_survive_deletion(world, serve_dashboard, needs_broker, monkeypatch):
     import concurrent.futures
     import threading
 

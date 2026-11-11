@@ -487,6 +487,18 @@ def broker(tmp_path: Path) -> Iterator[Path]:
     yield from start_broker(tmp_path)
 
 
+@pytest.fixture
+def needs_broker(monkeypatch: pytest.MonkeyPatch) -> str:
+    """A test that hands broker work to a thread or a server resolves the binary here first, on the thread the test
+    runs on: a machine with no build skips the test now, instead of a request dropping its connection or a worker
+    dying later. The resolved path is what every later start uses, whichever thread asks for it."""
+    from continuum_broker import broker_binary
+
+    binary = broker_binary()  # skips this test on this thread when there is none
+    monkeypatch.setenv("CONTINUUM_BROKER", binary)  # so no later start has to look, and none can skip off-thread
+    return binary
+
+
 @pytest.fixture(autouse=True)
 def journal_search(monkeypatch: pytest.MonkeyPatch):
     """Recall's searches of the journal answered from the in-memory memory log (tests/journal_search_fake.py), in every
@@ -556,9 +568,13 @@ def _broker_on_first_use(monkeypatch, tmp_path):
     Tests that exercise broker media still use an explicit socket or this lazy fixture. Registry existence is
     determined by its real state-directory database rather than a synthetic touched-state marker.
     """
+    import continuum_broker
     from continuum_broker import start_broker
     from liberational import continuum_link
     from liberational.people import forgotten, registry
+
+    # A skip may only be raised on the thread the test runs on; every other thread gets an ordinary error.
+    monkeypatch.setattr(continuum_broker, "TEST_THREAD", threading.current_thread())
 
     started: list = []
     real_socket_path = continuum_link.socket_path
