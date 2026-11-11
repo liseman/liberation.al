@@ -456,23 +456,6 @@ export const activitiesQuery = (day: string, today = false) =>
     refetchInterval: today ? CHIPS_MS : false,
   });
 
-/** One kind's candidates with no rating yet (kind null is unnamed movement), for the rating queue. Each rating session
- *  fetches afresh and nothing is kept after it, so a new session never replays candidates already rated; within a
- *  session the queue steps past what it rated itself and fetches the next batch only when one runs out. */
-export const activityQueueQuery = (day: string, kind: string | null) =>
-  queryOptions({
-    queryKey: ['review', 'day', day, 'activity-queue', kind ?? ''] as const,
-    queryFn: ({ signal }) =>
-      request<ActivitiesResponse>(
-        `/activities?${q(day)}&kind=${encodeURIComponent(kind ?? '')}&unrated=1`,
-        undefined,
-        signal,
-      ),
-    staleTime: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: false,
-  });
-
 /** The selected recording day's summary. The server resolves its configured timezone and DST bounds. */
 export const dayBlocksQuery = (day: string) =>
   queryOptions({

@@ -3,7 +3,7 @@ import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
-import { PAGE_SLOW_MS, PageError, PageFrame, PageLoading, QueryState } from './page';
+import { PAGE_SLOW_MS, PageError, PageFrame, PageLoading, PHONE_WIDTH, QueryState } from './page';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -93,4 +93,10 @@ function Held() {
 it('QueryState marks its loading skeleton for a parent that reserves room while it loads', () => {
   renderPage(<Held />);
   expect(screen.getByLabelText('Loading the chart').closest('[data-report-loading]')).not.toBeNull();
+});
+
+// The header and the page frame both fold at 700px in their stylesheets (app.module.css, page.module.css). A page
+// that folded at a wider width would hide its own controls while the header still showed the full tab bar.
+it("folds at the header's own breakpoint", () => {
+  expect(PHONE_WIDTH).toBe('(max-width: 700px)');
 });

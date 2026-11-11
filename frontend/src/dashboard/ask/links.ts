@@ -9,7 +9,9 @@ export function safeHref(value: unknown): string | null {
     const u = new URL(value, location.href);
     if (u.origin !== location.origin) return null;
     if (value.startsWith('#')) return /^#(?:t=|day=)[\w.=&%-]+$/.test(value) ? value : null;
-    return /^\/(?:review(?:\.html)?|transcript|audio|speakers|people|recordings|calls\/audio|camera\/query)(?:\/|$)/.test(
+    // Only paths the dashboard answers: a same-origin link to anything else is a 404, not a page. The camera
+    // gateway is another origin (server.py gives the page its port), so /camera/query is never a safe link.
+    return /^\/(?:review(?:\.html)?|transcript|audio\/(?:levels|range|spans)|speakers|people|calls\/audio)(?:\/|$)/.test(
       u.pathname,
     )
       ? u.pathname + u.search + u.hash

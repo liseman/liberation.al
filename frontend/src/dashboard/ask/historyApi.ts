@@ -1,4 +1,4 @@
-import { HttpError, request } from '../../shared/http';
+import { request } from '../../shared/http';
 
 export interface Citation {
   label: string;
@@ -50,14 +50,8 @@ export async function deleteHistory(id: string | null, day: string | null): Prom
     : day
       ? `/pack-ask/history?${new URLSearchParams({ surface: 'review', day })}`
       : '/pack-ask/history';
-  const response = await fetch(url, {
-    method: 'DELETE',
-    credentials: 'same-origin',
-    cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  const data = await response.json();
-  if (!response.ok) throw new HttpError(typeof data?.error === 'string' ? data.error : null, response.status, data);
+  // Through request(), so a failed delete reaches the page's log like every other request; recover false, since a
+  // DELETE must never be sent twice.
+  const data = await request<{ deleted?: number }>(url, {}, undefined, 'page', false, 'DELETE');
   if (typeof data?.deleted !== 'number') throw new Error('Invalid deletion response');
 }

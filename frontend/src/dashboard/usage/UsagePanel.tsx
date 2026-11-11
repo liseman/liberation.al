@@ -15,7 +15,7 @@ import classes from './usagePanel.module.css';
 // The chart and D3 are needed only when the monitor opens, not when the shell loads.
 const UsageChart = lazy(() => import('./UsageChart').then(module => ({ default: module.UsageChart })));
 
-export const PHONE = '(max-width: 720px)'; // the header's own phone breakpoint (app.module.css)
+export const PHONE = '(max-width: 700px)'; // the header's and the page frame's phone breakpoint (app.module.css)
 export const DEFAULT_SIZE = { w: 560, h: 460 };
 const MIN = { w: 320, h: 240 }; // as small as the CSS lets it be resized
 const EDGE = 16; // a new panel's gap from the window's right edge

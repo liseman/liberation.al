@@ -209,11 +209,6 @@ export const playLine = (e: TranscriptEntry): void =>
     e.ts_start,
   );
 
-/** Move the highlight while key plays (Review follows the playhead along the transcript). */
-export function setPlayingTs(key: string, ts: number): void {
-  if (playingKey === key) set({ ts });
-}
-
 /** Move what's playing under key to `seconds` in (a player's position bar). Nothing happens for another key. */
 export function seek(key: string, seconds: number): void {
   if (!audio || playingKey !== key || !Number.isFinite(seconds)) return;
