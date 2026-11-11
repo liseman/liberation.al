@@ -132,9 +132,34 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
   }
 }
 
-/** What the scene is, and isn't, said once under it. */
-export const SCENE_LIMITS =
-  "Each camera's cloud is a relief of what it alone sees, standing where its camera is: not a whole room. Where two overlap they meet with a seam, and cameras that share no view are only as right as their spots.";
+/** What the scene is, and isn't, said once over its cameras. */
+export const SCENE_LIMITS = 'Each camera shows only what it sees, so expect gaps and seams.';
+
+/** A camera's state in the scene, in a word or two, and whether it wants the owner ("warn"). */
+export function placedState(how: ScenePlaced['how']): { label: string; tone: 'plain' | 'warn' } {
+  switch (how) {
+    case 'spot':
+      return { label: 'Placed', tone: 'plain' };
+    case 'adjusted':
+      return { label: 'Adjusted', tone: 'plain' };
+    case 'moved':
+    case 'moved_against':
+      return { label: 'Moved', tone: 'warn' };
+    case 'moved_unplaced':
+      return { label: 'Not placed', tone: 'warn' };
+    case 'no_spot':
+    case 'no_facing':
+      return { label: 'No spot', tone: 'plain' };
+  }
+}
+
+/** What moving a camera's spot to where its pictures put it changes, for the question asked first. */
+export function moveSpotQuestion(camera: ScenePlaced, name: string): { title: string; body: string } {
+  return {
+    title: `Move ${name}'s spot on your plan?`,
+    body: `It moves ${metres(camera.shift_m)} and turns ${Math.round(camera.turn_deg)} degrees to where its pictures now put it. The plan's earlier version stays in Versions.`,
+  };
+}
 
 /** What to say when the scene has nothing to draw. */
 export function sceneEmpty(cameras: readonly ScenePlaced[]): string {

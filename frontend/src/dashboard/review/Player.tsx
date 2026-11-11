@@ -6,9 +6,11 @@
 // for the engine's [ and ] moment keys floats at the large video's bottom center; captions sit above it. The hint stays
 // visible without hover or focus on every screen size.
 import { ActionIcon, Button, Checkbox, Chip, Group, Kbd, Skeleton, Text, Tooltip, UnstyledButton } from '@mantine/core';
+import { useMergedRef, useResizeObserver } from '@mantine/hooks';
 import { IconEqual, IconPlayerPauseFilled, IconPlayerPlayFilled, IconVolume, IconVolumeOff } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
-import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { controlBand } from '../clip/ratio';
 import { evidenceAt, journalEvidenceQuery, toMedia } from '../journal/dayEvidence';
 import { SourceMedia } from '../journal/evidence';
 import { hms } from '../lib/format';
@@ -101,6 +103,7 @@ export function Player({
   timeline,
   inShowOnly = false,
   empty = null,
+  mediaBox,
 }: {
   loading?: boolean;
   makeVideo?: MakeVideo;
@@ -108,7 +111,16 @@ export function Player({
   timeline?: ReactNode; // Review's timeline, under the control bar, whose tools it gets
   inShowOnly?: boolean; // the page's Show only holds the video markers and Skip quiet time, so the bar leaves them out
   empty?: string | null; // the page's day has no video at all: this one line, and no tiles
+  mediaBox?: { ratio: number | null }; // fixed-size clip cards put compact controls inside the letterbox
 }) {
+  const [observe, measured] = useResizeObserver<HTMLElement>();
+  const [initial, setInitial] = useState({ width: 0, height: 0 });
+  const measure = useCallback((node: HTMLElement | null) => {
+    if (node) setInitial({ width: node.clientWidth, height: node.clientHeight });
+  }, []);
+  const boxRef = useMergedRef(observe, measure);
+  const size = measured.width ? measured : initial;
+  const band = mediaBox ? controlBand(size.width, size.height, mediaBox.ratio) : undefined;
   const engine = useEngine();
   const cams = engine.cams;
   const cameraFilter = useReview(s => s.cameras);
@@ -199,7 +211,14 @@ export function Player({
               : `No video at ${hms(t)}.${roomOnly ? " Playing the room's sound." : ''}`;
 
   return (
-    <section className={classes.player} aria-label="Video">
+    <section
+      ref={mediaBox ? boxRef : undefined}
+      className={classes.player}
+      aria-label="Video"
+      data-controls={band}
+      data-playing={playing || undefined}
+      style={mediaBox ? ({ '--media-ratio': mediaBox.ratio ?? 16 / 9 } as CSSProperties) : undefined}
+    >
       {naming && (
         <FacePicker key={`${naming.source.track}:${naming.source.at}`} draft={naming} onClose={() => setNaming(null)} />
       )}
@@ -318,6 +337,7 @@ export function Player({
       </div>
       <div className={classes.controls}>
         <ActionIcon
+          autoFocus={!!mediaBox}
           size={32}
           radius="xl"
           className={classes.play}
@@ -326,7 +346,7 @@ export function Player({
         >
           {playing ? <IconPlayerPauseFilled size={14} aria-hidden /> : <IconPlayerPlayFilled size={14} aria-hidden />}
         </ActionIcon>
-        <time className={classes.clock} ref={el => engine.setClock(el)} />
+        <time className={classes.clock} title={t == null ? undefined : hms(t)} ref={el => engine.setClock(el)} />
         <Button
           variant="default"
           size="compact-md"
@@ -336,7 +356,7 @@ export function Player({
         >
           {speed}×
         </Button>
-        <RoomSound />
+        <RoomSound contained={!!mediaBox} />
         {!compact && (
           <>
             <span className={classes.spacer} />
@@ -424,15 +444,20 @@ export function SkipQuiet() {
 
 /** What Review plays aloud: the room's microphone, never a camera (the recordings carry no sound), with a
  *  mute that keeps the video playing. */
-function RoomSound() {
+function RoomSound({ contained = false }: { contained?: boolean }) {
   const engine = useEngine();
   const muted = useReview(s => s.muted);
   const mics = Object.values(useLive('ambient')?.devices ?? {});
   const name = mics.length === 1 && mics[0] ? micName(mics[0].name) : null;
   return (
-    <Group gap={4} wrap="nowrap">
-      <Text size="xs" c="dimmed" title={`Sound: the room microphone${name ? ` (${name})` : ''}`}>
-        Room mic
+    <Group gap={4} wrap="nowrap" className={classes.sound}>
+      <Text
+        className={classes.micName}
+        size="xs"
+        c={contained ? 'inherit' : 'dimmed'}
+        title={`Sound: the room microphone${name ? ` (${name})` : ''}`}
+      >
+        {contained && name ? name : 'Room mic'}
       </Text>
       <ActionIcon
         variant="subtle"

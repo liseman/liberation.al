@@ -37,6 +37,114 @@ SOURCE = "demo"  # the source every demo record names
 MIC = "demo-mic"  # the microphone the demo's transcript was heard on
 
 
+# One archived moment, shared by the rendered views, Live, the plan, and the offline adapters.
+MOMENT = (18, 34)
+MEDIA_TIME = (18, 33)
+HERE = {
+    "Alice": ("kitchen", "Kitchen", (2.0, 1.75), (18, 3)),
+    "Dana": ("front-room", "Living room", (7.4, 3.0), (18, 32)),
+    "Sam": ("front-room", "Living room", (6.5, 2.5), (18, 16)),
+    "Rex": ("front-room", "Living room", (5.3, 3.2), (18, 1)),
+}
+CAPTIONS = (
+    "Sam has set the table. Dana has joined him, and Rex is resting nearby.",
+    "Alice is finishing the pasta for dinner.",
+    "The porch is empty after Dana arrived.",
+    "The study is empty; Alice finished work earlier.",
+)
+HAPPENING = (
+    ((18, 2), "Alice started cooking pasta", "activity", "kitchen", ["Alice"]),
+    ((18, 15), "Sam set the table for dinner", "activity", "front-room", ["Sam"]),
+    ((18, 32), "Dana joined Sam and Rex in the living room", "arrival", "front-room", ["Dana", "Sam"]),
+)
+# Camera, person, kind, optional owner label. The first two are the confirmed crossing observations.
+ACTIVITIES = (
+    ("front-room", "Sam", "crossing", None),
+    ("kitchen", "Alice", "crossing", None),
+    ("front-room", "Dana", "stand_up", "Coming home"),
+    ("kitchen", "Alice", "put_down", "Preparing dinner"),
+)
+# Paths use room centres and doorway centres, not offsets that could drift into a wall.
+WAYPOINTS = {
+    "bedroom": (2.0, 6.75),
+    "bedroom-door": (2.0, 5.0),
+    "hall": (2.0, 4.25),
+    "entry": (0.0, 4.25),
+    "kitchen-door": (2.0, 3.5),
+    "kitchen": (2.0, 1.75),
+    "shared-door": (4.0, 1.75),
+    "living": (6.5, 2.5),
+    "living-door": (4.0, 4.25),
+    "study-door": (6.5, 5.0),
+    "study": (6.5, 6.75),
+}
+CONNECTIONS = (
+    ("bedroom", "bedroom-door"),
+    ("bedroom-door", "hall"),
+    ("hall", "entry"),
+    ("hall", "kitchen-door"),
+    ("kitchen-door", "kitchen"),
+    ("kitchen", "shared-door"),
+    ("shared-door", "living"),
+    ("hall", "living-door"),
+    ("living-door", "living"),
+    ("living", "study-door"),
+    ("study-door", "study"),
+)
+ITINERARIES = {
+    "Alice": (
+        (7, 5, "bedroom", "kitchen"),
+        (8, 0, "kitchen", "study"),
+        (10, 0, "study", "living"),
+        (12, 9, "living", "kitchen"),
+        (12, 45, "kitchen", "entry"),
+        (13, 0, "entry", "hall"),
+        (15, 0, "hall", "bedroom"),
+        (17, 0, "bedroom", "living"),
+        (18, 2, "living", "kitchen"),
+    ),
+    "Dana": (
+        (12, 3, "entry", "hall"),
+        (12, 9, "hall", "kitchen"),
+        (12, 45, "kitchen", "entry"),
+        (13, 0, "entry", "hall"),
+        (13, 20, "hall", "entry"),
+        (18, 31, "entry", "living"),
+    ),
+    "Sam": (
+        (7, 0, "bedroom", "kitchen"),
+        (7, 40, "kitchen", "entry"),
+        (17, 0, "entry", "living"),
+        (18, 10, "living", "kitchen"),
+        (18, 15, "kitchen", "living"),
+    ),
+    "Rex": (
+        (7, 12, "hall", "kitchen"),
+        (8, 0, "kitchen", "living"),
+        (12, 40, "living", "hall"),
+        (12, 45, "hall", "entry"),
+        (13, 0, "entry", "hall"),
+        (13, 10, "hall", "living"),
+        (15, 20, "living", "bedroom"),
+        (18, 0, "bedroom", "living"),
+    ),
+}
+
+
+def route(start: str, end: str) -> list[tuple[float, float]]:
+    """Shortest walk through the explicit doorway graph; each edge lies in a room or crosses its open door."""
+    queue = [[start]]
+    while queue:
+        path = queue.pop(0)
+        if path[-1] == end:
+            return [WAYPOINTS[node] for node in path]
+        for a, b in CONNECTIONS:
+            next_node = b if a == path[-1] else a if b == path[-1] else None
+            if next_node is not None and next_node not in path:
+                queue.append([*path, next_node])
+    raise ValueError(f"No demo doorway route from {start} to {end}")
+
+
 def _rect(x: float, y: float, w: float, h: float) -> tuple[tuple[float, float], ...]:
     return ((x, y), (x + w, y), (x + w, y + h), (x, y + h))
 
@@ -292,9 +400,10 @@ def seed_faces(folder: Path, now: float) -> int:
 
 
 def seed_place(state: Path, now: float) -> str:
-    """Writes the demo place (a machine revision with the plan) and names it; returns its id."""
+    """Writes the demo place with an owner-drawn plan and names it; returns its id."""
     rev = places.revise(state, None, producer=SOURCE, plan=PLAN, now=now)
     places.name(state, rev.place, PLACE, now=now)
+    places.correct_plan(state, rev.place, PLAN, base=rev.id, now=now)
     return rev.place
 
 

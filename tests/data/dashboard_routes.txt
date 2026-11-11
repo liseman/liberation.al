@@ -163,6 +163,7 @@ POST /pets/sightings/not
 POST /places/plan
 POST /places/plan/restore
 POST /places/scene/spot
+POST /places/scene/spot/undo
 POST /playback/start
 POST /playback/stop
 POST /reports/api/...

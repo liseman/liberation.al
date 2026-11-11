@@ -152,6 +152,7 @@ GET  /places/scene?place=     the Places 3D view's scene: the newest revision wi
                             one camera's own cloud; with all=1, every camera's cloud placed in the place
 POST /places/scene/spot      {place, camera}: take the spot the scene suggests for a camera that moved, saved as a
                             new version of the owner's plan; a teaching write like POST /places/plan
+POST /places/scene/spot/undo {place, camera, record}: take that back
 GET  /places/map?place=&revision=  that revision's map (PLY), with byte ranges, an ETag, and immutable caching
 GET  /places/splat?place=&revision=  that revision's 3D Gaussian splat (SOG), served like its map
 GET  /places/positions?place=&start=&end=[&entity=]  where people and pets were on that place's plan:

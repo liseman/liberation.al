@@ -121,7 +121,7 @@ def test_people_pet_and_place_are_seeded(seeded):
     assert [(p["name"], p["species"]) for p in pets.at(seeded).listing()] == [("Rex", "dog")]
     (place,) = places.places(seeded)
     assert place.name == "Demo house"
-    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("machine", 5)
+    assert (place.plan_source, len(plan_scene.rooms_of(place.plan or ""))) == ("owner", 5)
 
 
 def test_the_pet_has_a_training_set_with_one_example_unlike_the_rest(seeded):

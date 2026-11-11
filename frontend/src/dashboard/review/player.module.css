@@ -324,3 +324,118 @@ canvas[data-standby] {
   color: #fff;
   background: rgb(0 0 0 / 0.6);
 }
+
+/* A card's fixed media box owns both the image and its controls. The still supplies --media-ratio before
+   playback; a size observer chooses a band only if its controls fit. No playback state participates in sizing. */
+.player[data-controls] {
+  position: relative;
+  height: 100%;
+  gap: 0;
+  container: clip-media / size;
+}
+.player[data-controls] .stage {
+  position: absolute;
+  inset: 0;
+}
+.player[data-controls] .big {
+  aspect-ratio: auto;
+}
+.player[data-controls] .label {
+  max-width: calc(100% - 64px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.player[data-controls] .controls {
+  position: absolute;
+  z-index: 4;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 6px;
+  gap: 6px;
+  flex-wrap: nowrap;
+  color: var(--mantine-color-white);
+  background: color-mix(in srgb, var(--mantine-color-black) 75%, transparent);
+}
+.player[data-controls] .clock {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.player[data-controls] .sound {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-end;
+}
+.player[data-controls] .micName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+.player[data-controls] .sound button {
+  flex: none;
+  color: inherit;
+}
+.player[data-controls="side"] .controls {
+  left: auto;
+  right: 0;
+  top: 44px;
+  bottom: 8px;
+  width: calc((100cqw - 100cqh * var(--media-ratio)) / 2);
+  padding: 4px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  background: none;
+}
+.player[data-controls="side"] .clock {
+  max-width: 100%;
+  flex: none;
+}
+.player[data-controls="side"] .sound {
+  flex: none;
+  width: 100%;
+  flex-direction: column;
+}
+.player[data-controls="side"] .micName {
+  max-width: 100%;
+}
+.player[data-controls="bottom"] .controls {
+  height: calc(100cqh - 100cqw / var(--media-ratio));
+  background: none;
+}
+/* Only fine-pointer hover devices hide an overlay during playback. Opacity keeps every button in the tab
+   order; focus reveals the bar before activation. Touch controls remain visible and directly tappable. */
+@media (hover: hover) and (pointer: fine) {
+  .player[data-controls="overlay"][data-playing]:where(:not(:focus-within)) .controls {
+    opacity: 0;
+  }
+  .player[data-controls="overlay"][data-playing] {
+    @mixin hover {
+      .controls {
+        opacity: 1;
+      }
+    }
+  }
+}
+@container clip-media (max-width: 280px) {
+  .player[data-controls] .controls {
+    gap: 4px;
+  }
+  .player[data-controls] .clock {
+    font-size: 11px;
+  }
+  .player[data-controls] .speed {
+    padding-inline: 6px;
+  }
+}
+
+.player[data-controls] .big canvas {
+  object-position: center top;
+}

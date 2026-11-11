@@ -642,6 +642,22 @@ describe('continuous day chunks', () => {
   });
 });
 
+describe('offline demo landing', () => {
+  afterEach(() => {
+    delete (window as Window & { __PACK_DEMO_REVIEW__?: number }).__PACK_DEMO_REVIEW__;
+  });
+  it.each(['', `#day=${DAY}&t=${D0 + 40}`])('opens the recording and respects an explicit link (%s)', hash => {
+    (window as Window & { __PACK_DEMO_REVIEW__?: number }).__PACK_DEMO_REVIEW__ = D0 + 12;
+    history.replaceState(null, '', `/review${hash}`);
+    const engine = new ReviewEngine({ cams: ['cam0'], fetchNotes: async () => ({ cams: {} }) });
+    engine.start();
+    engine.setDayData(DAY, engine.ui.getState().gen, data());
+    expect(engine.t).toBe(hash ? D0 + 40 : D0 + 12);
+    expect(engine.ui.getState().day).toBe(DAY);
+    engine.stop();
+  });
+});
+
 describe('landing on a recorded day', () => {
   // The engine's clock says two days after DAY, and nothing was recorded since DAY.
   const opened = (hash = '') => {

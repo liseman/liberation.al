@@ -345,11 +345,36 @@ def record(
     json_state.write(store.folder / PAIRS, kept)
 
 
+KEPT = ("anchor.json", "anchor.png", "moved.json")  # what `accept` sets aside, for `take_back` to put back
+
+
 def accept(store: camera_clouds.Store, camera: str, basis: str) -> None:
-    """The owner set `camera`'s spot (to `basis`) from a suggestion: its picture now is the one it is placed with."""
+    """The owner set `camera`'s spot (to `basis`) from a suggestion: its picture now is the one it is placed with.
+    What it was placed with before is set aside, so the owner can take the change back (`take_back`)."""
     cloud = store.current(camera)
-    if cloud is not None and store.picture(cloud).is_file():
-        _set_anchor(store, cloud, basis)
+    if cloud is None or not store.picture(cloud).is_file():
+        return
+    for name in KEPT:
+        was, aside = _camera_file(store, camera, name), _camera_file(store, camera, f"before.{name}")
+        aside.unlink(missing_ok=True)
+        if was.is_file():
+            shutil.copyfile(was, aside)
+    _set_anchor(store, cloud, basis)
+
+
+def take_back(store: camera_clouds.Store, camera: str) -> bool:
+    """Undo `accept` for `camera`: the picture it was placed with before, and that it had moved from it, hold
+    again, so with its old spot back it is a moved camera once more, not one left at its old place. Whether there
+    was anything to put back."""
+    asides = {name: _camera_file(store, camera, f"before.{name}") for name in KEPT}
+    if not asides["anchor.json"].is_file():
+        return False
+    for name, aside in asides.items():
+        now = _camera_file(store, camera, name)
+        now.unlink(missing_ok=True)
+        if aside.is_file():
+            aside.replace(now)
+    return True
 
 
 # ---- the scene
