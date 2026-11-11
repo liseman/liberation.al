@@ -7,7 +7,7 @@ import urllib.request
 
 import pytest
 
-from liberational.dashboard import live_status, mic_levels
+from liberational.dashboard import context, live_status, mic_levels
 from speech_fake import fake
 
 
@@ -36,13 +36,31 @@ def test_a_microphone_is_heard_while_listen_runs_and_its_audio_is_fresh(monkeypa
 def test_a_microphones_auto_gain_is_shown_with_it(monkeypatch, tmp_path):
     from liberational.audio import gain
 
-    monkeypatch.setenv("PACK_PATHS_STATE", str(tmp_path))
+    monkeypatch.setattr(context, "STATE", tmp_path)
     monkeypatch.setattr(live_status, "_listening", lambda: True)
     fake().mics = {"wave3.audio": time.time_ns()}
     mics = {"alsa_input.usb-Acme_Mic-00.mono-fallback": {"name": "wave3", "auto": True, "kind": "hardware", "db": 30.0}}
     (tmp_path / gain.STATUS).write_text(json.dumps({"ts": time.time(), "mics": mics}))
     status = live_status.mic_status()
     assert status["devices"]["wave3"]["gain"] == {"auto": True, "kind": "hardware", "db": 30.0}
+
+
+def test_the_gain_status_is_read_from_the_state_and_not_kept_across_a_change(monkeypatch, tmp_path):
+    """Two state directories inside the 2 s window are two answers: the gain file is read from `context.STATE`, and
+    the cached answer is keyed on it."""
+    from liberational.audio import gain
+
+    monkeypatch.setattr(live_status, "_listening", lambda: True)
+    fake().mics = {"wave3.audio": time.time_ns()}
+    mics = {"usb-Acme_Mic": {"name": "wave3", "auto": True, "kind": "hardware", "db": 30.0}}
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    (first / gain.STATUS).write_text(json.dumps({"ts": time.time(), "mics": mics}))
+    monkeypatch.setattr(context, "STATE", first)
+    assert live_status.mic_status()["devices"]["wave3"]["gain"] == {"auto": True, "kind": "hardware", "db": 30.0}
+    monkeypatch.setattr(context, "STATE", second)  # no gain status here
+    assert "gain" not in live_status.mic_status()["devices"]["wave3"]
 
 
 def test_the_route_serves_the_status(serve_dashboard, monkeypatch):
