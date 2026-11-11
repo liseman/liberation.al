@@ -304,6 +304,14 @@ describe('Live', () => {
     expect(await within(mics).findByRole('button', { name: 'Start listening' })).toBeInTheDocument();
   });
 
+  it('keeps selected-camera controls in the first header before live status arrives', () => {
+    history.replaceState(null, '', '/#camera=cam0');
+    renderLive({ unread: true });
+    expect(screen.getByRole('button', { name: 'All cameras' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Choose camera' })).toHaveValue('cam0');
+    expect(screen.getByRole('switch', { name: 'Learn surroundings' })).toBeDisabled();
+  });
+
   it("calls nothing off before the first status reads answer, and holds the cameras' place", () => {
     renderLive({ unread: true });
     expect(screen.queryByText("Liberational isn't listening yet")).toBeNull();

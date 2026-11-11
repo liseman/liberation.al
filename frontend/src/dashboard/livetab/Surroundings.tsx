@@ -11,6 +11,7 @@ import { IconCamera } from '@tabler/icons-react';
 import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { messageOf, request } from '../../shared/http';
+import { CountSkeleton } from '../lib/loading';
 import { Toast } from '../lib/Toast';
 import { viewName } from '../review/views';
 import { linkClick } from '../router';
@@ -36,21 +37,13 @@ export interface SurroundingsChange {
 export const SURROUNDINGS_KEY = ['surroundings'] as const;
 const REFRESH_MS = 15_000; // another browser, or Settings, may change it
 
-const ELSEWHERE = 'Only the machine Liberational runs on can change this.';
+const OFF_HINT = 'Builds a 3D view of what each camera sees';
+const ELSEWHERE = 'Change this on the host machine.';
 
-/** How many cameras are sampled, for the menu button and the on-state hint. */
+/** How many cameras are sampled, for the menu button. */
 export function sampledLabel(view: SurroundingsView): string {
   const sampled = view.cameras.filter(c => c.sampled);
   return sampled.length === 1 ? viewName(sampled[0]?.name ?? '') : `${sampled.length} cameras`;
-}
-
-/** The dimmed line beside the switch while this browser may change it. */
-export function surroundingsHint(view: SurroundingsView): { off: string; on: string } {
-  const from = sampledLabel(view);
-  return {
-    off: "Collects the cameras' pictures, and keeps a point cloud of what each one sees",
-    on: `Collecting pictures from ${from}. See them in Places`,
-  };
 }
 
 /** The cameras sampled after `name` is switched: taking the last one away leaves none chosen, which is the default. */
@@ -90,49 +83,60 @@ function useSave(client: QueryClient, onFail: (message: string) => void) {
 
 export function LearnSurroundings() {
   const client = useQueryClient();
-  const view = useQuery({
+  const status = useQuery({
     queryKey: SURROUNDINGS_KEY,
     queryFn: ({ signal }) => request<SurroundingsView>('/surroundings', undefined, signal, 'background'),
     refetchInterval: REFRESH_MS,
-  }).data;
+  });
+  const view = status.data;
   const [fail, setFail] = useState<string | null>(null);
   const power = useSave(client, setFail);
   const cameras = useSave(client, setFail);
   const [toggling, setToggling] = useState<string | null>(null);
-  if (!view?.cameras.length) return null;
-  const from = sampledLabel(view);
-  const hints = surroundingsHint(view);
+  const disabled = !view?.control || !view.cameras.length || status.isError;
+  const from = view ? sampledLabel(view) : 'Cameras';
+  const reason = status.isError
+    ? "Couldn't load learning status. Retrying."
+    : !view
+      ? null
+      : !view.cameras.length
+        ? 'No cameras available to learn from.'
+        : !view.control
+          ? ELSEWHERE
+          : null;
   const saving = cameras.isPending ? toggling : null;
   return (
-    <div className="surroundings">
+    <div className="surroundings" aria-busy={status.isPending}>
       <div className="surroundings-row">
         <Switch
           size="sm"
           label="Learn surroundings"
-          checked={view.on}
-          disabled={!view.control}
+          checked={view?.on ?? false}
+          disabled={disabled}
           aria-busy={power.isPending}
           thumbIcon={power.isPending ? <Loader size={8} color="gray" aria-hidden /> : undefined}
           onChange={e => {
             if (!power.isPending) power.mutate({ on: e.currentTarget.checked });
           }}
         />
-        <Menu position="bottom-end" withinPortal closeOnItemClick={false} disabled={!view.control}>
+        <Menu position="bottom-end" withinPortal closeOnItemClick={false} disabled={disabled}>
           <Menu.Target>
             <Button
               variant="subtle"
               color="gray"
               size="compact-sm"
-              disabled={!view.control}
+              disabled={disabled}
+              className="surroundings-cameras"
+              title={from}
               leftSection={<IconCamera size={16} aria-hidden />}
               aria-label="Cameras to learn from"
             >
-              {from}
+              <span className="surroundings-camera-label">{from}</span>
             </Button>
           </Menu.Target>
           <Menu.Dropdown>
             <Menu.Label>Cameras to learn from</Menu.Label>
-            {view.cameras.map(c => {
+            {view?.cameras.map(c => {
               const busy = saving === c.name;
               return (
                 <Menu.CheckboxItem
@@ -158,30 +162,32 @@ export function LearnSurroundings() {
                 </Menu.CheckboxItem>
               );
             })}
-            <Text size="xs" c="dimmed" px="sm" py={4} maw={240}>
-              With none chosen, the default camera is used.
-            </Text>
           </Menu.Dropdown>
         </Menu>
       </div>
-      {view.control ? (
-        <Text size="xs" c="dimmed" className="surroundings-hint">
-          {view.on ? (
-            <>
-              {`Collecting pictures from ${from}. See them in `}
-              <Anchor href="/places" size="xs" onClick={linkClick}>
-                Places
-              </Anchor>
-            </>
+      <div className="surroundings-hints">
+        {/* The full description sizes every state, including the first paint, at this viewport's text width. */}
+        <Text size="xs" className="surroundings-hint-space" aria-hidden="true">
+          {OFF_HINT}
+        </Text>
+        <Text size="xs" c="var(--lib-dim)" className="surroundings-hint" role="status">
+          {status.isPending ? (
+            <CountSkeleton chars={32} label="Loading learning status" />
           ) : (
-            hints.off
+            (reason ??
+            (view?.on ? (
+              <>
+                Collecting pictures. See them in{' '}
+                <Anchor href="/places" size="xs" onClick={linkClick}>
+                  Places
+                </Anchor>
+              </>
+            ) : (
+              OFF_HINT
+            )))
           )}
         </Text>
-      ) : (
-        <Text size="xs" c="dimmed">
-          {ELSEWHERE}
-        </Text>
-      )}
+      </div>
       <Toast text={fail} error label="Learn surroundings" onClose={() => setFail(null)} />
     </div>
   );
