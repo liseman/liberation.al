@@ -1,14 +1,41 @@
-// Object memory page: find where something was last seen, and remember new objects from a frozen camera view.
-import { Anchor, Button, Card, Group, Stack, Text, TextInput, Timeline, Title } from '@mantine/core';
-import { IconEye, IconTag } from '@tabler/icons-react';
+// Object memory page: find where something was last seen, remember new objects from a frozen camera view, and rename
+// or remove one from its row.
+import {
+  ActionIcon,
+  Anchor,
+  Button,
+  Card,
+  Group,
+  Stack,
+  Text,
+  TextInput,
+  Timeline,
+  Title,
+  Tooltip,
+} from '@mantine/core';
+import { IconCheck, IconEye, IconPencil, IconTag, IconTrash, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
+import { confirm } from '../dashboard/lib/confirm';
 import { Disclosure } from '../dashboard/lib/Disclosure';
+import type { Message } from '../dashboard/lib/message';
 import { LoadError, PageEmpty, PageHeader, PageLoading } from '../dashboard/lib/page';
+import { Toast } from '../dashboard/lib/Toast';
 import { viewName } from '../dashboard/review/views';
 import { messageOf } from '../shared/http';
 import { SafeImage } from '../shared/SafeImage';
-import { askWhere, evidenceUrl, getObjects, getStatus, type MemoryObject, type QueryResult, type Status } from './api';
+import {
+  askWhere,
+  evidenceUrl,
+  forgetObject,
+  getObjects,
+  getStatus,
+  type MemoryObject,
+  type QueryResult,
+  renameObject,
+  restoreObject,
+  type Status,
+} from './api';
 import { Evidence } from './Evidence';
 import { timestamp } from './format';
 import { type ObjectDraft, takeObjectDraft } from './handoff';
@@ -59,12 +86,91 @@ function Answer({ found }: { found: QueryResult }) {
   );
 }
 
-function Item({ o, onFind }: { o: MemoryObject; onFind: (name: string) => void }) {
+/** One remembered object's row. The name is edited in place (Enter saves, Escape drops it); removal asks first. */
+function Item({
+  o,
+  onFind,
+  onRename,
+  onRemove,
+}: {
+  o: MemoryObject;
+  onFind: (name: string) => void;
+  onRename: (id: string, name: string) => Promise<boolean>; // false keeps the box open, its error said in the toast
+  onRemove: (o: MemoryObject) => void;
+}) {
+  const [typed, setTyped] = useState<string | null>(null); // the name being edited, or null when not renaming
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    const name = (typed ?? '').trim();
+    if (!name) return;
+    if (await onRename(o.id, name)) setTyped(null);
+  };
   return (
     <Group wrap="nowrap" py="sm" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
       <SafeImage className={classes.thumb} src={evidenceUrl(o.template)} alt={`Reference crop for ${o.name}`} />
       <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-        <Text fw={700}>{o.name}</Text>
+        <Group gap={4} wrap="nowrap" align="center">
+          {typed === null ? (
+            <>
+              <Text fw={700} style={{ flex: 1, minWidth: 0 }}>
+                {o.name}
+              </Text>
+              <Tooltip label="Rename this object">
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  aria-label={`Rename ${o.name}`}
+                  onClick={() => setTyped(o.name)}
+                >
+                  <IconPencil size={14} aria-hidden />
+                </ActionIcon>
+              </Tooltip>
+              <Tooltip label="Remove this object">
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  aria-label={`Remove ${o.name}`}
+                  onClick={() => onRemove(o)}
+                >
+                  <IconTrash size={14} aria-hidden />
+                </ActionIcon>
+              </Tooltip>
+            </>
+          ) : (
+            <form onSubmit={save} style={{ flex: 1, minWidth: 0 }}>
+              <Group gap={4} wrap="nowrap" align="center">
+                <TextInput
+                  size="xs"
+                  style={{ flex: 1, minWidth: 0 }}
+                  aria-label={`New name for ${o.name}`}
+                  value={typed}
+                  maxLength={80}
+                  autoFocus
+                  onChange={e => setTyped(e.currentTarget.value)}
+                  onKeyDown={e => {
+                    if (e.key !== 'Escape') return;
+                    e.stopPropagation();
+                    setTyped(null);
+                  }}
+                />
+                <ActionIcon type="submit" size="sm" variant="default" aria-label="Save name" disabled={!typed.trim()}>
+                  <IconCheck size={14} aria-hidden />
+                </ActionIcon>
+                <ActionIcon
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  aria-label="Cancel rename"
+                  onClick={() => setTyped(null)}
+                >
+                  <IconX size={14} aria-hidden />
+                </ActionIcon>
+              </Group>
+            </form>
+          )}
+        </Group>
         <Text size="sm" c="dimmed">
           {o.mode.replace('_', ' ')}
           {o.last_seen && ` · ${timestamp(o.last_seen.captured_at)}`}
@@ -88,6 +194,45 @@ export function ObjectMemoryPage() {
   const data = useQuery({ queryKey: OVERVIEW_KEY, queryFn: overview, refetchInterval: 10_000 });
   const [question, setQuestion] = useState('');
   const find = useMutation({ mutationFn: askWhere });
+  const [msg, setMsg] = useState<Message<string>>(null);
+  const rename = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => renameObject(id, name),
+    onSettled: () => client.invalidateQueries({ queryKey: OVERVIEW_KEY }),
+  });
+  const forget = useMutation({
+    mutationFn: (o: MemoryObject) => forgetObject(o.id),
+    onSuccess: (_done, o) => setMsg({ text: `Removed ${o.name}. Its recorded sightings stay.`, undo: o.id }),
+    onError: error => setMsg({ err: `Could not remove it: ${messageOf(error)}` }),
+    onSettled: () => client.invalidateQueries({ queryKey: OVERVIEW_KEY }),
+  });
+  const undo = useMutation({
+    mutationFn: (id: string) => restoreObject(id),
+    onSuccess: () => setMsg({ text: 'Remembered again.' }),
+    onError: error => setMsg({ err: `Could not put it back: ${messageOf(error)}` }),
+    onSettled: () => client.invalidateQueries({ queryKey: OVERVIEW_KEY }),
+  });
+  // A name the store refuses (one another object already goes by) keeps the box open, so it can be fixed as typed.
+  const renameTo = async (id: string, name: string): Promise<boolean> => {
+    try {
+      const { object } = await rename.mutateAsync({ id, name });
+      setMsg({ text: `Renamed to ${object.name}.` });
+      return true;
+    } catch (error) {
+      setMsg({ err: `Could not rename it: ${messageOf(error)}` });
+      return false;
+    }
+  };
+  // Asked first, as deleting a pet or a person is; the toast then offers Undo, which remembers it again.
+  const remove = async (o: MemoryObject) => {
+    const sure = await confirm({
+      id: `remove-object-${o.id}`,
+      title: `Remove ${o.name}`,
+      body: `Remove ${o.name}? It stops being matched, and its recorded sightings stay.`,
+      confirm: 'Remove',
+      danger: true,
+    });
+    if (sure) forget.mutate(o);
+  };
 
   const health = data.error
     ? `Object memory unavailable: ${messageOf(data.error)}`
@@ -180,7 +325,7 @@ export function ObjectMemoryPage() {
               </div>
             )}
             {objects?.map(o => (
-              <Item key={o.id} o={o} onFind={findObject} />
+              <Item key={o.id} o={o} onFind={findObject} onRename={renameTo} onRemove={remove} />
             ))}
             <Disclosure className={classes.about} summary="About object matching">
               <Text c="dimmed" size="sm" mt="xs">
@@ -198,6 +343,13 @@ export function ObjectMemoryPage() {
           onSaved={() => client.invalidateQueries({ queryKey: OVERVIEW_KEY })}
         />
       </div>
+      <Toast
+        message={msg}
+        onUndo={id => undo.mutate(id)}
+        busy={undo.isPending}
+        label="Objects"
+        onClose={() => setMsg(null)}
+      />
     </section>
   );
 }
