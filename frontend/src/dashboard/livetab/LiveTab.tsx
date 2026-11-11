@@ -80,7 +80,7 @@ export function LiveTab() {
       <div className="live-tab">
         {/* The tab bar already says this is Live; the heading is for screen readers and focus. */}
         <VisuallyHidden component="h1">Live</VisuallyHidden>
-        <GettingStarted onNameFace={nameFace} />
+        {!(window as Window & { __PACK_DEMO__?: boolean }).__PACK_DEMO__ && <GettingStarted onNameFace={nameFace} />}
         {/* Wide screens: the cameras on the left with who's here under them, and the conversation and what's
             happening in a full-height right rail. Narrow ones stack cameras, conversation, then
             who's here. */}
