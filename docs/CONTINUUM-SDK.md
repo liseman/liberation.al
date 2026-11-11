@@ -16,6 +16,10 @@ Every client speaks the same socket protocol, maps the arena once, and hands out
 
 Every SDK checks a slot's generation after reading and raises if the slot was reused.
 
+The C ABI has no consumer in this tree: nothing here links `continuum-ffi`, so its only user is the C++ example worker
+(`continuum/crates/continuum-ffi/examples/cpp-worker/`, run by `mise run continuum-ffi-example`). Everything the pack
+ships talks to the broker through `continuum-client` or `continuum_py`.
+
 In a checkout, `continuum_py` is a path dependency built from source by `continuum/build_backend/continuum_build.py`
 (a PEP 517 wrapper around maturin), so a checkout needs the Rust toolchain. Whenever `pkg-config` finds FFmpeg's
 development libraries (`libavcodec`, `libavformat`, `libavutil`, and `libswscale`), the backend enables

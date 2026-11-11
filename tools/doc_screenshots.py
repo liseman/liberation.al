@@ -49,8 +49,8 @@ def listening(port: int) -> bool:
 
 
 def wait_ready(demo: subprocess.Popen[bytes], log: pathlib.Path, port: int) -> None:
-    """Wait for the demo's address line and for its dashboard to answer on `port`: the line is printed just before
-    the dashboard starts. Raises with the log's tail if the demo stops or takes too long."""
+    """Wait for the demo's address line, which it prints once its dashboard answers on `port`, and for that answer.
+    Raises with the log's tail if the demo stops or takes too long."""
     deadline = time.monotonic() + START_S
     while time.monotonic() < deadline:
         if READY in log.read_text(errors="replace") and listening(port):

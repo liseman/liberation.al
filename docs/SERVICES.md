@@ -48,10 +48,12 @@ The supervisor (`supervisor.py`):
 Nothing starts at login unless `app.start_at_login` is on. On Linux that writes an XDG autostart entry
 (`~/.config/autostart/liberational.desktop`) for `pack-app` (`login_item.py`).
 
-While a supervisor runs, `pack-services` acts as its client over `control.sock` and `status.json`. Without a
-supervisor, `pack-services install` can instead render and load per-service `systemd` user units or `launchd` agents.
-At startup the supervisor refuses to run if any selected service is already running outside it, so the two modes never
-manage the same service; `pack-services migrate` stops and removes per-service units.
+`pack-services` is the application's client over `control.sock` and `status.json`: `install`, `stop`, `start`, and
+`restart` are requests to it, and `installed` and `status` report what it runs. Nothing renders, installs, or
+uninstalls a unit file: with no application open the command changes nothing and says to open one (`pack-app`, or
+`pack-supervisor run` without the window). At startup the supervisor refuses to run if any selected service is
+already running outside it, so an install keeps either the application or its earlier per-service units, never both;
+`pack-services migrate` stops and removes those units.
 
 ## Startup and readiness
 
@@ -68,7 +70,7 @@ manage the same service; `pack-services migrate` stops and removes per-service u
 
 ## The cascade
 
-A restart or unit install that includes `continuum-broker` or `continuum-capture` (or `pack-services restart --cascade`,
+A restart or install that includes `continuum-broker` or `continuum-capture` (or `pack-services restart --cascade`,
 or `pack-supervisor restart` with no names) runs `service_cascade.py`.
 
 1. **Stop in reverse dependency order.** Stop readers other than `continuum-tier-worker`, stop `continuum-capture`,
@@ -89,12 +91,11 @@ or `pack-supervisor restart` with no names) runs `service_cascade.py`.
    service is active, before `continuum_ready.py` re-checks the broker's arena identity.
 
 A missing configured device or an unexpected mid-cascade restart fails the cascade and names the stage. Recovery
-restarts whatever the cascade stopped and reports anything that would not come back. Unit-mode cascades serialize on
-`state/continuum/service-cascade.lock`, and every cascade appends its stages to `paths.logs/cascade.log`.
+restarts whatever the cascade stopped and reports anything that would not come back. Every cascade appends its stages
+to `paths.logs/cascade.log`.
 
-`continuum-tier-worker` declares `fresh_config`, which wraps its unit command in
-`python -m liberational.services exec continuum-tier-worker` so unit-based restarts expand the current settings at each
-start without re-rendering unit files.
+`continuum-tier-worker` declares `fresh_config`, so the supervisor starts it through
+`python -m liberational.services exec continuum-tier-worker`, which expands the current settings at each start.
 
 ## Logs
 

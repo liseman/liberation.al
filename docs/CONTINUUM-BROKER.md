@@ -141,6 +141,10 @@ Rules a client relies on:
 - **The live edge.** A query on a ring stream that reaches the end of the stream also returns the unsealed tail as a
   ring position range.
 - **Durable subscribers** resume from their last acknowledged position.
+- **Declared, not built.** Nine messages the schema declares have no handler: `CoverageGapQuery`, `AgeOutFrames`,
+  `FramesAgedOut`, `GetStreamGeneration`, `StreamGeneration`, `PrepareRetentionIndex`, `RetentionPrepared`,
+  `ListRetention`, and `RetentionList`. A client that sends one gets an `Error` of code `Unavailable`, naming the
+  message ("<name> is not implemented yet"). `CoverageGapResponse` is their other half and is never sent.
 
 ## Scheduler
 
