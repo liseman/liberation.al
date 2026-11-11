@@ -11,7 +11,7 @@ import pytest
 import plans
 from liberational import config as cfg
 from liberational.memory import places
-from liberational.spatial import cameras, lens, ply, splat_runner, splats, spots
+from liberational.spatial import cameras, lens, ply, registration, splat_runner, splats, spots
 from liberational.spatial import surroundings_frames as frames
 from liberational.spatial import surroundings_map as sm
 
