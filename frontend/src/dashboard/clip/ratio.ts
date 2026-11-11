@@ -11,3 +11,11 @@ export const cameraRatio = (cam: string): number | null => ratios.get(cam) ?? nu
 export const learnRatio = (cam: string, ratio: number): void => {
   ratios.set(cam, ratio);
 };
+
+/** Letterbox space large enough for the compact controls, without moving or cropping the picture. */
+export function controlBand(width: number, height: number, ratio: number | null): 'side' | 'bottom' | 'overlay' {
+  if (!ratio || width <= 0 || height <= 0) return 'overlay';
+  if ((width - height * ratio) / 2 >= 48 && height >= 220) return 'side';
+  if (height - width / ratio >= 44) return 'bottom';
+  return 'overlay';
+}

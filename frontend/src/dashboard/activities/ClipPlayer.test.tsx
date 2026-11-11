@@ -159,3 +159,42 @@ it('opens the playing clip bigger in a popup, and hands its time back to the car
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   await waitFor(() => expect(card.some(v => !v.paused)).toBe(true));
 });
+
+it.each([
+  [360, 640, 'side'],
+  [960, 540, 'bottom'],
+  [314, 240, 'overlay'],
+])('places controls from the %i by %i poster before any decoded frame', async (width, height, band) => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(314);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240);
+  server.use(http.get('/ambient', () => HttpResponse.json({ devices: {} })));
+  renderPage(
+    <ClipPlayer
+      cam="front-room"
+      start={START}
+      end={START + 6}
+      label="squats"
+      makeVideo={() => media()}
+      loadSegments={async () => [
+        { cam: 'front-room', start: START - 30, end: START + 30, url: 'gateway:1:0:60000000' },
+      ]}
+    />,
+  );
+  await waitFor(() => expect(still()).not.toBeNull());
+  const img = still() as HTMLImageElement;
+  Object.defineProperties(img, { naturalWidth: { value: width }, naturalHeight: { value: height } });
+  fireEvent.load(img);
+  await userEvent.click(play());
+  const video = screen.getByRole('region', { name: 'Video' });
+  expect(video).toHaveAttribute('data-controls', band);
+  const pause = await screen.findByRole('button', { name: 'Pause' });
+  pause.focus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: /^Speed/ })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'Mute the room microphone' })).toHaveFocus();
+  await userEvent.tab();
+  expect(screen.getByRole('button', { name: 'Open squats bigger' })).toHaveFocus();
+  await userEvent.click(pause);
+  expect(video).toHaveAttribute('data-controls', band);
+});
