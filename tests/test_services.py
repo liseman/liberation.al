@@ -13,7 +13,7 @@ import psutil
 import pytest
 
 from liberational import config as cfg
-from liberational import logs
+from liberational import logs, supervisor
 from liberational import services as s
 
 
@@ -1095,6 +1095,25 @@ def test_service_history_is_cached_and_expired_reads_refresh_without_resetting_t
     assert s.history(tmp_path, 24) == first
     assert read.call_count == 2
     assert read.call_args.args[0] == ("listen",)
+
+
+def test_supervised_service_history_is_cached_and_expired_reads_refresh(tmp_path, monkeypatch):
+    times = iter([10.0, 11.0, 50.0])
+    monkeypatch.setattr(s.time, "monotonic", lambda: next(times))
+    monkeypatch.setattr(s.time, "time", lambda: 100000.0)
+    monkeypatch.setattr(s, "DARWIN", False)
+    monkeypatch.setattr(s, "_history_cache", {})
+    monkeypatch.setattr(s, "declared", lambda: {"listen": {}, "nightly": {"schedule": "01:00"}})
+    monkeypatch.setattr(s, "_supervised", lambda: {"listen": {}})
+    monkeypatch.setattr(supervisor, "home", lambda: tmp_path)
+    read = create_autospec(supervisor.history, side_effect=lambda home, names, start, end: {"start": start, "end": end})
+    monkeypatch.setattr(supervisor, "history", read)
+    first = s.history(tmp_path, 24)
+    assert s.history(tmp_path, 24) is first  # the second call inside the TTL is the cached view
+    assert read.call_count == 1
+    assert read.call_args.args[1] == ("listen",)
+    assert s.history(tmp_path, 24) == first  # expired: one refresh, same window
+    assert read.call_count == 2
 
 
 @pytest.mark.parametrize("hours", [0, 1, 169, -24])

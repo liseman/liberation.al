@@ -149,8 +149,6 @@ export function useSuggestions() {
   });
 }
 
-export type ReportData = WhosAround | Conversations | Activity | Health | Walkbys | PersonActivity | Devices;
-
 export const reportKey = (kind: string, arg: string | null) => [...REPORTS_KEY, 'report', kind, arg ?? ''] as const;
 
 export function reportURL(kind: string, arg: string | null): string {

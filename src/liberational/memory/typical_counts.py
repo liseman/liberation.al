@@ -20,8 +20,11 @@ NIGHT_HOURS = (22, 31)  # local hours [start, end) of the night that starts on a
 DEFAULT_PERIODS = 14
 MIN_COVERED = 0.5  # a period counts when at least this much of it was checked
 
-#: event_counts.answer: (asked, query, state, stamp, tz, person=...) -> {answer, evidence, coverage, warnings, count}.
+#: event_counts.answer: (asked, query, state, stamp, tz, person=..., scanned=...) -> {answer, evidence, coverage,
+#: warnings, count}. `scanned` is the store read once over the whole run of periods.
 Count = Callable[..., dict[str, Any]]
+#: event_counts.scan: (asked, state, start, end) -> the run's store read, or None when there is nothing to batch.
+Scan = Callable[..., Any]
 
 
 def periods(start: float, end: float, now: float, tz: dt.tzinfo | None, night: bool) -> list[tuple[float, float]]:
@@ -85,16 +88,22 @@ def answer(
     now: float,
     count: Count,
     person: Any = None,
+    scan: Scan | None = None,
 ) -> dict[str, Any]:
-    """{answer, evidence, coverage, warnings} for what is typical for `asked` per day or night."""
+    """{answer, evidence, coverage, warnings} for what is typical for `asked` per day or night. With `scan`, the
+    count's store reads happen once over the whole run of periods instead of once per period."""
     night = bool(query.get("night"))  # "at night", "overnight": the reading's part of the day on a usual count
     unit, units = ("night", "nights") if night else ("day", "days")
     found = periods(float(query["start"]), float(query["end"]), now, tz, night)
+    scanned = scan(asked, state, found[0][0], found[-1][1]) if scan is not None and found else None
     counted: list[tuple[float, float, int]] = []
     missing: list[tuple[float, float]] = []
     evidence: list[dict[str, Any]] = []
     for a, b in found:
-        r = count(asked, {**query, "start": a, "end": b}, state, stamp, tz, person=person)
+        options: dict[str, Any] = {"person": person}
+        if scanned is not None:
+            options["scanned"] = scanned
+        r = count(asked, {**query, "start": a, "end": b}, state, stamp, tz, **options)
         n = r.get("count")
         if n is None or _covered_seconds(r.get("coverage") or {}, a, b) < MIN_COVERED * (b - a):
             missing.append((a, b))

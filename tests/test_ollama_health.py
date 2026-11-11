@@ -85,9 +85,7 @@ def not_found(model):
 def test_a_refused_connection_logs_the_fix_once_and_raises_down(health, error, lines):
     with pytest.raises(oh.Down), oh.call("m", health):
         raise error
-    assert lines == [
-        f"Ollama isn't running at {URL}: start it (e.g. systemctl enable --now ollama). Trying again every 30 s."
-    ]
+    assert lines == [f"Ollama isn't running at {URL}: {oh.START}. Trying again every 30 s."]
 
 
 def test_while_down_calls_fail_fast_and_ollama_is_tried_every_30_s(health, clock):
@@ -105,9 +103,9 @@ def test_a_reminder_is_logged_at_most_once_a_minute(health, clock, lines):
     assert len(lines) == 1
     attempt(health, clock, 60, REFUSED)
     attempt(health, clock, 90, REFUSED)
-    assert lines[1:] == [f"Ollama isn't running at {URL} (down 60 s): start it (e.g. systemctl enable --now ollama)"]
+    assert lines[1:] == [f"Ollama isn't running at {URL} (down 60 s): {oh.START}"]
     attempt(health, clock, 120, REFUSED)
-    assert lines[2] == f"Ollama isn't running at {URL} (down 2 min): start it (e.g. systemctl enable --now ollama)"
+    assert lines[2] == f"Ollama isn't running at {URL} (down 2 min): {oh.START}"
 
 
 def test_recovery_logs_one_back_line_and_calls_go_through_again(health, clock, lines):
@@ -220,8 +218,10 @@ def test_status_says_ollama_isnt_running():
         s = oh.status(refused)
     assert (s["up"], s["message"]) == (
         False,
-        f"Ollama isn't running at {URL}: start it (e.g. systemctl enable --now ollama)",
+        f"Ollama isn't running at {URL}: {oh.START}",
     )
+    # The pack runs Ollama as one of its own services; a system unit it never installs is not the fix.
+    assert "pack-services start ollama" in oh.START
 
 
 def test_status_counts_a_slow_answer_as_running():
@@ -310,7 +310,7 @@ def test_the_dashboard_stats_carry_what_to_tell_the_owner():
     assert (o["up"], o["missing"], o["message"]) == (
         False,
         [],
-        f"Ollama isn't running at {URL}: start it (e.g. systemctl enable --now ollama)",
+        f"Ollama isn't running at {URL}: {oh.START}",
     )
 
 

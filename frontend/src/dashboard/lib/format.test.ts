@@ -37,11 +37,13 @@ describe('ago', () => {
 
 describe('the rest', () => {
   it('pluralizes', () => {
-    expect([plural(1, 'voice', 'voices'), plural(0, 'voice', 'voices'), plural(3, 'face', 'faces')]).toEqual([
-      '1 voice',
-      '0 voices',
-      '3 faces',
-    ]);
+    expect([
+      plural(1, 'voice', 'voices'),
+      plural(0, 'voice', 'voices'),
+      plural(3, 'face', 'faces'),
+      plural(2, 'report'),
+      plural(1, 'report'),
+    ]).toEqual(['1 voice', '0 voices', '3 faces', '2 reports', '1 report']);
   });
 
   it('formats sizes', () => {

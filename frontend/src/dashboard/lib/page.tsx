@@ -12,8 +12,9 @@ import classes from './page.module.css';
 /** How long a page load runs before it says it is still going. */
 export const PAGE_SLOW_MS = 10_000;
 
-/** A phone's width, the app header's own breakpoint (app.module.css): a page folds its controls under it. */
-export const PHONE_WIDTH = '(max-width: 720px)';
+/** A phone's width, the app header's and the page frame's breakpoint (app.module.css, page.module.css): a page
+ *  folds its controls under it. */
+export const PHONE_WIDTH = '(max-width: 700px)';
 
 /** A page: its heading row (title, a count or date, one line of description, and its main action), then content. */
 export function PageFrame({

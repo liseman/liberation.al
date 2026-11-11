@@ -6,7 +6,7 @@ unknown, never "nobody". Counts are episode starts in the half-open window, neve
 cameras, and never who: a track is camera-local.
 
 Both reads are a window of the segment store, so there is no projection to keep warm and no cache: any window is
-answered directly (`ready` is always true).
+answered directly.
 """
 
 from __future__ import annotations
@@ -48,11 +48,6 @@ def day_bounds(day: str) -> tuple[float, float]:
     """[start, end) of a local calendar day 'YYYY-MM-DD' as epoch seconds (DST days are 23 or 25 hours)."""
     t = time.strptime(day, "%Y-%m-%d")
     return time.mktime(t), time.mktime((t.tm_year, t.tm_mon, t.tm_mday + 1, 0, 0, 0, 0, 0, -1))
-
-
-def ready(start: float, end: float, cameras: Sequence[str] = ()) -> bool:
-    """Whether collect answers this window quickly: always, now that it's two segment reads."""
-    return True
 
 
 class Unavailable(RuntimeError):

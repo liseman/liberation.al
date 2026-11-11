@@ -28,7 +28,9 @@ def _put(state: Path, collection: str, span: Mapping[str, Any], fields: Mapping[
 
 def name(state: Path, span: Mapping[str, Any], label: str, **fields: Any) -> dict[str, Any]:
     """The owner names `span` (a record with `id`, `ts_start`, and optionally `ts_end`)."""
-    return _put(state, events.NAMED, span, {"name": label, **fields})
+    # The kind the span had when it was named, as events.name_activity stores it: a name without one reads as a
+    # retired kind's, which no one asks about.
+    return _put(state, events.NAMED, span, {"name": label, "kind": span.get("kind"), **fields})
 
 
 def rate(

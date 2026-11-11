@@ -750,6 +750,21 @@ def test_evidence_context_keeps_what_fits_and_says_so():
     assert json.loads(context)["input_selection"] == {"included": 1, "available": 2, "partial": True}
 
 
+def test_evidence_context_keeps_the_budget_exactly():
+    """The last row kept fits the budget and the next row would not: the running count is the dumped length, so the
+    "partial" flag stays what it was."""
+    budget = 3000
+    rows = [{"id": f"T{i}", "text": "x" * 120} for i in range(40)]
+    context, partial = p.evidence_context({"evidence": rows}, budget)
+    assert partial
+    built = json.loads(context)
+    kept = built["evidence"]
+    base = {**built, "evidence": []}
+    del base["input_selection"]
+    assert len(json.dumps({**base, "evidence": kept}, ensure_ascii=False)) <= budget - 160
+    assert len(json.dumps({**base, "evidence": [*kept, rows[len(kept)]]}, ensure_ascii=False)) > budget - 160
+
+
 def test_evidence_context_keeps_the_video_method():
     row = {"id": "C1", "text": "A person", "source": "video", "method": "sampled recorded frames"}
     context, partial = p.evidence_context({"evidence": [dict(row, ts=1.0, link="/review")]}, 4000)
@@ -1423,7 +1438,6 @@ def test_the_partial_file_holds_the_answer_so_far(tmp_path):
 
 
 def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(tmp_path, monkeypatch):
-    monkeypatch.setattr(p, "STATE", tmp_path)
     started, release = threading.Event(), threading.Event()
     seen: dict[str, object] = {}
 
@@ -1438,7 +1452,8 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
 
     monkeypatch.setattr(p, "_ask_result", fake_result)
     monkeypatch.setattr(p, "_history_start", lambda *a, **k: None)
-    manager = p.JobManager()
+    # Its own state directory, not the module's: the module global is never patched here.
+    manager = p.JobManager(state=tmp_path)
     manager.runner = fake_result
     job = manager.submit("what does Dana want")
     assert started.wait(5)
@@ -1446,8 +1461,8 @@ def test_a_running_job_shows_its_partial_answer_and_the_file_goes_when_it_ends(t
     assert running is not None and running["partial"] == "Dana wants tom"
     release.set()
     manager.queue.join()
-    assert seen["partial"] == p.partial_path(job["id"])
-    assert not p.partial_path(job["id"]).exists()
+    assert seen["partial"] == p.partial_path(job["id"], tmp_path)
+    assert not p.partial_path(job["id"], tmp_path).exists()
     finished = manager.get(job["id"])
     assert finished is not None and "partial" not in finished
 

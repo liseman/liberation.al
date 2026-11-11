@@ -9,7 +9,7 @@ import pytest
 
 from asking import query
 from liberational import config as cfg
-from liberational.memory import activity_questions, event_counts, history_qa, recall
+from liberational.memory import activity_questions, event_counts, history_qa, question, recall
 from liberational.memory import ask as pack_ask
 
 UTC = dt.UTC
@@ -38,6 +38,9 @@ class FakeEvents(types.ModuleType):
 
     def coverage(self, state, start, end):
         return [c for c in self.covered if c[1] < end and c[2] > start]
+
+    def named(self, state):
+        return [(e["name"], e.get("kind")) for e in self.found if e.get("name") and e["name"] != e.get("kind")]
 
 
 @pytest.fixture
@@ -84,6 +87,35 @@ def test_covered_with_nothing_found_is_a_real_zero(events, tmp_path):
     events.covered = [("cam0", at(9, 0), at(9, 30))]
     r = ask("how often did the dog get on the couch today", tmp_path)
     assert r["answer"].startswith("dog on the couch: not found in 1 analyzed recording.")
+
+
+def test_a_span_across_midnight_counts_in_both_days_it_covers(events, readings, tmp_path):
+    readings["how many times do I generally open the fridge"] = question.Reading(
+        measure="count", usual=True, people=("me",), source="cameras"
+    )
+    midnight = dt.datetime(2026, 10, 28, tzinfo=UTC).timestamp()
+    events.covered = [("cam0", midnight - 86400, midnight), ("cam0", midnight, midnight + 86400)]
+    events.found = [span(midnight - 300, midnight + 300, 1, "opened the fridge")]
+    r = ask("how many times do I generally open the fridge", tmp_path)
+    assert r["paths"] == ["events", "typical"]
+    assert [p["count"] for p in r["coverage"]["events"]["periods"]] == [1, 1]
+
+
+def test_a_usual_count_reads_the_store_once_for_all_its_periods(events, readings, tmp_path, monkeypatch):
+    readings["how many times do I generally open the fridge"] = question.Reading(
+        measure="count", usual=True, people=("me",), source="cameras"
+    )
+    day = dt.datetime(2026, 10, 28, tzinfo=UTC).timestamp()
+    events.covered = [("cam0", day, day + 86400)]
+    events.found = [span(day + 3600, day + 3660, 1, "opened the fridge")]
+    reads: list[tuple[float, float]] = []
+    original = events.events
+    monkeypatch.setattr(
+        events, "events", lambda state, start, end: reads.append((start, end)) or original(state, start, end)
+    )
+    r = ask("how many times do I generally open the fridge", tmp_path)
+    assert r["paths"] == ["events", "typical"]
+    assert len(reads) == 1, "one read for the whole run of periods, not one per period"
 
 
 def test_without_the_events_module_no_question_is_one_of_these(monkeypatch, tmp_path):
@@ -179,6 +211,57 @@ def test_actual_crossing_without_repetition_count_counts_one_event(tmp_path, vis
     )
     assert result["answer"].startswith("crossed the doorway: 1 time")
     assert "1 time" in result["evidence"][0]["quote"]
+
+
+def test_the_name_lookup_reads_the_knowledge_store_and_no_spans(monkeypatch, tmp_path, vision):
+    from liberational import segment_log
+    from liberational.memory import events as real_events
+
+    monkeypatch.setattr(event_counts, "_NAMES", {})
+    named = []
+    for minute, name in enumerate(("fed the cat", "opened the fridge", "crossed the doorway")):
+        record = vision.add(
+            segment_log.WALKBY_SPANS,
+            ts_start=at(9, minute),
+            ts_end=at(9, minute + 1),
+            cam="cam0",
+            kind="crossing",
+            count=1,
+            candidate=False,
+            camera_moved=False,
+            uncertainty={"value": None},
+        )
+        real_events.name_activity(tmp_path, real_events.NameActivity(record["id"], at(9, minute), name))
+        named.append(name)
+
+    def no_spans(*args, **kwargs):
+        raise AssertionError("the name lookup read every span")
+
+    monkeypatch.setattr(real_events, "count_evidence", no_spans)
+    monkeypatch.setattr(real_events, "_spans", no_spans)
+    assert sorted(event_counts.known_names(tmp_path)) == sorted(named)
+
+
+def test_a_failed_name_read_is_logged_and_not_cached(monkeypatch, tmp_path, caplog):
+    monkeypatch.setattr(event_counts, "_NAMES", {})
+
+    class Broken(types.ModuleType):
+        def __init__(self) -> None:
+            super().__init__("liberational.memory.events")
+            self.calls = 0
+
+        def named(self, state):
+            self.calls += 1
+            raise RuntimeError("the knowledge store is busy")
+
+    broken = Broken()
+    monkeypatch.setattr(event_counts, "module", lambda: broken)
+    assert event_counts.known_names(tmp_path) == []
+    assert broken.calls == 1
+    assert "could not be read" in caplog.text
+    assert event_counts.known_names(tmp_path) == []
+    assert broken.calls == 2, "a failed read is not cached: the next question asks again"
+    assert event_counts._NAMES == {}
 
 
 def test_named_unverified_candidate_never_becomes_not_found_with_processed_coverage(tmp_path, vision):
