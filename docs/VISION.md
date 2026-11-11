@@ -133,9 +133,23 @@ off. Until then a best match is shown as a suggestion and nothing answers for a 
 exactly one named pet has no second class to get wrong, so its labeled sightings are a gallery with a threshold of
 their own. The module's docstring has the thresholds.
 
+A species listed in `pets.classifier_species` (cats, as shipped) that has several pets and at least
+`pets.classifier_min_labels` labels is also tried with a classifier over every labeled example: a calibrated logistic
+regression (`pets.classifier_regularization`). The labels are split in time: the oldest half trains it, the next
+quarter calibrates it, and the newest quarter tests it, with a gap between visits so that one visit is never on both
+sides. Its operating point allows no error seen in calibration, and it replaces the nearest-example rule only when it
+decides at least as many of the test sightings with no more of them wrong. Otherwise, and for every other species,
+the nearest-example rule stands.
+
+A sighting recognition names stays on the pet's card and is not offered for naming. One that waits carries its
+reason. Each pet's card reports how well it is learned: over the labeled sightings of the last `pets.learning_days`
+days that recognition was not taught from, the share named correctly, the dates those sightings span, how many
+examples are usable, and how many labels are stranded with no example in the current embedding space. It is an
+estimate on sightings the owner checked, not a record of what was named automatically.
+
 Unlabeled sightings are offered for labeling for `pets.label_days`. A label keeps its embedding and its photo
 (`pet.reference`, `pet.photo`), so it survives a reset, and `tools/restore_pet_references.py` can embed references
-again after a model change.
+again after a model change, for every label whose photo is still kept. It cannot bring back a photo that is gone.
 
 A pet's training images are the sightings labeled as it, listed on its card with the least like the rest first. An
 example with no kept photo is listed without one. Removing some clears their labels, marks them not that pet, and
