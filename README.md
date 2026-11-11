@@ -6,8 +6,8 @@ the recording to back it up. Everything runs on a computer in your home: recordi
 leave it unless you turn on an outside service yourself.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-day-dark.png">
-  <img alt="The Journal: columns for months, weeks, days, and hours, and a day's page that says where people were, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-live-dark.png">
+  <img alt="Live: four cameras on the front room, kitchen, porch, and study, the conversation beside them, what is happening, and Alice, Sam, Dana, and Rex under Here now with the room each is in" src="docs/images/demo-live.png">
 </picture>
 
 Why it exists is in the [manifesto](MANIFESTO.md): AI should give you superpowers.
@@ -17,34 +17,51 @@ Why it exists is in the [manifesto](MANIFESTO.md): AI should give you superpower
 Every picture here is the demo household: Alice, Dana, Sam, and Rex the dog, in a made-up house. `pack-demo` opens
 the same dashboard on your machine, with none of your data ([a first look at the pack](docs/TUTORIAL.md)).
 
-**The Journal** goes from a month down to a moment. An hour has its events, and what it says links to its evidence.
+**Live** is the home now: every camera, who is here and in which room, the conversation as it is said, and what is
+happening. The picture above is Live.
+
+**The Journal** goes from a month down to a moment. A day's page says where people were, what happened, and what was
+talked about. An hour has its events, and what it says links to its evidence.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-journal-day-dark.png">
+  <img alt="The Journal: columns for months, weeks, days, and hours, and a day's page that says where people were, what happened, what was talked about, and what was eaten" src="docs/images/demo-journal-day.png">
+</picture>
 
 <img alt="The Journal with the 18:00 hour open: four events from 18:02 to 18:38, and the hour's entry about dinner" src="docs/images/demo-journal-hour.png">
 
-**Known** holds everyone and everything you named. A person's card has their photos, their voice, and the pictures
-recognition learned from, and a wrong picture can be taken out.
+**Known** holds everyone and everything you named. Faces and voices nobody has named wait under "Who's this?" with
+the best guess first, and every answer teaches the pack. A card has the person's or pet's pictures, recent video, and
+the pictures recognition learned from, and a wrong picture can be taken out.
+
+<img alt="Known, People: Alice, Dana, and Sam, and Who's this? with two faces waiting, guessed as maybe Alice and maybe Dana" src="docs/images/demo-whos-this.png">
 
 <img alt="Known, People: the list of Alice, Dana, and Sam, with Dana's card open on her recent lines" src="docs/images/demo-people-card.png">
 
-<img alt="Known, Pets: Rex's card with seven training images, the one unlike the rest marked and listed first" src="docs/images/demo-pet-training-images.png">
+<img alt="Known, Pets: Rex the dog's card with his picture, recent video from the front room, and recent sightings" src="docs/images/demo-pet-card.png">
+
+**Activities** are the movements you teach it to count. It shows a clip and asks whether it is what it guessed, and a
+kind starts to count once it has enough answers.
+
+<img alt="Known, Activities: two clips to check, asking Is this Preparing dinner? and Is this Coming home?, beside the kinds still learning" src="docs/images/demo-activities.png">
 
 **Places** has a plan of each place. You draw it in the plan editor and give each camera its spot, and people and
-pets are drawn on the plan where the cameras saw them.
+pets are drawn on the plan where the cameras saw them. The 3D view shows what one camera sees as a cloud of points.
 
-<img alt="Known, Places: the demo house's plan with five rooms: kitchen, hall, bedroom, living room, and study" src="docs/images/demo-places-plan.png">
+<img alt="Known, Places: the demo house's plan of five rooms, with coloured paths where people and Rex walked between them" src="docs/images/demo-places-plan.png">
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/demo-plan-editor-dark.png">
   <img alt="The plan editor on the demo house: tools for rooms, walls, doors, and windows beside the plan, with Versions, Discard changes, and Save plan above it" src="docs/images/demo-plan-editor.png">
 </picture>
 
+<img alt="The 3D view of the front-room camera: a point cloud of the room with two people, a dog, a sofa, and a plant, marked as approximate in size" src="docs/images/demo-3d-view.png">
+
 **Statistics** charts who was around and when, conversations, and activity.
 
 <img alt="Statistics: a daily clock of who was around, hour by hour, with stretches nothing was recorded hatched" src="docs/images/demo-statistics.png">
 
-The dashboard also has **Live** (the cameras now, with who is in view), **Review** (a day's video and transcript),
-**Ask** (questions answered from the record), and a **3D view** of what one camera sees. Those need cameras, so the
-demo household does not show them yet.
+The dashboard also has **Review** (a day's video and transcript) and **Ask** (questions answered from the record).
 
 ## What you need
 

@@ -18,6 +18,8 @@ works.
 2. Open the camera button beside the switch, "Cameras to learn from", and check the cameras to collect pictures from.
    With none checked, the default camera (marked "Used when none is chosen" in the menu) is used.
 
+![Live on the demo household, with the Learn surroundings switch and its camera button above the four cameras](images/demo-live.png)
+
 Each change is saved as it is made, and nothing restarts. Turn the switch off to stop. On another device the switch
 and the menu are disabled, and say that only the machine the pack runs on can change them.
 
@@ -46,6 +48,8 @@ up on the machine ([the steps](../MIGRATING.md#each-cameras-own-point-cloud)); w
 1. On the Places page, pick the place and switch its view from **Plan** to **3D view**.
 2. Pick a camera under **Camera**. The view opens from that camera's own viewpoint and draws its points.
 3. Press **See it from outside** to step back from the camera and look at the cloud from elsewhere.
+
+![The 3D view of the demo household's front-room camera: the room as a cloud of points, with the camera picker above and the colour, point size, and floor controls below](images/demo-3d-view.png)
 
 One camera is shown at a time. Clouds of different cameras are not joined into one map of the place.
 

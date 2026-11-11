@@ -44,7 +44,31 @@ async function click(page, locator, wait = STEP_MS) {
   await page.waitForTimeout(wait);
 }
 
+/** Rex's card, with Training images open and in view. */
+async function petTraining(page) {
+  await open(page, '/pets');
+  await click(page, page.getByText('Rex', { exact: true }).first(), SETTLE_MS);
+  await click(page, page.getByRole('button', { name: 'Show', exact: true }).first(), SETTLE_MS);
+  await page.getByText('Training images', { exact: true }).scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 500);
+  await page.waitForTimeout(STEP_MS);
+}
+
+/** The plan editor, which is a page of its own and takes a while to open. */
+async function planEditor(page) {
+  await open(page, '/places');
+  await click(page, page.getByRole('button', { name: 'Edit plan' }), 9000);
+}
+
+/** Live, once its tiles and the people here now have arrived. */
+async function live(page) {
+  await open(page, '/');
+  await page.waitForTimeout(SETTLE_MS);
+}
+
 const SHOTS = [
+  { name: 'demo-live', steps: live },
+  { name: 'demo-live-dark', scheme: 'dark', steps: live },
   { name: 'demo-journal-day', steps: journalDay },
   { name: 'demo-journal-day-dark', scheme: 'dark', steps: journalDay },
   {
@@ -55,6 +79,13 @@ const SHOTS = [
     },
   },
   {
+    name: 'demo-whos-this',
+    steps: async page => {
+      await open(page, '/people');
+      await page.waitForTimeout(SETTLE_MS); // the faces to name come after the list
+    },
+  },
+  {
     name: 'demo-people-card',
     steps: async page => {
       await open(page, '/people');
@@ -62,39 +93,42 @@ const SHOTS = [
     },
   },
   {
-    name: 'demo-pet-training-images',
+    name: 'demo-pet-card',
     steps: async page => {
       await open(page, '/pets');
       await click(page, page.getByText('Rex', { exact: true }).first(), SETTLE_MS);
-      await click(page, page.getByRole('button', { name: 'Show', exact: true }).first(), SETTLE_MS);
     },
   },
   {
     name: 'demo-pet-remove-selected',
     steps: async page => {
-      await open(page, '/pets');
-      await click(page, page.getByText('Rex', { exact: true }).first(), SETTLE_MS);
-      await click(page, page.getByRole('button', { name: 'Show', exact: true }).first(), SETTLE_MS);
+      await petTraining(page);
       await click(page, page.getByRole('checkbox').first()); // the grey tile, listed first
-      await page.getByRole('button', { name: /Remove 1 selected/ }).scrollIntoViewIfNeeded();
-    },
-  },
-  { name: 'demo-places-plan', steps: page => open(page, '/places') },
-  {
-    name: 'demo-plan-editor',
-    steps: async page => {
-      await open(page, '/places');
-      await click(page, page.getByRole('button', { name: 'Edit plan' }), 9000); // the editor is a page of its own
     },
   },
   {
-    name: 'demo-plan-editor-dark',
-    scheme: 'dark',
+    name: 'demo-activities',
     steps: async page => {
-      await open(page, '/places');
-      await click(page, page.getByRole('button', { name: 'Edit plan' }), 9000);
+      await open(page, '/activities');
+      await page.waitForTimeout(SETTLE_MS); // the clips' pictures
     },
   },
+  {
+    name: 'demo-places-plan',
+    steps: async page => {
+      await open(page, '/places');
+      await page.waitForTimeout(SETTLE_MS); // the paths are drawn after the plan
+    },
+  },
+  {
+    name: 'demo-3d-view',
+    steps: async page => {
+      await open(page, '/places');
+      await click(page, page.getByText('3D view', { exact: true }), 8000); // the cloud's points
+    },
+  },
+  { name: 'demo-plan-editor', steps: planEditor },
+  { name: 'demo-plan-editor-dark', scheme: 'dark', steps: planEditor },
   {
     name: 'demo-statistics',
     steps: async page => {
