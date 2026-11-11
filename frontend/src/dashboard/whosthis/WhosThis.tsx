@@ -108,11 +108,11 @@ export function shotSrc(url: string, small: boolean): string {
 /** What requests about a clip's line send: its key, or its time for a clip from before keys. */
 const ref = (clip: { ts: number; line?: string }): LineRef => clip.line ?? clip.ts;
 
-/** Best guess first: the probable ones by score, then the maybes, then the rest by when they were last seen. */
 /** A row's band for sorting: one with no guess but a suggestion from who was with it sorts with the maybes, as
  *  the server sorts it. */
 const sortBand = (g: Row): Band => (g.band === 'none' && g.together ? 'maybe' : g.band);
 const scoreKey = (g: Row): number => (g.band !== 'none' ? -g.score : 0);
+/** Best guess first: the probable ones by score, then the maybes, then the rest by when they were last seen. */
 const byGuess = (a: Row, b: Row) =>
   RANK[sortBand(a)] - RANK[sortBand(b)] || scoreKey(a) - scoreKey(b) || (b.last_seen ?? 0) - (a.last_seen ?? 0);
 
