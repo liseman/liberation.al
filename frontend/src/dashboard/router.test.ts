@@ -12,8 +12,9 @@ describe('tabOf', () => {
     ['/pets', 'known'],
     ['/calls', 'calls'],
     ['/calls/', 'calls'],
-    ['/ingest', 'ingest'],
-    ['/reports/', 'reports'],
+    ['/ingest', 'known'],
+    ['/statistics/', 'statistics'],
+    ['/reports', 'live'],
     ['/settings', 'settings'],
     ['/debug', 'debug'],
     ['/skeletons', 'skeletons'],
@@ -30,6 +31,7 @@ describe('Known', () => {
     ['/pets/', 'pets'],
     ['/objects', 'objects'],
     ['/review', null],
+    ['/ingest', 'ingest'],
   ])('%s is the %s tab', (path, tab) => {
     expect(knownTabOf(path)).toBe(tab);
   });

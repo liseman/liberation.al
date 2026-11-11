@@ -21,7 +21,7 @@ import { type FormEvent, type JSX, type ReactNode, useCallback, useEffect, useRe
 import { HttpError, messageOf } from '../../shared/http';
 import { confirm } from '../lib/confirm';
 import { dayWords, hm, isoDay, plural } from '../lib/format';
-import { PageEmpty, PageError, PageFrame, PageLoading } from '../lib/page';
+import { PageEmpty, PageError, PageHeader, PageLoading } from '../lib/page';
 import { reviewURL } from '../review/url';
 import { href, linkClick } from '../router';
 import { CARD_ID } from '../settings/sources/model';
@@ -746,10 +746,12 @@ export function IngestTab(): JSX.Element {
   });
   const view = query.data;
   return (
-    <PageFrame
-      title="Ingest"
-      lede="Photos, video, and audio from elsewhere, read for faces, voices, and words like the ones recorded here."
-    >
+    <section aria-labelledby="ingest-h">
+      <PageHeader
+        titleId="ingest-h"
+        title="Ingest"
+        lede="Photos, video, and audio from elsewhere, read for faces, voices, and words like the ones recorded here."
+      />
       <Stack gap="lg">
         <Upload />
         <Text {...muted}>
@@ -792,6 +794,6 @@ export function IngestTab(): JSX.Element {
           )}
         </Box>
       </Stack>
-    </PageFrame>
+    </section>
   );
 }

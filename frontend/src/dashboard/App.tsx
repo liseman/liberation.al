@@ -1,7 +1,7 @@
 // The dashboard app: a top bar with the tabs, status, and buttons, and the current tab below it.
 import { Anchor, Menu, UnstyledButton } from '@mantine/core';
 import { useDocumentTitle, useMediaQuery } from '@mantine/hooks';
-import { IconBroadcast, IconDots, IconInbox, IconPlayerPlay, IconUsers, type TablerIcon } from '@tabler/icons-react';
+import { IconBroadcast, IconDots, IconPhone, IconPlayerPlay, IconUsers, type TablerIcon } from '@tabler/icons-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Activity, lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AskBar } from './AskBar';
@@ -19,7 +19,7 @@ import { SettingsDrawer, useNeedsSetup } from './settings/Settings';
 import { UsagePanel } from './usage/UsagePanel';
 
 // Live stays eager; every other pane loads on first visit and keeps its Activity state afterward.
-const ReportsTab = lazy(() => import('./reports/ReportsTab'));
+const StatisticsTab = lazy(() => import('./statistics/StatisticsTab'));
 // The command palette loads after the page, so its Settings and people reads don't hold the first view up.
 const Palette = lazy(() => import('./palette/Palette').then(m => ({ default: m.Palette })));
 const Review = lazy(() => import('./review/Review').then(m => ({ default: m.Review })));
@@ -27,7 +27,6 @@ const Known = lazy(() => import('./known/Known').then(m => ({ default: m.Known }
 const JournalTab = lazy(() => import('./journal/JournalTab').then(m => ({ default: m.JournalTab })));
 const CallsTab = lazy(() => import('./calls/Calls').then(m => ({ default: m.CallsTab })));
 const InboxTab = lazy(() => import('./inbox/InboxTab').then(m => ({ default: m.InboxTab })));
-const IngestTab = lazy(() => import('./ingest/IngestTab').then(m => ({ default: m.IngestTab })));
 const DebugTab = lazy(() => import('./debug/DebugTab').then(m => ({ default: m.DebugTab })));
 const SkeletonsPage = lazy(() => import('./skeletons/SkeletonsPage').then(m => ({ default: m.SkeletonsPage })));
 const SettingsForm = lazy(() => import('./settings/SettingsForm').then(m => ({ default: m.SettingsForm })));
@@ -39,8 +38,7 @@ const TITLES: Record<TabId, string> = {
   known: 'Known',
   calls: 'Calls',
   inbox: 'Inbox',
-  reports: 'Reports',
-  ingest: 'Ingest',
+  statistics: 'Statistics',
   debug: 'Debug',
   skeletons: 'Skeletons',
   settings: 'Settings',
@@ -56,7 +54,7 @@ const BOTTOM: { id: Pane; icon: TablerIcon }[] = [
   { id: 'live', icon: IconBroadcast },
   { id: 'review', icon: IconPlayerPlay },
   { id: 'known', icon: IconUsers },
-  { id: 'inbox', icon: IconInbox },
+  { id: 'calls', icon: IconPhone },
 ];
 /** The phone breakpoint, as in app.module.css. */
 const PHONE_NAV = '(max-width: 700px)';
@@ -106,7 +104,7 @@ function BottomNav({ content, known }: { content: TabId; known: string }) {
               onClick={linkClick}
               aria-current={content === t.id ? 'page' : undefined}
             >
-              {t.label}
+              {t.id === 'inbox' ? <InboxLabel /> : t.label}
             </Menu.Item>
           ))}
         </Menu.Dropdown>
@@ -142,14 +140,9 @@ const PANES: Record<Pane, ReactNode> = {
       <InboxTab />
     </Deferred>
   ),
-  reports: (
-    <Deferred name="Reports">
-      <ReportsTab />
-    </Deferred>
-  ),
-  ingest: (
-    <Deferred name="Ingest">
-      <IngestTab />
+  statistics: (
+    <Deferred name="Statistics">
+      <StatisticsTab />
     </Deferred>
   ),
   debug: (
