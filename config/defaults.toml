@@ -555,7 +555,7 @@ wyze_cameras = []
 # Length of each recorded Wyze segment, in seconds: a segment is ingested once it's finished.
 wyze_segment_s = 300
 
-# Which services `pack-services install` sets up, on top of each one's default in
+# Which services the application runs here, on top of each one's default in
 # services/services.toml. Names are the sections of that file.
 [services]
 enable = []

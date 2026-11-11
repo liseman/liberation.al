@@ -230,9 +230,8 @@ def reason(error: BaseException) -> str:
     return str(error) or type(error).__name__
 
 
-# Rotation (#58). A service's log is written by a process that holds it open in append mode (the systemd wrapper's
-# `>>`, launchd's StandardOutPath, and the supervisor's own open("ab")), so it can't be renamed away: the writer
-# would follow the rename. `trim` copies and truncates instead, as logrotate's copytruncate does: an append-mode
+# Rotation (#58). A service's log is written by a process that holds it open in append mode (the supervisor's own
+# open("ab")), so it can't be renamed away: the writer would follow the rename. `trim` copies and truncates instead, as logrotate's copytruncate does: an append-mode
 # writer's next line goes to the start of the emptied file. `pack-services trim-logs` runs it hourly (the log-trim
 # service).
 CAP_BYTES = 10 * 1024 * 1024  # the most a log file keeps, current and older alike

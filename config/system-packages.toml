@@ -1,7 +1,7 @@
 # Programs and libraries Liberational needs from the operating system: everything that uv (Python packages) and mise
 # (mise.toml's [tools]) don't install. `mise run setup` installs the missing ones (`pack-system install`, which shows
-# the command and asks before running it), `pack-system check` lists them, `pack-services install` warns when a
-# service it installs needs one, and the dashboard's Machine panel shows the same list.
+# the command and asks before running it), `pack-system check` lists them, and the dashboard's Machine panel shows the
+# same list.
 #
 # One table per package:
 #   why       what it's for, in a sentence the owner can act on
