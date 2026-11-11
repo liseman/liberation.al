@@ -127,6 +127,32 @@ const SHOTS = [
       await click(page, page.getByText('3D view', { exact: true }), 8000); // the cloud's points
     },
   },
+  {
+    name: 'demo-3d-all-cameras',
+    steps: async page => {
+      await open(page, '/places');
+      await click(page, page.getByText('3D view', { exact: true }), 6000);
+      await click(page, page.getByText('All cameras', { exact: true }), 9000); // every camera's cloud, placed
+    },
+  },
+  {
+    name: 'demo-zones',
+    steps: async page => {
+      // A zone is drawn on the front room's rug and named, and not saved.
+      await open(page, '/settings#devices');
+      await click(page, page.getByRole('button', { name: 'Zones', exact: true }).first(), SETTLE_MS);
+      const editor = page.getByRole('dialog').filter({ hasText: 'Zones on' });
+      await click(page, editor.getByRole('button', { name: 'Add a zone' }));
+      const box = await editor.locator('img, canvas, video').first().boundingBox();
+      for (const [x, y] of [[0.47, 0.72], [0.8, 0.6], [0.99, 0.82], [0.6, 0.99]]) {
+        await page.mouse.click(box.x + x * box.width, box.y + y * box.height);
+        await page.waitForTimeout(300);
+      }
+      await click(page, editor.getByRole('button', { name: 'Done', exact: true }));
+      await editor.getByRole('textbox').first().fill('Rug');
+      await page.waitForTimeout(STEP_MS);
+    },
+  },
   { name: 'demo-plan-editor', steps: planEditor },
   { name: 'demo-plan-editor-dark', scheme: 'dark', steps: planEditor },
   {
