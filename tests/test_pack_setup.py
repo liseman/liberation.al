@@ -19,6 +19,7 @@ def installed(tmp_path, monkeypatch):
     monkeypatch.setattr(pack_setup, "LOCK", tmp_path / "constraints.txt")
     monkeypatch.setattr(pack_setup.importlib.metadata, "version", {"liberational-pack": "1.2.3"}.__getitem__)
     monkeypatch.setattr(pack_setup.shutil, "which", {"uv": "/usr/bin/uv"}.get)
+    monkeypatch.setattr(cfg, "platform_key", lambda: "darwin-arm64")  # every extra this platform gets, GPU or not
     return tmp_path
 
 
@@ -36,13 +37,24 @@ def recorder(code=0):
     "platform, nvidia, want",
     [
         pytest.param("linux-x86_64", True, ["faces", "segmentation", "deep-asr", "voice-clone"], id="linux-nvidia"),
-        pytest.param("linux-x86_64", False, ["faces", "segmentation", "deep-asr"], id="linux-no-gpu"),
+        pytest.param("linux-x86_64", False, ["segmentation", "deep-asr"], id="linux-no-gpu"),
         pytest.param("linux-aarch64", True, ["faces", "segmentation", "deep-asr"], id="linux-arm-nvidia"),
+        pytest.param("linux-aarch64", False, ["faces", "segmentation", "deep-asr"], id="linux-arm-no-gpu"),
         pytest.param("darwin-arm64", False, ["faces", "segmentation", "deep-asr"], id="apple-silicon"),
     ],
 )
-def test_voice_cloning_is_only_for_linux_x86_with_an_nvidia_gpu(platform, nvidia, want):
+def test_the_cuda_extras_go_only_to_a_linux_x86_machine_with_an_nvidia_gpu(platform, nvidia, want):
     assert pack_setup.extras(platform, nvidia) == want
+
+
+def test_a_linux_machine_without_a_gpu_is_told_what_it_does_not_get(installed, monkeypatch, capsys):
+    monkeypatch.setattr(cfg, "platform_key", lambda: "linux-x86_64")
+    ran, run = recorder()
+    assert pack_setup.extras_step(check=False, run=run) is True
+    said = capsys.readouterr().out
+    assert "no NVIDIA GPU: leaving out faces" in said
+    assert "the application needs an NVIDIA GPU to run" in said
+    assert [command[-1] for command in ran] == ["liberational-pack[segmentation,deep-asr]==1.2.3"]
 
 
 def test_the_extras_are_installed_as_the_installed_packages_own_at_its_version(installed):
@@ -68,11 +80,31 @@ def test_the_extras_step_runs_uv_once_and_passes_when_it_does(installed):
     assert [command[:3] for command in ran] == [["/usr/bin/uv", "pip", "install"]]
 
 
-def test_check_says_the_command_and_runs_nothing(installed, capsys):
+@pytest.fixture
+def absent(monkeypatch):
+    """This machine's environment as a bare one: no extra's module is importable."""
+    monkeypatch.setattr(pack_setup.importlib.util, "find_spec", lambda name: None)
+
+
+@pytest.fixture
+def present(monkeypatch):
+    monkeypatch.setattr(pack_setup.importlib.util, "find_spec", lambda name: object())
+
+
+def test_check_names_the_missing_extras_and_fails_without_running_anything(installed, absent, capsys):
+    ran, run = recorder()
+    assert pack_setup.extras_step(check=True, run=run) is False
+    assert ran == []
+    said = capsys.readouterr().out
+    assert "missing: faces (insightface), segmentation (timm, torchvision)" in said
+    assert "install them with: /usr/bin/uv pip install" in said
+
+
+def test_check_passes_when_the_extras_are_here(installed, present, capsys):
     ran, run = recorder()
     assert pack_setup.extras_step(check=True, run=run) is True
     assert ran == []
-    assert "would run: /usr/bin/uv pip install" in capsys.readouterr().out
+    assert "the extras are here" in capsys.readouterr().out
 
 
 def test_a_failed_install_is_left_to_do(installed, capsys):
@@ -127,8 +159,24 @@ def test_ollama_installed_but_not_running_is_not_a_failure(installed, monkeypatc
     assert "the application starts it" in capsys.readouterr().out
 
 
+def test_check_names_the_missing_models_and_fails(monkeypatch, capsys):
+    monkeypatch.setattr(
+        fetch_models, "missing", lambda: ["face model: models/faces/2d106det.onnx", "pose: models/pose.onnx"]
+    )
+    assert pack_setup.models_step(check=True, ollama=False) is False
+    said = capsys.readouterr().out
+    assert "missing: face model: models/faces/2d106det.onnx" in said
+    assert "fetch them with pack-setup, or with pack-models" in said
+
+
+def test_check_passes_when_every_model_is_here(monkeypatch, capsys):
+    monkeypatch.setattr(fetch_models, "missing", list)
+    assert pack_setup.models_step(check=True, ollama=True) is True
+    assert "every model this machine wants is here" in capsys.readouterr().out
+
+
 def test_a_download_that_stops_is_left_to_do_and_says_to_run_again(monkeypatch, capsys):
-    def stopped(ollama, listing):
+    def stopped(ollama):
         raise OSError("the download stopped at 5 of 9 bytes")
 
     monkeypatch.setattr(fetch_models, "fetch", stopped)

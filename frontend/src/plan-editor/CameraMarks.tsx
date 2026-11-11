@@ -5,6 +5,7 @@
 // whose coordinates are the plan's metres, so nothing here knows the zoom or the turn of the view.
 import { useEditor } from '@pascal-app/editor';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
+import { useAreasUi } from './areasUi';
 import { bearing, cone, type Pt, type Spot, snapped, tipOf } from './spots';
 import { cameraName, useSpotsUi } from './spotsUi';
 import { useSpots } from './useSpots';
@@ -29,6 +30,8 @@ export function CameraMarks({ locked = false }: { locked?: boolean }) {
   const { spots, set } = useSpots();
   const selecting = useEditor(state => state.mode === 'select') && !locked;
   const { selected, adding, cameras, select, setAdding } = useSpotsUi();
+  // an object or area being added takes the plan's clicks: the spots' marks stand aside for it
+  const addingArea = useAreasUi(state => state.adding !== null);
   const group = useRef<SVGGElement>(null);
   // a drag shows where the spot is going without writing it: one change to the scene when the pointer lifts
   const [drag, setDrag] = useState<{ camera: string; spot: Spot } | null>(null);
@@ -59,7 +62,7 @@ export function CameraMarks({ locked = false }: { locked?: boolean }) {
   };
 
   return (
-    <g ref={group} data-camera-spots="" pointerEvents={selecting ? undefined : 'none'}>
+    <g ref={group} data-camera-spots="" pointerEvents={selecting && !addingArea ? undefined : 'none'}>
       {adding && selecting && (
         // a camera picked to add: the next click on the plan is where it is
         <rect

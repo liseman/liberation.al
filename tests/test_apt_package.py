@@ -96,7 +96,7 @@ def test_a_prerelease_sorts_before_its_release_for_dpkg():
 def test_relations_sort_system_packages_by_who_needs_them():
     assert apt.relations(SYSTEM_PACKAGES) == {
         "Depends": ["ca-certificates", "espeak-ng", "ffmpeg"],  # ffmpeg once, though two entries name it
-        "Recommends": ["ollama", "sox"],  # an NVIDIA machine's, and Ollama, which apt can't install
+        "Recommends": ["sox"],  # an NVIDIA machine's; Ollama has no apt package and is recommended by neither
         "Suggests": ["bluez"],  # optional; git (a build's) and blueutil (Homebrew's) are in none
     }
 
@@ -106,6 +106,11 @@ def test_the_repository_file_is_read_and_names_only_packages_a_running_system_ne
     depends = set(relations["Depends"])
     assert {"ffmpeg", "libpipewire-0.3-0", "libportaudio2"} <= depends
     assert not depends & {"git", "build-essential", "pkg-config", "libavcodec-dev"}
+
+
+def test_the_package_recommends_nothing_apt_cannot_resolve():
+    relations = apt.relations((apt.ROOT / "config" / "system-packages.toml").read_text())
+    assert "ollama" not in set(relations["Recommends"]) | set(relations["Suggests"])
 
 
 def test_control_has_the_fields_apt_needs_and_leaves_out_an_empty_relation():
