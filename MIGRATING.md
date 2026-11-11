@@ -119,9 +119,8 @@ The `positions` service runs `pack-positions` every hour at 20 past. It replaces
 
 ### Spatial memory starts again from what the cameras see
 
-A place's map is learned from what the cameras see, by the `surroundings` service, while the Live tab's "Learn
-surroundings" switch is on ([docs/SPATIAL.md](docs/SPATIAL.md#learning-surroundings)). `pack-positions` places
-positions (above).
+The `surroundings` service collects pictures of each place while the Live tab's "Learn surroundings" switch is on
+([docs/SPATIAL.md](docs/SPATIAL.md#learning-surroundings)). `pack-positions` places positions (above).
 
 Removed: phone walks (`pack-walkthrough`, and the Places page's "Import a walk"), the nightly fixed-camera pass
 (`pack-spatial-cameras`, the `spatial-cameras` job), and the tools built on them (`tools/rebuild_place.py`,

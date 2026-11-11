@@ -12,8 +12,8 @@ and keep or undo your changes. Everything here is done on the dashboard's **Know
 
 ## Open the editor
 
-Open Known, then Places, and pick the place. A place of your own shows a switch, **Plan** and **3D map**, that only changes
-how you look at it; neither changes the plan. Press **Edit plan** to change it.
+Open Known, then Places, and pick the place. A place of your own shows a switch, **Plan** and **3D map**, that only
+changes how you look at it; neither changes the plan. Press **Edit plan** to change it.
 
 A place with no plan starts an empty one: draw rooms and walls from nothing. If a stored plan can't be read (it is in
 an old format), the editor also starts a new one, and says why above the editor. **Edit plan** is off while the page
