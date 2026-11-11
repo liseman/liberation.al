@@ -147,6 +147,59 @@ def test_a_forgotten_object_is_gone(store, vision):
     assert store.query("where is my wallet")["status"] == "unknown"
 
 
+def test_a_renamed_object_keeps_its_template_other_names_and_sightings(store, vision):
+    made = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX, aliases="purse")
+    renamed = store.rename(made["id"], "  card holder  ")
+    assert renamed["name"] == "card holder"
+    assert renamed["aliases"] == ["purse"]  # its other names are left alone
+    assert renamed["last_seen"]["captured_at"] == made["last_seen"]["captured_at"]
+    assert objects.decode(store.evidence(renamed["template"])) is not None
+    assert store.query("where is my card holder?")["status"] == "last_seen"
+    assert store.query("where is my purse?")["status"] == "last_seen"
+    assert store.query("where is my wallet?")["status"] == "unknown"  # the name it no longer goes by
+
+
+@pytest.mark.parametrize("taken", ["Keys", "key ring"])
+def test_a_rename_to_a_name_another_object_goes_by_is_refused(store, vision, taken):
+    wallet = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX)
+    store.remember(name="keys", snapshot=snapshot(), bbox=BBOX, aliases="key ring")
+    with pytest.raises(ValueError, match="already"):
+        store.rename(wallet["id"], taken)
+    assert [o["name"] for o in store.list_objects()] == ["wallet", "keys"]
+
+
+@pytest.mark.parametrize(
+    ("name", "why"),
+    [pytest.param("   ", "required", id="no-name"), pytest.param("the man", "people", id="a-person")],
+)
+def test_a_rename_to_a_name_the_store_would_not_remember_is_refused(store, vision, name, why):
+    made = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX)
+    with pytest.raises(ValueError, match=why):
+        store.rename(made["id"], name)
+    assert [o["name"] for o in store.list_objects()] == ["wallet"]
+
+
+def test_a_rename_of_an_object_that_is_not_remembered_is_refused(store, vision):
+    with pytest.raises(ValueError, match="no such object"):
+        store.rename("not-an-object", "purse")
+
+
+def test_a_removed_object_is_put_back_from_the_log_as_it_was(store, vision):
+    made = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX)
+    store.rename(made["id"], "card holder")
+    store.forget(made["id"])
+    assert store.list_objects() == []
+    again = store.restore(made["id"])
+    assert (again["id"], again["name"], again["template"]) == (made["id"], "card holder", made["template"])
+    assert again["last_seen"]["captured_at"] == made["last_seen"]["captured_at"]
+    assert objects.decode(store.evidence(again["template"])) is not None
+    assert store.query("where is my card holder?")["status"] == "last_seen"
+    with pytest.raises(ValueError, match="still remembered"):
+        store.restore(made["id"])
+    with pytest.raises(ValueError, match="no such object"):
+        store.restore("never-remembered")
+
+
 class FakeMatches:
     """Stands in for the segment writers (the native store's boundary): each record goes through its stream's typed
     columns and back, into the fake log the readers read, and counts as durable only once synced."""
@@ -352,6 +405,60 @@ def test_there_is_no_automatic_proposal_endpoint(monkeypatch):
     assert page.handle(handler, "POST")
     assert handler.sent == (404, {"error": "not found"})
     assert ran == []
+
+
+def post_to(path: str, payload: dict[str, Any], origin: str | None = None) -> tuple[int, Any]:
+    """A POST to an /objects route through the page's own handler, as the dashboard's H calls it."""
+    body = json.dumps(payload).encode()
+
+    class Handler:
+        sent: Any = None
+
+        def __init__(self) -> None:
+            self.path = path
+            self.headers = Message()
+            self.headers["Content-Type"] = "application/json"
+            self.headers["Content-Length"] = str(len(body))
+            self.headers["Host"] = "127.0.0.1:8765"
+            if origin:
+                self.headers["Origin"] = origin
+            self.rfile = io.BytesIO(body)
+
+        def _json(self, data: Any, status: int = 200) -> None:
+            self.sent = (status, data)
+
+    handler = Handler()
+    assert page.handle(handler, "POST")
+    return handler.sent
+
+
+def test_the_row_routes_rename_remove_and_put_back_an_object(store, vision, monkeypatch):
+    monkeypatch.setattr(page, "_store", store)
+    made = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX)
+    assert post_to("/objects/api/rename", {"id": made["id"], "name": "card holder"}) == (
+        200,
+        {"object": {**made, "name": "card holder"}},
+    )
+    assert post_to("/objects/api/forget", {"id": made["id"]}) == (200, {"ok": True, "id": made["id"]})
+    assert store.list_objects() == []
+    assert post_to("/objects/api/restore", {"id": made["id"]}) == (200, {"object": {**made, "name": "card holder"}})
+    assert store.list_objects()[0]["name"] == "card holder"
+
+
+def test_a_refused_row_route_says_the_stores_reason_and_a_cross_origin_one_is_not_run(store, vision, monkeypatch):
+    monkeypatch.setattr(page, "_store", store)
+    made = store.remember(name="wallet", snapshot=snapshot(), bbox=BBOX)
+    store.remember(name="keys", snapshot=snapshot(), bbox=BBOX)
+    assert post_to("/objects/api/rename", {"id": made["id"], "name": "keys"}) == (
+        400,
+        {"error": "name or alias already enrolled"},
+    )
+    assert post_to("/objects/api/forget", {"id": "not-an-object"}) == (400, {"error": "no such object"})
+    assert post_to("/objects/api/forget", {"id": made["id"]}, origin="http://example.test") == (
+        403,
+        {"error": "Cross-origin write rejected."},
+    )
+    assert [o["name"] for o in store.list_objects()] == ["wallet", "keys"]
 
 
 def test_cancel_endpoint_prevents_a_delayed_segment_request_with_conflict_response():

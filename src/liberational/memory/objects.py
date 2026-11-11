@@ -2,7 +2,12 @@
 cameras, and "where did I leave my wallet?" answered from where each was last seen.
 
 - An object is an event on the `objects` stream (`ObjectRemembered`, `ObjectForgotten`), through the registry's
-  event log: its name, aliases, note, and template image (a small JPEG, inline).
+  event log: its name, aliases, note, and template image (a small JPEG, inline). A rename is another
+  `ObjectRemembered` for the same object id with only what changed (its name, and its other names when they do), so
+  the log says the object goes by that name now and the reduction keeps the rest as it was (`Store.rename`). A
+  removal can be undone by remembering the log's last payload for the object again (`Store.restore`).
+- A sighting keeps the name the object had when it was seen, so a renamed object's older sightings still read under
+  the name they were recorded with (Review's chips and the sheet).
 - A sighting is the object, the camera, its box, and the frame it was seen in as a small inline JPEG (`evidence`), so
   it outlives the frame's recompression. The owner's own crop is the first (`manual_label`), an `object.sighting`
   record in the knowledge store (taught state, outside the broker's reset); the object worker (`see.object_worker`) adds the rest (`visual_match`) as `object.match`
@@ -333,7 +338,10 @@ class Store:
             if e.type == EventType.OBJECT_FORGOTTEN:
                 held.pop(oid, None)
             elif oid:
-                held[oid] = {**p, "id": oid, "created": e.occurred_at}
+                # A later ObjectRemembered for an object already held is a rename (its payload holds only what
+                # changed), so it keeps the rest, and the time it was first remembered orders the list.
+                prior = held.get(oid) or {}
+                held[oid] = {**prior, **p, "id": oid, "created": prior.get("created", e.occurred_at)}
         return list(held.values())
 
     def remember(
@@ -444,6 +452,41 @@ class Store:
         )
         return next(o for o in self.list_objects() if o["id"] == oid)
 
+    def rename(self, object_id: str, name: str, aliases: str | Iterable[str] | None = None) -> dict[str, Any]:
+        """Renames a remembered object, keeping its template, sightings, and note; returns it as list_objects has it.
+
+        Every other name that already names something is refused, as remembering one is, so a question can only
+        mean one object. `aliases` replaces the other names when given; the same check covers them.
+        """
+        name = str(name).strip()
+        if not name or len(name) > 80:
+            raise ValueError("name required (max 80 characters)")
+        if PERSON_WORDS.search(name):
+            raise ValueError("object memory does not support people or faces")
+        held = self.objects()
+        if not any(o["id"] == object_id for o in held):
+            raise ValueError("no such object")
+        if aliases is not None:
+            alias_list = _aliases(aliases)
+        else:
+            alias_list = list(next(o for o in held if o["id"] == object_id).get("aliases", []))
+        taken = {s.casefold() for o in held if o["id"] != object_id for s in [o["name"], *o.get("aliases", [])]}
+        if taken.intersection(s.casefold() for s in [name, *alias_list]):
+            raise ValueError("name or alias already enrolled")
+        from liberational.people import registry
+
+        registry.at(self.state).log.append(
+            [
+                Event.new(
+                    EventType.OBJECT_REMEMBERED,
+                    stream=STREAM,
+                    source="objects-page",
+                    payload={"object_id": object_id, "name": name, "aliases": alias_list},
+                )
+            ]
+        )
+        return next(o for o in self.list_objects() if o["id"] == object_id)
+
     def forget(self, object_id: str) -> None:
         if not any(o["id"] == object_id for o in self.objects()):
             raise ValueError("no such object")
@@ -456,6 +499,29 @@ class Store:
                 )
             ]
         )
+
+    def restore(self, object_id: str) -> dict[str, Any]:
+        """Remembers a forgotten object again (Undo of a removal): the log's last payload for it, with the newest name
+        it was given, appended as a new `ObjectRemembered`. Its sightings were never removed, so last seen stands."""
+        if any(o["id"] == object_id for o in self.objects()):
+            raise ValueError("that object is still remembered")
+        payload: dict[str, Any] | None = None
+        for e in self._events():
+            p = thaw(e.payload)
+            if str(p.get("object_id", "")) != object_id:
+                continue
+            if payload is None:
+                payload = dict(p)  # its first remember: the full payload
+            else:
+                payload.update({k: p[k] for k in ("name", "aliases") if k in p})  # every rename after it
+        if payload is None:
+            raise ValueError("no such object")
+        from liberational.people import registry
+
+        registry.at(self.state).log.append(
+            [Event.new(EventType.OBJECT_REMEMBERED, stream=STREAM, source="objects-page", payload=payload)]
+        )
+        return next(o for o in self.list_objects() if o["id"] == object_id)
 
     def _faces_near(self, cam: str, at: float) -> list[list[float]]:
         """Face boxes (normalized x1, y1, x2, y2) on the camera within a second of `at`."""
