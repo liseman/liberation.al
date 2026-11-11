@@ -134,6 +134,13 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
             assert gateway is not None
             day = dataset.dt.date.fromisoformat(recording["day"])
             start = dataset._local(day, 0)
+            media = root / "state" / "demo"
+            indexed = {
+                row["start"]: row["file"] for row in map(json.loads, (media / "index.jsonl").read_text().splitlines())
+            }
+            before_arrival = media / indexed[dataset._local(day, 12, 4)]
+            unpacking = media / indexed[dataset._local(day, 12, 10)]
+            assert before_arrival.read_bytes() != unpacking.read_bytes()
             spans = review_spans(int(gateway[1]), start, start + 86400)
             assert spans
             assert all(
