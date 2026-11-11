@@ -547,12 +547,6 @@ it('says a place has no map yet when it has none and no camera has a spot', asyn
   expect(await screen.findByText(/This place has no map yet, and no camera has a spot on its plan/)).toBeTruthy();
 });
 
-it('says a camera on something that moves is left unplaced, and why', async () => {
-  serve([HOME], empty(0, [{ camera: 'cart', by: 'map', missing: ['moving'] }]));
-  renderPage(<PlacesTab />);
-  expect(await screen.findByText(/cart can't place anyone yet: it's on something that moves/)).toBeTruthy();
-});
-
 it('says every camera is missing something when none can place anyone', async () => {
   serve([HOME], empty(0, [{ camera: 'porch', by: 'spot', missing: ['facing'] }]));
   renderPage(<PlacesTab />);

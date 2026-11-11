@@ -1,5 +1,6 @@
-"""The gate and the kept frames for learning surroundings (#257): which sampled frames are likely to improve a
-place's map, and the bounded store of the ones kept. docs/SPATIAL.md has the design.
+"""The gate and the kept frames for learning surroundings (#257): which sampled pictures show something the kept ones
+don't, and the bounded store of the ones kept. docs/SPATIAL.md has the design. Nothing builds a 3D map from them at
+present (it's being rebuilt with a new method, which will read them); `status` is what a page says about them.
 
 **What "likely to improve" is measured by, before a frame has a pose.** Each frame gets MegaLoc's place-recognition
 descriptor (`Describer`: the pinned ONNX export on the CPU, [models.files.megaloc]), and its likeness to a kept
@@ -18,15 +19,12 @@ So `decide` reads a frame's highest likeness to the kept frames:
   (better detail).
 - otherwise: **drop**. It's a copy of what's kept.
 
-The map step measures a kept frame a second time, against the map itself, once it has a pose (#258).
-
 **The store** is `state/surroundings/`: `index.json` and, per frame, `<id>.jpg`, `<id>.npy` (its descriptor), and
-`<id>.covered.png` when someone was in view (the pixels the map step leaves out).
+`<id>.covered.png` when someone was in view (the pixels a reader leaves out).
 It never holds more than `MAX_KEPT` frames, or more than `PER_VIEW` frames of one view (the frames at least
 `SAME_VIEW` alike): a fifth look at a view pushes out its oldest, so a view's kept frames follow how it looks now.
 At `MAX_KEPT` the frame most like another kept frame goes first, the older of a tie. All of it is machine-made:
-`pack-reset-catalog` deletes it (unless `--keep-places`), and `pack-reset-places` leaves it, so the next map is
-made from the same frames.
+`pack-reset-catalog` deletes it (unless `--keep-places`), and `pack-reset-places` leaves it.
 
 One process writes the store (the sampler); anything may read it. The index is replaced whole, after the files it
 names are written, so a reader never sees a frame without its files.
@@ -121,8 +119,7 @@ class Decision:
 
 @dataclass(frozen=True)
 class Kept:
-    """A kept frame: which camera took it, when (Unix seconds), how sharp it was, why it was kept, and its size.
-    What the map step makes of it (its place and pose) is that step's to keep (spatial/surroundings_map.py)."""
+    """A kept frame: which camera took it, when (Unix seconds), how sharp it was, why it was kept, and its size."""
 
     id: str
     camera: str
@@ -267,3 +264,45 @@ class Store:
 
     def _save(self) -> None:
         json_state.write(self.folder / "index.json", [asdict(f) for f in self.kept])
+
+
+def status(state: Path) -> dict[str, Any]:
+    """What a page says about collecting pictures: whether learning is on (`on`) and which cameras it samples now
+    (`sampling`, none while off), how many frames are kept (`kept`), each sampled camera's recent looks by outcome and
+    when a frame of it was last kept (`cameras`, from the sampler's `status.json`), and each camera's newest kept
+    frame (`frames`, by camera: the frame's id), for a page's thumbnail. It reads two small files."""
+    from liberational import json_state
+    from liberational.spatial import surroundings
+
+    folder = root(state)
+    newest: dict[str, tuple[float, str]] = {}
+    count = 0
+    for row in json_state.read(folder / "index.json", []) or []:
+        if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not isinstance(row.get("camera"), str):
+            continue
+        count += 1
+        t = float(row.get("t") or 0.0)
+        if row["camera"] not in newest or t > newest[row["camera"]][0]:
+            newest[row["camera"]] = (t, row["id"])
+    switch = surroundings.read()
+    sampling = list(switch.cameras) if switch.on else []
+    sampler = json_state.read(folder / "status.json", {}) or {}
+    looked = sampler.get("cameras") if isinstance(sampler, dict) else None
+    looked = looked if isinstance(looked, dict) else {}
+
+    def counts(recent: object) -> dict[str, int]:
+        if not isinstance(recent, dict):
+            return {}
+        return {str(k): int(n) for k, n in recent.items() if isinstance(n, int) and not isinstance(n, bool) and n > 0}
+
+    return {
+        "on": switch.on,
+        "sampling": sampling,
+        "kept": count,
+        "cameras": {
+            camera: {"recent": counts(looked[camera].get("recent")), "last_kept": looked[camera].get("last_kept")}
+            for camera in sampling
+            if isinstance(looked.get(camera), dict)
+        },
+        "frames": {camera: frame for camera, (_, frame) in sorted(newest.items())},
+    }

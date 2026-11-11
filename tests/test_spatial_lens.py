@@ -1,7 +1,6 @@
 """Wide-lens fixed cameras: the division model undone in frames and in pixels alike, the overlays painted over
 and left out, and a registered pose's foot points undistorted before they're cast onto the floor."""
 
-import json
 import textwrap
 
 import cv2
@@ -10,7 +9,6 @@ import pytest
 
 from liberational.memory import places
 from liberational.spatial import footprints, lens
-from liberational.spatial.mast3r_runner import overlay
 
 W, H = 896, 512
 
@@ -196,37 +194,3 @@ def test_the_walkable_floor_undistorts_its_footprints_as_a_single_foot_point_doe
     expected = [places.floor_point(DOWN, FLOOR, u, v, footprints.FOOT_M) for u, v in uv]  # people's heels
     assert all(e is not None for e in expected)
     np.testing.assert_allclose(points, np.array(expected, dtype=float), atol=1e-9)
-
-
-def test_the_runners_overlay_mask_lands_where_dust3r_puts_the_frame(tmp_path):
-    # dust3r's loader takes 896 x 512 to 512 x 293 and centre-crops it to 512 x 288 (whole 16 px patches).
-    image = tmp_path / "bedroom.png"
-    cv2.imwrite(str(image), np.zeros((H, W, 3), np.uint8))
-    assert overlay(str(image), 288, 512, 512) is None  # no mask beside it
-    mask = np.zeros((H, W), np.uint8)
-    mask[0:46, 224:672] = 255  # a band across the top, a quarter in from each side
-    cv2.imwrite(str(tmp_path / "bedroom.mask.png"), mask)
-    got = overlay(str(image), 288, 512, 512)
-    assert got.shape == (288, 512)
-    rows, cols = np.nonzero(got)
-    assert (cols.min(), cols.max()) == (128, 383)  # 224 * 512 / 896 and 672 * 512 / 896, less one
-    assert rows.min() == 0 and rows.max() == pytest.approx(46 * 293 / 512 - 2 - 1, abs=1)
-
-
-def test_a_splat_trains_on_the_frame_mast3r_saw_with_its_overlays_left_out(tmp_path, monkeypatch):
-    from liberational.spatial import splats
-
-    manifest = tmp_path / "devices.toml"
-    manifest.write_text('[[device]]\nname = "bedroom"\nkind = "rtsp"\nmasks = [[0.84, 0.92, 1.0, 1.0]]\n')
-    monkeypatch.setattr(lens, "manifest", lambda: manifest)
-    pose = places.CameraPose(tuple(float(x) for x in np.eye(4).ravel()), 300.0, 512, 288, 0.0, BARREL.as_tuple())
-    rev = places.Revision("0" * 8 + "-0000-0000-0000-" + "0" * 12, "1" * 8 + "-0000-0000-0000-" + "1" * 12, 0.0, "t", (),
-                          cameras={"bedroom": pose})  # fmt: skip
-    frame = np.full((H, W, 3), 128, np.uint8)
-    job = json.loads(
-        splats.write_job(tmp_path, rev, {"bedroom": [frame]}, (np.zeros((1, 3)), np.zeros((1, 3)))).read_text()
-    )
-    (view,) = job["views"]
-    mask = read(view["mask"], cv2.IMREAD_GRAYSCALE)
-    assert mask.shape == (288, 512) and read(view["image"]).shape == (288, 512, 3)
-    assert mask[-1, -1] == 255 and mask[144, 256] == 0  # the name's corner (and the barrel's) out, the middle in

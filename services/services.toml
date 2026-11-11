@@ -71,7 +71,7 @@ default = true
 
 # Holds no camera and no model while the "learn surroundings" switch is off (spatial/surroundings_worker.py).
 [surroundings]
-description = "While \"Learn surroundings\" is on, samples pictures from the chosen cameras and keeps the ones that improve the map of a place."
+description = "While \"Learn surroundings\" is on, collects pictures from the chosen cameras and keeps the ones that show something new."
 group = "workers"
 command = "pack-surroundings"
 background = true

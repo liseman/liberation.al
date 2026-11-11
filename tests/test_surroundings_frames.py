@@ -144,3 +144,27 @@ def test_the_describer_feeds_the_model_a_normalized_rgb_square_and_returns_a_uni
 def test_the_describer_says_how_to_get_a_missing_model(tmp_path):
     with pytest.raises(RuntimeError, match="mise run models"):
         sf.Describer(model=tmp_path / "megaloc.onnx")(picture())
+
+
+def test_the_status_counts_the_kept_frames_names_each_cameras_newest_and_reads_only_the_sampled_cameras_looks(
+    tmp_path, monkeypatch
+):
+    from liberational.spatial import surroundings
+
+    store = sf.Store(sf.root(tmp_path))
+    store.offer("front", picture(), view(0), 100.0, now=1.0)
+    _, newest = store.offer("front", picture(), view(90), 100.0, now=2.0)
+    _, hall = store.offer("hall", picture(), view(0, tilt_deg=90), 100.0, now=3.0)
+    assert newest is not None and hall is not None
+    looks = {"cameras": {"front": {"recent": {"view": 2, "same": 0, "odd": True}, "last_kept": 2.0}, "hall": {}}}
+    (store.folder / "status.json").write_text(json.dumps(looks))
+    monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(True, ("front",), (), "front"))
+    assert sf.status(tmp_path) == {
+        "on": True,
+        "sampling": ["front"],
+        "kept": 3,
+        "cameras": {"front": {"recent": {"view": 2}, "last_kept": 2.0}},
+        "frames": {"front": newest.id, "hall": hall.id},
+    }
+    monkeypatch.setattr(surroundings, "read", lambda: surroundings.Switch(False, ("front",), (), "front"))
+    assert (sf.status(tmp_path)["sampling"], sf.status(tmp_path)["cameras"]) == ([], {})
