@@ -356,12 +356,6 @@ export function InboxTab() {
         ) : undefined
       }
       lede="Questions looked into slowly, in the background. Each report lands here when it's done."
-      actions={
-        // The one Ask, with Deep research on: the page stays put, and the report lands in the list here
-        <Button size="sm" onClick={() => openAsk({ deep: true })}>
-          Research a question
-        </Button>
-      }
     >
       <div className={classes.page} data-reading={selected ? 'true' : undefined}>
         <Stack gap="xs" className={classes.list} component="section" aria-label="Research reports">
@@ -377,7 +371,7 @@ export function InboxTab() {
           )}
           {q.data && !jobs.length && (
             <PageEmpty title="No research reports yet">
-              Ask a question with Deep research on. The report lands here when it's done.
+              Turn on Deep research in Ask, and the report lands here when it's done.
             </PageEmpty>
           )}
           <ul className={classes.items}>

@@ -172,12 +172,18 @@ HOME_NOW_S = 3600  # "who's home": who was recognized in the last hour; cameras 
 # against the selected day, else a date or "yesterday" in the question, else today; "last night" is the night before.
 LAST_NIGHT_HOURS = (18, 29)  # previous evening through 05:00 on the question day, shared by Ask and voice
 PARTS_OF_DAY = {"morning": (5, 12), "afternoon": (12, 17), "evening": (17, 22), "night": (22, 29)}
-COMBINED = "Use a single time window; combined time expressions are not supported."
-UNSUPPORTED = (
-    "Unsupported time phrase; use today, yesterday, this/last week, month, or year, last N hours/minutes/days, "
-    "YYYY-MM-DD, "
-    "or a part of the day (this morning, in the afternoon, this evening, tonight, last night)."
+COMBINED = 'Ask about one stretch of time at a time, like "this morning", "since Monday", or "in October".'
+UNSUPPORTED = 'I couldn\'t tell which time that means. Try "today", "since Monday", or "in October".'
+WHOLE = "all your recordings"  # the window with no time, and the one an unread time phrase falls back to
+# What a person says for the whole history: since recording started, ever, all time, so far, in total.
+WHOLE_PHRASES = re.compile(
+    r"^(?:since (?:recording|recordings|you|we|it|this|the (?:recording|recordings))? ?(?:started|began|begun)"
+    r"|since (?:the )?(?:beginning|start)(?: of (?:recording|recordings|time|it all))?"
+    r"|since (?:records|forever)|(?:of )?all (?:the )?time|ever|total|in total|in all|altogether|all together|so far"
+    r"|to date|up to now|until now|till now|overall|in (?:all )?(?:your|my|the) recordings|always)$"
 )
+WEEKDAYS = {name.lower(): i for i, name in enumerate(calendar.day_name)}
+WEEKDAYS.update({name.lower(): i for i, name in enumerate(calendar.day_abbr)})
 UNREADABLE = "I couldn't read that question: the local model that reads questions didn't answer. Try again."
 UNIT_S = {"seconds": 1, "minutes": 60, "hours": 3600, "days": 86400}
 
@@ -189,7 +195,7 @@ def cameras_named(question: str) -> list[str]:
     cameras, remaining = views.cameras_named(question)
     stripped = views.NUMBERED.sub("", remaining.lower())
     if re.search(r"\bcam(?:era)?\s+\w+", stripped) and not re.search(r"\bcameras\b", stripped):
-        raise ValueError("Specify the actual camera ID, for example camera3; IDs are not renumbered.")
+        raise ValueError('Which camera? Name it as it is set up, like "camera3".')
     return cameras
 
 
@@ -397,15 +403,96 @@ def _date(text: str, year: int) -> dt.date:
     except (ValueError, TypeError) as error:
         if str(error) == UNSUPPORTED:
             raise
-    raise ValueError("Specify a valid calendar date.")
+    raise ValueError('That date doesn\'t exist. Try one like "October 3" or "2026-10-03".')
 
 
 def _span_s(r: reader.Reading) -> float:
     if r.span_unit not in UNIT_S:
         raise ValueError(UNSUPPORTED)
     if not 0 < r.span <= 100000:
-        raise ValueError("History duration is out of range.")
+        raise ValueError('That stretch of time is too long. Try "the last 3 weeks" or "since October".')
     return r.span * UNIT_S[r.span_unit]
+
+
+def _month_start(name: str, day: dt.datetime) -> dt.datetime | None:
+    """The first of the most recent month called `name` ("october", "oct 2025") that has started by `day`."""
+    words = name.replace(",", " ").split()
+    month = next((MONTHS[w.rstrip(".")] for w in words if w.rstrip(".") in MONTHS), None)
+    years = [int(w) for w in words if w.isdecimal() and len(w) == 4]
+    if month is None or len(words) != 1 + len(years) or len(years) > 1:
+        return None
+    first = day.replace(year=years[0] if years else day.year, month=month, day=1)
+    if not years and first > day:
+        first = first.replace(year=first.year - 1)
+    return first
+
+
+def _point(text: str, day: dt.datetime) -> dt.datetime | None:
+    """The start of the day, weekday, or month `text` names ("2026-10-03", "october 3", "last monday", "monday",
+    "october"), in the past, or None when it names none of those."""
+    text = text.removeprefix("the ").strip()
+    weekday = text.removeprefix("last ")
+    if weekday in WEEKDAYS:
+        back = (day.weekday() - WEEKDAYS[weekday]) % 7 or (7 if text.startswith("last ") else 0)
+        return day - dt.timedelta(days=back)
+    if text in ("yesterday", "today"):
+        return day - dt.timedelta(days=text == "yesterday")
+    if (month := _month_start(text, day)) is not None:
+        return month
+    try:
+        when = _date(text, day.year)
+    except ValueError:
+        return None
+    d = dt.datetime.combine(when, dt.time(), tzinfo=TZ)
+    if not re.search(r"\d{4}", text) and d > day:
+        d = d.replace(year=d.year - 1)
+    return d
+
+
+def open_window(phrase: str, now: float) -> tuple[float, float, str] | None:
+    """(start, end, the window in words) for the open-ended and whole-history phrases the reading leaves as
+    other_time: the whole history (since recording started, ever, all time, so far), since <a day, weekday, or month>,
+    in <a month>, between <a day> and <a day>, and over the last N weeks, months, or years. None for anything else.
+    Like window_of, the dates are worked out here, never by the model."""
+    text = " ".join(phrase.lower().replace("’", "'").strip(" ?.!,").split())
+    text = re.sub(r"^(?:in|during|over|for|from) (?=the |all |total|recording)", "", text)
+    day = dt.datetime.fromtimestamp(now, TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    if WHOLE_PHRASES.match(text):
+        return 0.0, now, WHOLE
+    if m := re.fullmatch(r"(?:since|from) (.+?)(?: (?:on|onwards|onward|until now|till now|to now))?", text):
+        start = _point(m[1], day)
+        return (start.timestamp(), now, f"since {start.date().isoformat()}") if start else None
+    m = re.fullmatch(r"(?:on |last )?(\w+day)", text)  # "on friday", "last tuesday": that day
+    if m and m[1] in WEEKDAYS and (d := _point(m[1], day)) is not None:
+        return d.timestamp(), min((d + dt.timedelta(days=1)).timestamp(), now), d.date().isoformat()
+    if m := re.fullmatch(r"(\w+) weeks? ago", text):  # "two weeks ago": that week
+        n = reader.NUMBER_WORDS.get(m[1]) or (int(m[1]) if m[1].isdecimal() else None)
+        if n and 0 < n <= 100:
+            start = day - dt.timedelta(days=7 * n)
+            return (
+                start.timestamp(),
+                (start + dt.timedelta(days=7)).timestamp(),
+                f"the week starting {start.date().isoformat()}",
+            )
+    if m := re.fullmatch(r"(?:in|during) (.+)", text):
+        first = _month_start(m[1], day)
+        if first is not None:
+            after = (first + dt.timedelta(days=32)).replace(day=1)
+            return first.timestamp(), min(after.timestamp(), now), first.strftime("%B %Y")
+    if m := re.fullmatch(r"(?:between|from) (.+?) (?:and|to|until|till) (.+)", text):
+        a, b = _point(m[1], day), _point(m[2], day)
+        if a is not None and b is not None and a <= b:
+            end = min((b + dt.timedelta(days=1)).timestamp(), now)
+            return a.timestamp(), end, f"between {a.date().isoformat()} and {b.date().isoformat()}"
+    if m := re.fullmatch(r"(?:over |in |during |for )?(?:the )?(?:last|past) (\w+) (week|month|year)s?", text):
+        n = reader.NUMBER_WORDS.get(m[1]) or (int(m[1]) if m[1].isdecimal() else None)
+        if n and 0 < n <= 100:
+            days = {"week": 7, "month": 30, "year": 365}[m[2]] * n
+            return now - days * 86400.0, now, f"last {n} {m[2]}{'s' if n > 1 else ''}"
+    if m := re.fullmatch(r"(?:over |in |during |for )?(?:the )?(?:last|past) (week|month|year)", text):
+        days = {"week": 7, "month": 30, "year": 365}[m[1]]
+        return now - days * 86400.0, now, f"last {m[1]}"
+    return None
 
 
 def _period(day: dt.datetime, name: str) -> tuple[dt.datetime, dt.datetime]:
@@ -428,13 +515,31 @@ def _period(day: dt.datetime, name: str) -> tuple[dt.datetime, dt.datetime]:
 def window_of(
     r: reader.Reading, now: float, selected_day: str | dt.date | None = None
 ) -> tuple[float, float, str, float | None]:
-    """(start, end, the window in words, the instant asked about or None) for a reading's time fields. Raises
-    ValueError with the refusal to show when the fields name no single window. The module docstring has the rules."""
+    """(start, end, the window in words, the instant asked about or None) for a reading's time fields. A time that
+    can't be read at all is not refused: the window is the whole history, and its words say so. Raises ValueError
+    with what to ask instead when the fields name times that conflict (two windows, a future time, a clock that
+    doesn't exist). The module docstring has the rules."""
+    try:
+        return _window_of(r, now, selected_day)
+    except ValueError as error:
+        if str(error) != UNSUPPORTED:
+            raise
+        return 0.0, now, f"{WHOLE} (that time wasn't read)", None
+
+
+def _window_of(
+    r: reader.Reading, now: float, selected_day: str | dt.date | None = None
+) -> tuple[float, float, str, float | None]:
     day = dt.datetime.fromtimestamp(now, TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-    start, end, window = 0.0, now, "all available retained history"
+    start, end, window = 0.0, now, WHOLE
     at = None
     if r.other_time:
-        raise ValueError(UNSUPPORTED)
+        # An open-ended phrase the form has no field for, else the whole history: never a refusal, and the window's
+        # words say which range was read, so the person can narrow it.
+        found = open_window(r.other_time, now)
+        if found is None:
+            return 0.0, now, f'{WHOLE} ("{r.other_time}" wasn\'t read as a time)', None
+        return *found, None
     week = r.day in ("this week", "last week", "this month", "last month", "this year", "last year")
     dated = r.day not in reader.DAYS
     relative_part = r.part in ("last night", "tonight") or r.part.startswith("this ")
@@ -445,7 +550,7 @@ def window_of(
     if week and (r.part or r.clock or r.since):
         raise ValueError(COMBINED)
     if r.clock_end and not r.clock:
-        raise ValueError("Unsupported time phrase; specify a clock time or a complete time range.")
+        raise ValueError('Give both ends of the time, like "between 2 and 4pm".')
     if r.clock_end and (r.part or r.since):
         raise ValueError(COMBINED)
     if r.since and (dated or (r.day and r.part)):
@@ -580,6 +685,19 @@ def describe(question: str, r: reader.Reading, state: str | pathlib.Path | None 
     )
 
 
+def _with_since(question: str, r: reader.Reading) -> reader.Reading:
+    """The reading with "since" put back on a time phrase it was copied without ("since Monday" read as "monday"),
+    when the question's own words say it."""
+    phrase = r.other_time.lower()
+    if (
+        phrase
+        and not phrase.startswith(("since ", "from "))
+        and f"since {phrase}" in " ".join(question.lower().split())
+    ):
+        return dataclasses.replace(r, other_time=f"since {r.other_time}")
+    return r
+
+
 def _windowed(
     what: dict[str, Any], r: reader.Reading, now: float, selected_day: str | dt.date | None
 ) -> dict[str, Any]:
@@ -601,7 +719,7 @@ def parse(
     Raises ValueError with a refusal to show (a time that can't be read, an ambiguous camera) and question.Unreadable
     when the model gives no reading."""
     r = reading if reading is not None else reader.read(question)
-    return _windowed(describe(question, r, state), r, now, selected_day)
+    return _windowed(describe(question, r, state), _with_since(question, r), now, selected_day)
 
 
 def people_named(question: str) -> list[str]:
@@ -1038,6 +1156,42 @@ def _transcripts(
     )
 
 
+# "how many times did Dana say thanks", "how often has Sam said 'no worries' this week": the words after say or said,
+# up to the time words or the end of the question.
+SAID = re.compile(
+    r"\b(?:say|says|said|saying|use|used|uses)\s+(?:the\s+(?:word|phrase)\s+)?[\"'“‘]?(?P<words>[\w'’ -]{1,60}?)[\"'”’]?"
+    r"(?=\s+(?:since|in|on|during|today|yesterday|this|last|over|between|before|after|so far|ever|all|at|when|from"
+    r"|until|till|for|overall|altogether|around|near|by|within|lately|recently)\b|\s*[?.!]*\s*$)",
+    re.I,
+)
+
+
+def said_words(question: str) -> str | None:
+    """The word or short phrase a "how many times did X say Y" question counts, or None when it names none."""
+    m = SAID.search(question)
+    words = " ".join(m["words"].replace("’", "'").split()) if m else ""
+    return words.lower() if words and len(words.split()) <= 4 else None
+
+
+def said_count(words: str, lines: list[dict[str, Any]], query: Mapping[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """How often `words` were said in `lines` (the window's transcript, already kept to the question's person), as
+    the answer and the lines that say them, newest first. A single word counts its plain forms too (thanks, thanked)."""
+    stem = re.escape(words).replace(r"\ ", r"\s+")
+    pattern = re.compile(rf"\b{stem}{'(?:s|es|ed|d|ing)?' if ' ' not in words else ''}\b", re.I)
+    said = [(row, len(pattern.findall(str(row.get("quote", ""))))) for row in lines]
+    said = [(row, n) for row, n in said if n]
+    total = sum(n for _, n in said)
+    who = query.get("person")
+    during = _during(str(query.get("window") or WHOLE))
+    if not total:
+        return f'{who or "Nobody"} didn\'t say "{words}" {during}, as far as the transcript heard.', []
+    times = "once" if total == 1 else f"{total} times"
+    last = max(row["ts"] for row, _ in said)
+    subject = f'{who} said "{words}"' if who else f'"{words}" was said'
+    answer = f"{subject} {times} {during}, the last time on {stamp(last)[:16]}."
+    return answer, sorted((row for row, _ in said), key=lambda row: row["ts"], reverse=True)[:MAX_EVIDENCE]
+
+
 def _unscoped(query: Mapping[str, Any]) -> bool:
     """Whether a transcript question names nobody, and no topic or intent, so its budget keeps the newest lines."""
     return not (query.get("person") or query.get("topics") or query.get("intent") or query.get("participants"))
@@ -1180,7 +1334,7 @@ def _encounter_evidence(
 def _during(window: str) -> str:
     """A question's window as words after "recognized": "today", "yesterday", "this week", "on 2026-10-20", "in the
     last 2 hours", "in the morning of 2026-10-30"."""
-    if window in ("today", "yesterday") or window.endswith(" week"):
+    if window in ("today", "yesterday") or window.endswith(" week") or window.startswith(("since ", "between ")):
         return window
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", window):
         return "on " + window
@@ -1550,12 +1704,12 @@ def collect(
     except reader.Unreadable as error:
         # No reading means no window and no route: say so, never guess at one.
         LOG.warning("the question couldn't be read: %s", error)
-        result.update(answer=UNREADABLE, warnings=[UNREADABLE], coverage={"read_error": True})
+        result.update(answer=UNREADABLE, coverage={"read_error": True})
         return result
     try:
         what = describe(question, r, state)
     except ValueError as e:
-        result.update(answer=str(e), warnings=[str(e)])
+        result.update(answer=str(e), needs=str(e))
         return result
     last = subject_activity.last_asked(what, state)
     animal = None if last is not None else subject_activity.asked(what, state)
@@ -1564,6 +1718,7 @@ def collect(
         return dict(
             is_history=True,
             answer=event_counts.UNSUPPORTED,
+            needs=event_counts.UNSUPPORTED,
             evidence=[],
             coverage={"activity": {"available": False, "reason": "unsupported"}},
             warnings=[],
@@ -1586,15 +1741,15 @@ def collect(
         return result
     now = time.time() if now is None else now.timestamp() if isinstance(now, dt.datetime) else float(now)
     try:
-        query = _windowed(what, r, now, day)
+        query = _windowed(what, _with_since(question, r), now, day)
     except ValueError as e:
         from liberational.memory import presence_counts
 
         # An unsupported count window is a deterministic refusal, not a model prompt.
         if r.movement and r.measure == "count" and r.source in ("cameras", "both") and presence_counts.enabled():
             result["paths"] = ["presence"]
-        result["answer"] = str(e)
-        result["warnings"] = [str(e)]
+        # What the question needs from the person, not an answer: Ask shows it as a notice, never rated.
+        result["answer"] = result["needs"] = str(e)
         return result
     result["query"] = query
     warnings: list[str] = result["warnings"]
@@ -1794,7 +1949,12 @@ def collect(
         elif query["kind"] == "transcript":
             selected, coverage = _transcripts(state, query, warnings)
             result["coverage"] = coverage
-            if (
+            if query["measure"] == "count" and (words := said_words(question)):
+                # How often a word was said: counted in every line of the window, not left to the model reading
+                # a sample of them.
+                result["paths"] = ["said-count"]
+                result["answer"], selected = said_count(words, selected, query)
+            elif (
                 query.get("topics")
                 and len(query.get("participants") or []) >= 2
                 and (summary := _conversation_summary(state, query))

@@ -109,7 +109,6 @@ it('is the same one Ask from every way in: the top bar, "/", the palette, Review
           ?.actions.find(a => a.id === 'do:ask')
           ?.go(),
     ],
-    ["the Inbox's Research a question", () => openAsk({ deep: true })],
     ['a report follow-up', () => openAsk({ hint: { kind: 'report', id: 'r1', question: 'Who?' } })],
   ];
   await act(async () => chunk.finish());

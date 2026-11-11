@@ -707,6 +707,8 @@ def execute(
         result["presence"] = history["presence"]
     if history.get("paths"):  # the new answer paths behind it (["timeline"]), for the dashboard's "New" tags
         result["paths"] = history["paths"]
+    if history.get("needs"):  # what the question needs from the person (a time to read): a notice, not an answer
+        result["needs"] = history["needs"]
     if result["coverage"].get("read_error"):
         result["status"] = "error"
     elif result["coverage"].get("partial") or result["coverage"].get("truncated"):
