@@ -1807,7 +1807,7 @@ def collect(
             if query["usual"] and not unchecked:
                 result["paths"] = ["events", "typical"]
                 measured = typical_counts.answer(
-                    asked, counted, state, stamp, TZ, now, event_counts.answer, person=person
+                    asked, counted, state, stamp, TZ, now, event_counts.answer, person=person, scan=event_counts.scan
                 )
             else:
                 measured = event_counts.answer(asked, counted, state, stamp, TZ, person=person)

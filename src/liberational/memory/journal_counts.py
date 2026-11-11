@@ -107,7 +107,14 @@ def _day_usual(name: str, date: dt.date, state: Path) -> str:
     end = journal.day_bounds(date)[0]
     query = {"start": start, "end": end, "question": ""}  # no question: whole local days, never nights
     reply = typical_counts.answer(
-        name, query, state, history_qa.stamp, history_qa.TZ, now=end, count=event_counts.answer
+        name,
+        query,
+        state,
+        history_qa.stamp,
+        history_qa.TZ,
+        now=end,
+        count=event_counts.answer,
+        scan=event_counts.scan,
     )
     periods: list[dict[str, Any]] = (reply.get("coverage") or {}).get("periods") or []
     return _usual([int(p["count"]) for p in periods], "day")

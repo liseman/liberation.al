@@ -19,6 +19,7 @@ Retired rules-based activity kinds are unavailable during the model-detector reb
 counted from old rows; history_qa answers those requests explicitly before consulting evidence.
 """
 
+import dataclasses
 import datetime as dt
 import re
 import time
@@ -278,6 +279,32 @@ def _model_kind_unchecked(
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class Scan:
+    """count_evidence's promoted and unverified spans and the coverage over one range, read once for a run of count
+    windows inside it: each window filters them to itself (memory/typical_counts.py's periods are the run)."""
+
+    promoted: list[dict[str, Any]]
+    unverified: list[dict[str, Any]]
+    covered: list[tuple[str, float, float]]
+    model_kinds: frozenset[str]
+
+
+def scan(asked: str, state: Any, start: float, end: float) -> Scan | None:
+    """One read of the store over [start, end) for a run of count windows inside it, or None when the count would go
+    to zone visits instead or no detector is installed: then each window keeps its own reads."""
+    act = module()
+    if act is None or _is_zone(state, asked):
+        return None
+    model_kinds = activity_kinds.model_kinds(state)
+    projection = getattr(act, "count_evidence", None)
+    promoted, unverified = (
+        projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
+    )
+    covered = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
+    return Scan([*promoted], [*unverified], [*covered], model_kinds)
+
+
 def answer(
     asked: str,
     query: Mapping[str, Any],
@@ -285,6 +312,8 @@ def answer(
     stamp: Callable[[float], str],
     tz: dt.tzinfo | None = None,
     person: Any = None,
+    *,
+    scanned: Scan | None = None,
 ) -> dict[str, Any]:
     """{answer, evidence, coverage, warnings, count, dwell_s} for how many times `asked` happened in query's window;
     `count` is there only when the window could be counted (memory/typical_counts.py reads it), and `dwell_s` beside
@@ -294,7 +323,8 @@ def answer(
         from liberational.memory import zone_counts
 
         return zone_counts.answer(asked, query, state, stamp, tz, same=same, person=person)
-    model_kinds = activity_kinds.model_kinds(state)  # the owner's activities read from a model
+    # The owner's activities read from a model: a scan read them once for the run of windows it covers.
+    model_kinds = scanned.model_kinds if scanned is not None else activity_kinds.model_kinds(state)
     if asked not in model_kinds and (asked in REBUILDING_KINDS or asked in reader.ACTIONS):
         return dict(
             answer=UNSUPPORTED, evidence=[], coverage={"available": False, "reason": "unsupported"}, warnings=[]
@@ -308,10 +338,13 @@ def answer(
             coverage={"recordings": 0, "available": False},
             warnings=["memory/events.py is not installed."],
         )
-    projection = getattr(act, "count_evidence", None)
-    promoted, unverified = (
-        projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
-    )
+    if scanned is not None:
+        promoted, unverified = scanned.promoted, scanned.unverified
+    else:
+        projection = getattr(act, "count_evidence", None)
+        promoted, unverified = (
+            projection(state, start, end) if callable(projection) else (act.events(state, start, end), [])
+        )
     promoted = [e for e in promoted if e.get("kind") not in RETIRED_KINDS]
     unverified = [e for e in unverified if e.get("kind") not in RETIRED_KINDS]
 
@@ -319,7 +352,10 @@ def answer(
         # A model kind counts its own spans, named or not; any other event counts by the owner's name.
         return (asked in model_kinds and e.get("kind") == asked) or same(owner_name(e), asked)
 
-    found = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
+    if scanned is not None:
+        found = scanned.covered
+    else:
+        found = act.coverage(state, start, end, kind=asked) if asked in model_kinds else act.coverage(state, start, end)
     covered = [(c, a, z) for c, a, z in found if not cameras or c in cameras]
     covered = [(c, a, z) for c, a, z in covered if a < end and z > start]
     spans = [e for e in promoted if not cameras or e.get("camera") in cameras]

@@ -9,7 +9,7 @@ import pytest
 
 from asking import query
 from liberational import config as cfg
-from liberational.memory import activity_questions, event_counts, history_qa, recall
+from liberational.memory import activity_questions, event_counts, history_qa, question, recall
 from liberational.memory import ask as pack_ask
 
 UTC = dt.UTC
@@ -87,6 +87,35 @@ def test_covered_with_nothing_found_is_a_real_zero(events, tmp_path):
     events.covered = [("cam0", at(9, 0), at(9, 30))]
     r = ask("how often did the dog get on the couch today", tmp_path)
     assert r["answer"].startswith("dog on the couch: not found in 1 analyzed recording.")
+
+
+def test_a_span_across_midnight_counts_in_both_days_it_covers(events, readings, tmp_path):
+    readings["how many times do I generally open the fridge"] = question.Reading(
+        measure="count", usual=True, people=("me",), source="cameras"
+    )
+    midnight = dt.datetime(2026, 10, 28, tzinfo=UTC).timestamp()
+    events.covered = [("cam0", midnight - 86400, midnight), ("cam0", midnight, midnight + 86400)]
+    events.found = [span(midnight - 300, midnight + 300, 1, "opened the fridge")]
+    r = ask("how many times do I generally open the fridge", tmp_path)
+    assert r["paths"] == ["events", "typical"]
+    assert [p["count"] for p in r["coverage"]["events"]["periods"]] == [1, 1]
+
+
+def test_a_usual_count_reads_the_store_once_for_all_its_periods(events, readings, tmp_path, monkeypatch):
+    readings["how many times do I generally open the fridge"] = question.Reading(
+        measure="count", usual=True, people=("me",), source="cameras"
+    )
+    day = dt.datetime(2026, 10, 28, tzinfo=UTC).timestamp()
+    events.covered = [("cam0", day, day + 86400)]
+    events.found = [span(day + 3600, day + 3660, 1, "opened the fridge")]
+    reads: list[tuple[float, float]] = []
+    original = events.events
+    monkeypatch.setattr(
+        events, "events", lambda state, start, end: reads.append((start, end)) or original(state, start, end)
+    )
+    r = ask("how many times do I generally open the fridge", tmp_path)
+    assert r["paths"] == ["events", "typical"]
+    assert len(reads) == 1, "one read for the whole run of periods, not one per period"
 
 
 def test_without_the_events_module_no_question_is_one_of_these(monkeypatch, tmp_path):
