@@ -205,28 +205,49 @@ One section per version, newest last. The release workflow publishes a version's
 
 ## 0.1.0
 
-The first release: one application (`pack-app`, or `pack-supervisor run` without a window), as wheels for Linux
-x86-64, Linux arm64, and macOS on Apple Silicon. Install from the apt repository, or with `uv tool install`, then
-`pack-setup`.
+The first release runs as one application: `pack-app` opens its window, and `pack-supervisor run` runs without one.
+The release workflow builds application and Continuum wheels for Linux x86-64, Linux arm64, and Apple Silicon
+macOS, plus dependency locks and checksums. Linux also has a `.deb` and an apt repository. There is no macOS
+installer package; Apple Silicon uses the wheels with `uv tool install`. Run `pack-setup` after installing.
 
 A fresh install resets nothing.
 
 A checkout from before the first public commit (2026-11-09) does not upgrade in place. Export what was taught
 (`pack-knowledge export`), set up fresh, and import the bundle. Recorded history is not carried.
 
-A checkout from 2026-11-09 or later, brought to this version, follows MIGRATING.md:
+A checkout from 2026-11-09 or later follows [MIGRATING.md](../MIGRATING.md), starting with its ordered path for
+older checkouts before pulling:
 
 - It runs as one application. `python -m liberational.services migrate` removes the earlier per-service units. A
   dry run prints the plan and changes nothing.
 - It resets recorded history. The catalog is format 8, and the broker refuses an older catalog.
   `pack-reset-catalog --keep-taught` prints the plan; `--yes` resets. The knowledge store, the face gallery, voice
-  references, and models stay.
+  references, and models stay. The reset also works with the application closed; open it afterwards.
 - A place's plan is a Pascal Editor scene. An older plan converts at commit `add5028c` with
-  `python -m liberational.spatial.plan_convert` (a dry run, then `--yes`) before this version is checked out. The
-  old line DSL, the text plan editor, the vendored floorplan library, `tools/import_owner_plan.py`, and
-  `pack-plan-convert` are gone. An unconverted plan is kept and is no longer shown.
-- Phone-walk import and the nightly camera re-registration are gone. `pack-reset-places` (a dry run, then
-  `--yes`) deletes the maps, splats, walks, camera registrations, and stored positions those jobs made. Corrected
-  plans stay.
+  `.venv/bin/python -m liberational.spatial.plan_convert` (a dry run, then `--yes`) before this version is checked
+  out. The converter was removed after that commit. The old line format, its text editor, and the vendored
+  floorplan library are gone. An unconverted plan is kept but no longer shown; conversion keeps the old versions.
+- Recorded walk imports and nightly camera re-registration are gone. The machine-made 3D map and splat generation
+  are removed. Old map and splat files stay on disk unread unless you reset places or the catalog.
+  `pack-reset-places` (a dry run, then `--yes`) deletes those files, camera registrations, point clouds, and stored
+  positions, while keeping corrected plans and place names in the knowledge store.
+- Delete these removed settings from `pack.toml`: `spatial.runtime`, `spatial.gpu`, `spatial.splat_runtime`,
+  `[models.hf.mast3r]`, and `[models.hf.depth_anything]`. Earlier checkouts also remove `spatial.cameras_enabled`,
+  `spatial.splats_enabled`, `spatial.geocalib_runtime`, `spatial.cut3r_runtime`, `[models.files.geocalib]`,
+  `[models.files.cut3r]`, and `spatial-cameras` under `[services]`. The upgrade guide covers camera settings moved
+  to the device manifest. Restart every service that reads configuration after changing these settings.
 - Stored DINOv3 pet embeddings are not read. `tools/restore_pet_references.py` carries taught pet examples onto
   DINOv2 before a restart. MIGRATING.md has the arguments.
+
+The new 3D view is optional and off unless configured. Set `spatial.pointmap_runtime` to a MASt3R-SLAM setup you
+install yourself, set `spatial.pointmap_weights` to its weights, and turn on Learn surroundings. The pack downloads
+none of that setup or its weights. MASt3R-SLAM and the weights have a non-commercial licence (CC BY-NC-SA 4.0).
+This needs CUDA. For a fixed camera with a visible floor, `mount.height_m` in the device manifest sizes its cloud;
+otherwise the size is approximate.
+
+The view shows one camera's point cloud at a time: a relief of what that camera sees, not a room. It does not join
+cameras into a map of a place or make splats. It does not register cameras or place people on a plan.
+
+Voice naming no longer lets a person's own unnamed lines block their name. Positions on an owner plan no longer
+put people or animals behind a wall their camera cannot see through. The plan editor also gains version history,
+camera spots, and controls for the plan's scale.
