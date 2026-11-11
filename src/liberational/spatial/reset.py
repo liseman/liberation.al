@@ -98,20 +98,23 @@ def describe(found: Plan) -> list[str]:
     state = found.state
     lines = [f"State: {state}", "Delete:"]
     keeping = {k.place.id for k in found.kept}
+    sizes: dict[Path, int] = {}  # each target measured once: a place's folder is a target too
     for p in found.found:
         chain = places.revisions(state, p.id)
         folder = places.root(state) / p.id
         maps, splats = len(list(folder.glob("*.map"))), len(list(folder.glob("*.sog")))
+        sizes[folder] = size(folder)
         lines.append(
             f"  {p.name} ({p.id}): {len(chain)} revisions, {maps} maps, {splats} splats, "
-            f"{len(p.revision.cameras)} camera registrations, {human(size(folder))}"
+            f"{len(p.revision.cameras)} camera registrations, {human(sizes[folder])}"
         )
     listed = {places.root(state) / p.id for p in found.found}
     for path in found.targets:
         if path in listed:
             continue  # a place's folder, named above
-        lines.append(f"  {path} ({human(size(path))})")
-    lines.append(f"  total {human(sum(size(p) for p in found.targets))}")
+        sizes[path] = size(path)
+        lines.append(f"  {path} ({human(sizes[path])})")
+    lines.append(f"  total {human(sum(sizes[p] for p in found.targets))}")
     lines.append("Keep:")
     for k in found.kept:
         lines.append(f"  {k.place.name} ({k.place.id}): your corrected plan, {k.rooms} rooms; listed with no map")
