@@ -157,6 +157,10 @@ def test_invalid_gpu_override_exits_before_camera_threads_or_models(monkeypatch,
 
     from liberational.vision import faces
 
+    # A machine with two GPUs, whether or not this one has any: `main` asks `choose()` for a CUDA backend first, so
+    # without this the test measures the no-GPU path (which rests NO_BACKEND_WAIT_S and exits 1) on a machine without
+    # CUDA, such as the hosted runner.
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
     monkeypatch.setattr(faces, "app", lambda: pytest.fail("loaded models before validating GPU placement"))
     with config.override({"vision": {"actions_camera_gpus": {"front": 2}}}), pytest.raises(SystemExit) as error:

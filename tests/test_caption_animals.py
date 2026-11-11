@@ -156,7 +156,7 @@ def test_only_boxes_big_enough_are_embedded_and_a_failing_embedder_stops_embeddi
 class VLM:
     name = "fake"
 
-    def caption(self, img: np.ndarray, memory: Any) -> str:
+    def caption(self, img: np.ndarray) -> str:
         return "One person on the couch. Dog on the floor near the TV."
 
 

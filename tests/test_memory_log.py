@@ -1,6 +1,8 @@
 """The memory log (liberational/memory_log.py) on a real broker: the journal streams' codecs and reads."""
 
+import json
 import time
+import uuid
 from unittest.mock import create_autospec
 
 import continuum_py
@@ -8,7 +10,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from liberational import continuum_link, memory_log, vision_log
+from liberational import continuum_link, memory_log
 from liberational.people import registry
 
 T0 = 1_700_000_000.0
@@ -24,15 +26,34 @@ def log():
         log.close()
 
 
-def feed(log, stream, record, **kw):
-    """Commits a vision record through the log's connection (the inputs an entry cites; speech lines are in the
-    segment store, which the broker can't cite)."""
+CAPTIONS = "camera.caption"
+
+
+def feed(log, record, **kw):
+    """Commits a camera caption payload through the log's connection (the inputs an entry cites; speech lines are in
+    the segment store, which the broker can't cite)."""
+    at_ns = int(float(record["ts_start"]) * 1e9)
+    body = {k: v for k, v in record.items() if k not in ("ts_start", "ts_end")}
 
     async def go(client):
-        sid = await vision_log.register(client, stream)
-        header, body = vision_log.encode(stream, sid, record, **kw)
-        await client.ingest_acked(header, inline=body)
-        return continuum_py.decode_header(header)["id"]
+        registered = await client.register_stream(
+            CAPTIONS, kind="derived", format="Text", shape_name=CAPTIONS, layer="Layer1Raw", slab_class=0
+        )
+        header: continuum_py.PayloadHeader = {
+            "id": str(uuid.uuid7()),
+            "stream_id": registered["stream_id"],
+            "start_ns": at_ns,
+            "end_ns": at_ns,
+            "layer": "Layer1Raw",
+            "format": "Text",
+            "shape_name": CAPTIONS,
+            "parents": [],
+            "subjects": [],
+            "seq": 0,
+        }
+        payload = continuum_py.encode_header(header)
+        await client.ingest_acked(payload, inline=json.dumps(body).encode())
+        return continuum_py.decode_header(payload)["id"]
 
     return log.link.call(go)
 
@@ -43,8 +64,8 @@ def entry(log, start, level=30, text="[S7] said hi.", parents=(), **extra):
 
 
 def test_an_entry_cites_its_inputs_and_reads_back_by_window_and_level(log):
-    utt = feed(log, vision_log.CAPTIONS, {"ts_start": T0 + 1, "cam": "cam1", "caption": "a door"})
-    cap = feed(log, vision_log.CAPTIONS, {"ts_start": T0 + 2, "cam": "cam0", "caption": "a desk"})
+    utt = feed(log, {"ts_start": T0 + 1, "cam": "cam1", "caption": "a door"})
+    cap = feed(log, {"ts_start": T0 + 2, "cam": "cam0", "caption": "a desk"})
     fine = entry(log, T0, parents=[utt, cap])
     coarse = entry(log, T0, level=180, text="[S7] greeted me.", parents=[fine])
     got = log.entries(T0 - 10, T0 + 10)
@@ -150,8 +171,8 @@ def test_an_unknown_parent_is_refused(log):
 
 
 def test_purging_an_input_takes_the_entries_built_from_it(log):
-    utt = feed(log, vision_log.CAPTIONS, {"ts_start": T0 + 1, "cam": "cam0", "caption": "a desk"})
-    other = feed(log, vision_log.CAPTIONS, {"ts_start": T0 + 40, "cam": "cam0", "caption": "a chair"})
+    utt = feed(log, {"ts_start": T0 + 1, "cam": "cam0", "caption": "a desk"})
+    other = feed(log, {"ts_start": T0 + 40, "cam": "cam0", "caption": "a chair"})
     fine = entry(log, T0, parents=[utt])
     rollup = entry(log, T0, level=180, parents=[fine])
     kept = entry(log, T0 + 30, parents=[other])
@@ -416,7 +437,7 @@ def test_a_commit_in_the_range_is_seen_and_one_outside_it_keeps_the_kept_read(lo
 
 
 def test_a_purge_after_a_kept_read_is_seen(log, reads):
-    utt = feed(log, vision_log.CAPTIONS, {"ts_start": T0 + 1, "cam": "cam0", "caption": "a desk"})
+    utt = feed(log, {"ts_start": T0 + 1, "cam": "cam0", "caption": "a desk"})
     gone = entry(log, T0, parents=[utt])
     assert [r["id"] for r in log.entries(T0, T0 + 3600)] == [gone]
     log.link.call(lambda c: c.purge(ids=[utt], reason="test"))

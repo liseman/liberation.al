@@ -26,7 +26,6 @@ from typing import Any
 
 from liberational import segment_log
 from liberational.see.actions import COVERAGE_SCHEMA, POSE_SCHEMA
-from liberational.see.actions_worker import COVERAGE, POSES
 
 NS = 1_000_000_000
 MAX_PENDING = 100_000  # detection rows held for their coverage row, per camera (see-actions writes both every second)
@@ -61,8 +60,8 @@ class Kind:
 
 PEOPLE = Kind(
     "person",
-    POSES,
-    COVERAGE,
+    segment_log.POSE_TRACKS,
+    segment_log.ACTION_COVERAGE,
     tuple(POSE_SCHEMA),
     tuple(COVERAGE_SCHEMA),
     integral_track=True,
@@ -233,8 +232,8 @@ def between(root: Path, cam: str, start: float, end: float) -> list[Frame]:
     if t1 <= t0:
         return []
     assembler = Assembler()
-    assembler.poses(read_segments(root, POSES, POSE_SCHEMA, t0, t1, [cam]), PEOPLE)
-    spans = read_segments(root, COVERAGE, COVERAGE_SCHEMA, t0, t1, [cam], overlapping=True)
+    assembler.poses(read_segments(root, segment_log.POSE_TRACKS, POSE_SCHEMA, t0, t1, [cam]), PEOPLE)
+    spans = read_segments(root, segment_log.ACTION_COVERAGE, COVERAGE_SCHEMA, t0, t1, [cam], overlapping=True)
     order = sorted(range(len(spans["camera"])), key=lambda i: int(spans["end_ns"][i]))
     frames = assembler.coverage({k: [spans[k][i] for i in order] for k in ("camera", "ts_ns", "end_ns")}, PEOPLE)
     return [f for f in frames if t0 <= f.ts_ns < t1]

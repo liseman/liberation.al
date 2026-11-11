@@ -1,15 +1,10 @@
-"""Caption freshness: the caption prompt stands on its own, and the model sees each caption's status."""
+"""Caption freshness: the model sees each caption's status."""
 
 import json
 
 import numpy as np
 
 from liberational.memory.ask import evidence_context
-from liberational.see import vlm as v
-
-
-def test_prompt_is_independent_of_prior_captions():
-    assert v.build_prompt(["Two people"]) == v.build_prompt([])
 
 
 class Source:

@@ -8,7 +8,6 @@ import pytest
 from liberational import segment_log
 from liberational.dashboard import skeletons
 from liberational.see.actions import JOINTS, POSE_SCHEMA, SCALE
-from liberational.see.actions_worker import POSES
 
 T = 1_800_000_000.0  # a fixed moment, in seconds
 
@@ -27,7 +26,7 @@ def write_poses(state: Path, cam: str, rows: list[tuple[float, int, float]]) -> 
     joints[:, 2::3] = 0
     for i, (_, _, x) in enumerate(rows):
         joints[i, :3] = (round(x * SCALE), round(0.25 * SCALE), round(0.9 * SCALE))
-    writer = SegmentWriter(segment_log.root(state), POSES, cam, POSE_SCHEMA)
+    writer = SegmentWriter(segment_log.root(state), segment_log.POSE_TRACKS, cam, POSE_SCHEMA)
     writer.append(
         {
             "ts_ns": np.array([round(t * 1e9) for t, _, _ in rows], np.int64),

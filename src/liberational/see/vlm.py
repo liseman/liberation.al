@@ -1,14 +1,13 @@
 """The VLM behind the caption worker: the backends (Ollama, mlx-vlm in
 process, and the mlx-vlm server, vision/vlm_server.py), the caption prompt, and the tile and JPEG helpers they use.
 
-`make_vlm` picks a backend with fallbacks; each backend has `caption(tile, memory)`, and Ollama's has `ground(frame)`
+`make_vlm` picks a backend with fallbacks; each backend has `caption(tile)`, and Ollama's has `ground(frame)`
 for object boxes (vision/objects.py's prompt and parser).
 """
 
 import base64
 import threading
 import time
-from collections.abc import Sequence
 
 import cv2
 import numpy as np
@@ -34,16 +33,6 @@ PROMPT = (
     "Explicitly mark blur, occlusion and uncertainty. Do not infer identity, intent, direction of travel, "
     "arrival/departure or elapsed time from one image. Plain factual text, no preamble."
 )
-# Prompt variants tried against the real previews (logs/vlm-mlx-probe-prompt.log): "Previous observations: ..." as
-# a prefix makes the model parrot the earlier caption verbatim for every camera; "start with 'Changed:' if different"
-# latches on at temperature 0 and dumps object lists. A forced first word Same/Changed judged against the earlier
-# caption was right in both directions (steady scene -> Same; person from the earlier caption gone -> Changed).
-PROMPT_WITH_PREV = (
-    "You are the eyes of a wearable assistant. Earlier caption of this view: {prev}\n"
-    "Look at THIS image. Answer in at most 20 words. First word: 'Same' if the scene matches that caption, "
-    "'Changed' if not. Then describe: people, signs/text, vehicles, hazards, notable objects. "
-    "Skip what is absent. No preamble."
-)
 MAX_NEW_TOKENS = 144  # bounded independent observation, not an abbreviated change label
 VLM_NUM_CTX = ollama_health.VLM_NUM_CTX  # every call to the Ollama VLM, its warm-up included
 
@@ -67,11 +56,6 @@ def to_jpeg_b64(img: np.ndarray, q: int = 80) -> str:
 
 
 # ---------- VLM ----------
-def build_prompt(memory: Sequence[str]) -> str:
-    """Keep the legacy memory argument; never prime inference with stale observations."""
-    return PROMPT  # independent observations: previous descriptions can anchor hallucinated presence
-
-
 def _clean(txt: str) -> str:
     return " ".join(txt.strip().replace("\n", " ").split()[:110])  # defensive cap beyond the requested 85 words
 
@@ -87,12 +71,11 @@ class OllamaVLM:
     def warm(self) -> None:
         ollama.load(self.model, num_ctx=VLM_NUM_CTX, background=True)
 
-    def caption(self, img: np.ndarray, memory: Sequence[str]) -> str:
-        """memory = recent captions (so the model can say what changed)."""
+    def caption(self, img: np.ndarray) -> str:
         try:
             reply = ollama.chat(
                 self.model,
-                [{"role": "user", "content": build_prompt(memory), "images": [to_jpeg_b64(img)]}],
+                [{"role": "user", "content": PROMPT, "images": [to_jpeg_b64(img)]}],
                 num_ctx=VLM_NUM_CTX,  # never the 262k default
                 num_predict=MAX_NEW_TOKENS,
                 temperature=0.2,
@@ -107,9 +90,9 @@ class OllamaVLM:
             return ""
 
     def ground(self, img: np.ndarray, prompt: str = objects.PROMPT) -> str:
-        """Notable objects with boxes as the model's raw text (objects.parse reads it), or what `prompt` asks for
-        in the same form (see/caption_animals.py asks for animals only). Raises on HTTP errors, and
-        GroundingTruncated when the reply ran out of tokens."""
+        """Notable objects with boxes as the model's raw text (see/captions.grounded_items reads it), or what
+        `prompt` asks for in the same form (see/caption_animals.py asks for animals only). Raises on HTTP errors,
+        and GroundingTruncated when the reply ran out of tokens."""
         reply = ollama.chat(
             self.model,
             [{"role": "user", "content": prompt, "images": [to_jpeg_b64(img, 85)]}],
@@ -147,14 +130,14 @@ class MlxVLM:
         model_runtime.loaded("models.hf.vlm", repo, "camera descriptions", "Apple GPU", owner=self)
         LOG.info(f"mlx-vlm: loaded {repo} in {t() - t0:.1f}s")
 
-    def _prompt(self, memory: Sequence[str]) -> str:
-        return chat_prompt(self._tmpl, self.processor, self.cfg, build_prompt(memory))
+    def _prompt(self) -> str:
+        return chat_prompt(self._tmpl, self.processor, self.cfg, PROMPT)
 
     def warm(self) -> None:
         """First generate() pays Metal kernel compilation (~1-2 s); do it before the loop starts."""
-        self.caption(np.full((self.px // 2, self.px, 3), 128, np.uint8), [])
+        self.caption(np.full((self.px // 2, self.px, 3), 128, np.uint8))
 
-    def caption(self, img: np.ndarray, memory: Sequence[str]) -> str:
+    def caption(self, img: np.ndarray) -> str:
         from PIL import Image
 
         assert threading.get_ident() == self.thread, "MlxVLM must be called on the thread that loaded it"
@@ -166,7 +149,7 @@ class MlxVLM:
             r = self._generate(
                 self.model,
                 self.processor,
-                self._prompt(memory),
+                self._prompt(),
                 image=pil_images(pil),
                 max_tokens=MAX_NEW_TOKENS,
                 temperature=0.0,
@@ -193,13 +176,13 @@ class MlxServerVLM:
     def warm(self) -> None:
         pass  # the server warms itself
 
-    def caption(self, img: np.ndarray, memory: Sequence[str]) -> str:
+    def caption(self, img: np.ndarray) -> str:
         try:
             voice_turn.wait_quiet()
             r = requests.post(
                 f"{self.url}/caption",
                 timeout=self.timeout,
-                json={"image_b64": to_jpeg_b64(img, 90), "memory": memory[-1:]},
+                json={"image_b64": to_jpeg_b64(img, 90)},
             )
             r.raise_for_status()
             return _clean(r.json()["caption"])

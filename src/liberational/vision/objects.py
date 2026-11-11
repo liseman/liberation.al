@@ -6,15 +6,14 @@ that scale land on the TV, couches, and guitars; read as pixels they don't). Tha
 size, so it's stored relative and converted to tile pixels for scene.json (the same space as faces) and to frame
 pixels for the live stream.
 
-`parse` reads that JSON, `to_pixels` converts a box onto an image, and `draw` paints the boxes. The caption path
+`clean` turns the reply's rows into the objects worth storing, `to_pixels` converts a box onto an image, and
+`draw` paints the boxes. The caption path
 (see/captions.py) asks after the view changes, at most every MIN_S and at least every MAX_IDLE_S, and keeps the
 last boxes for TTL_S. Grounding is a separate, slower call from the caption: about 260 output tokens, about 2.6 s
 on an RTX 3090 with qwen3-vl:4b through Ollama, against about 0.9 s for a caption, and Ollama answers one request
 at a time. Only the Ollama backend grounds; the MLX backends leave objects empty (logged once).
 """
 
-import json
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, TypedDict
 
@@ -74,19 +73,14 @@ class Item(TypedDict):
     box: list[float]
 
 
-def parse(text: str | None) -> list[Item]:
-    """Model output -> [{"label", "box": [x1, y1, x2, y2] on 0 to 1000}]. Tolerates code fences, chatter around the
-    JSON, a missing closing bracket (output cut at the token limit), "bbox" for "bbox_2d", and swapped corners.
-    Drops malformed, out-of-range, tiny, whole-image, and repeated boxes, and keeps at most MAX_PER_LABEL a label."""
-    m = re.search(r"\[.*", text or "", re.S)
-    if not m:
-        return []
+def clean(rows: Iterable[Mapping[str, Any]]) -> list[Item]:
+    """The model's grounding rows -> [{"label", "box": [x1, y1, x2, y2] on 0 to 1000}], one per object worth
+    keeping: labels lowercased and shortened, swapped corners put in order, boxes off the 0 to 1000 scale dropped
+    and the rest clamped, and malformed, tiny, whole-image, and repeated boxes dropped, with at most MAX_PER_LABEL a
+    label. `see/captions.grounded_items` has already validated the whole reply (a real label, a finite box), so this
+    is the filtering that decides what is worth storing; it reads rows, never the text they came from."""
     items: list[Item] = []
-    for obj in re.finditer(r"\{[^{}]*\}", m.group(0)):  # each complete {...}, so a cut-off tail is just skipped
-        try:
-            d = json.loads(obj.group(0))
-        except ValueError:
-            continue
+    for d in rows:
         label, box = str(d.get("label", "")).strip().lower(), d.get("bbox_2d", d.get("bbox"))
         if not label or not isinstance(box, list) or len(box) != 4:
             continue

@@ -12,7 +12,7 @@ import pytest
 
 from liberational import segment_log
 from liberational.see import action_animals
-from liberational.see.vision_backend import People
+from liberational.see.vision_backend import People, detector_model
 
 T = 500_000 * 3_600_000_000_000  # on an hour boundary
 STEP = 250_000_000  # a sample every 0.25 s: past SAMPLE_NS, and exact in float seconds
@@ -227,7 +227,7 @@ def test_rows_round_trip_through_the_segment_store(tmp_path):
         "cat",
     )
     assert first["box"] == pytest.approx(list(ON_THE_FLOOR))
-    assert (first["verified"], first["model"]) == (True, action_animals.DETECTOR)
+    assert (first["verified"], first["model"]) == (True, detector_model())
     embeddings = log.range(segment_log.ANIMAL_EMBEDDINGS, start, end)
     assert [e["ts_start"] - start for e in embeddings] == [1.0, 3.0, 7.0]
     assert embeddings[0]["track_id"] == first["track_id"]

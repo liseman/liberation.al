@@ -7,8 +7,10 @@ records, and its notable objects grounded now and then, as `camera.objects` reco
 - The change gate: a 64x36 blurred grey signature of the 448-px tile, compared with the tile at the last VLM call (not
   the last frame, so slow drift adds up). The VLM is called when the mean difference, the share of pixels that
   moved, or one block of the view changed enough, or when the view has gone `max_idle_s` without a caption.
-- The VLM: any `Captioner` (`OllamaVLM`, `MlxVLM`, and `MlxServerVLM` all fit), given the tile and this camera's
-  last three real captions, with the independent-observation prompt.
+- The VLM: any `Captioner` (`OllamaVLM`, `MlxVLM`, and `MlxServerVLM` all fit), given the tile alone, with the
+  independent-observation prompt. Each look stands on its own: an earlier caption used to be passed with the tile,
+  but priming the model with one made it parrot that caption for every camera, and a "start with Same or Changed"
+  variant latched on at temperature 0, so nothing from a previous look goes into the request.
 - Grounding: an optional `ground` call (the Ollama grounder) on the whole frame, on a view's first look, when the view
   moved (at most every `objects.MIN_S`; the gate's idle refresh isn't movement), and otherwise every
   `objects.MAX_IDLE_S`, its boxes kept for `objects.TTL_S` and
@@ -24,7 +26,7 @@ the stream. Faces aren't checked here (`faces` is None): the face worker's recor
 
 import json
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -43,7 +45,6 @@ GATE_FRAC = 0.03
 GATE_LOCAL = 18.0
 GATE_MAX_IDLE_S = 30.0
 QUIET_EVERY_S = 10.0
-MEMORY = 3
 MAX_GROUNDING_BYTES = 65_536
 MAX_GROUNDING_OBJECTS = 64
 
@@ -53,8 +54,9 @@ LOG = logs.get("see-captions")
 def grounded_items(text: str) -> list[objects.Item]:
     """A complete finite grounding array; malformed/truncated responses are unknown, never an empty scene.
 
-    Keep the legacy box normalization/filtering after validating the whole model response. Code fences and
-    surrounding prose remain accepted, but every array row must have a finite box and a real label.
+    Code fences and surrounding prose are accepted, but every array row must have a finite box and a real label;
+    the boxes are then normalized and filtered by `objects.clean` (lowercased, clamped, deduplicated), which reads
+    the rows rather than the text, so a label with a brace in it survives.
     """
     if not isinstance(text, str) or len(text.encode()) > MAX_GROUNDING_BYTES:
         raise ValueError("grounding response exceeds its text budget")
@@ -76,15 +78,15 @@ def grounded_items(text: str) -> list[objects.Item]:
             raise ValueError("grounding object has no complete box")
         if any(isinstance(value, bool) or not math.isfinite(float(value)) for value in box):
             raise ValueError("grounding object has a nonfinite box")
-    return objects.parse(json.dumps(rows, allow_nan=False))
+    return objects.clean(rows)
 
 
 class Captioner(Protocol):
-    """A VLM backend: `caption(tile, memory)` gives the description, or "" when the call failed."""
+    """A VLM backend: `caption(tile)` gives the description, or "" when the call failed."""
 
     name: str
 
-    def caption(self, img: np.ndarray, memory: Sequence[str], /) -> str: ...
+    def caption(self, img: np.ndarray, /) -> str: ...
 
 
 def tile_of(frame: np.ndarray, px: int = TILE_PX) -> np.ndarray:
@@ -173,7 +175,6 @@ class CaptionPipeline:
         self.called_at = -float("inf")
         self.gate = gate or ChangeGate()
         self.quiet_every_s = quiet_every_s
-        self.memory: list[str] = []
         self.last: dict[str, Any] | None = None  # the last real caption: its text and observed time
         self.last_quiet = -float("inf")
         self.grounded_at: float | None = None
@@ -202,11 +203,10 @@ class CaptionPipeline:
         if change.call:
             self.called_at = ts
             t0 = cv2.getTickCount()
-            text = self.vlm.caption(tile, self.memory[-MEMORY:])
+            text = self.vlm.caption(tile)
             vlm_ms = 1000 * (cv2.getTickCount() - t0) / cv2.getTickFrequency()
             if text:
                 self.gate.captioned(tile, ts)
-                self.memory = [*self.memory[-(MEMORY - 1) :], text]
                 self.last = {"caption": text, "at": ts}
         if self.animals is not None:
             grounded = out.objects is not None and out.objects["observation"]["status"] == "fresh"
