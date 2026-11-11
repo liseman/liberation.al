@@ -96,9 +96,9 @@ const SHOTS = [
     },
   },
   {
-    name: 'demo-reports',
+    name: 'demo-statistics',
     steps: async page => {
-      await open(page, '/reports');
+      await open(page, '/statistics');
       await page.waitForTimeout(SETTLE_MS); // the charts draw after the day's numbers arrive
     },
   },
