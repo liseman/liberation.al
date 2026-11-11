@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import plans
+from liberational import json_state
 from liberational import segment_log as S
 from liberational.dashboard import places as view
 from liberational.memory import places
@@ -27,21 +28,21 @@ OPEN = plans.scene(
 )
 
 
-def walkers(pitch, roll=0.0, above=2.0, n=120, seed=0, across=3.0):
+def walkers(pitch, roll=0.0, above=2.0, n=120, seed=0, across=3.0, focal=FOCAL):
     """Foot and head pixels of people 1.5 to 1.8 m tall walking 2 to 7 m in front of a camera `above` the floor,
     pitched `pitch` degrees down and rolled `roll` clockwise, worked out from the room's side: the world has z up,
     the camera looks along +y. Returns (feet, heads, the people's median height)."""
     rng = np.random.default_rng(seed)
     tall = rng.uniform(1.5, 1.8, n)
     floor = np.column_stack([rng.uniform(-across, across, n), rng.uniform(2.0, 7.0, n)])
-    feet = pixels(np.column_stack([floor, np.full(n, footprints.FOOT_M)]), pitch, roll, above)
-    heads = pixels(np.column_stack([floor, tall]), pitch, roll, above)
+    feet = pixels(np.column_stack([floor, np.full(n, footprints.FOOT_M)]), pitch, roll, above, focal)
+    heads = pixels(np.column_stack([floor, tall]), pitch, roll, above, focal)
     return feet, heads, float(np.median(tall))
 
 
-def pixels(points, pitch, roll=0.0, above=2.0):
+def pixels(points, pitch, roll=0.0, above=2.0, focal=FOCAL):
     """Where (N, 3) points (x right of the camera, y ahead, z up, from the floor under it) are seen in a pinhole
-    frame of SIZE at FOCAL, from a camera `above` the floor pitched `pitch` degrees down and rolled `roll`."""
+    frame of SIZE at `focal`, from a camera `above` the floor pitched `pitch` degrees down and rolled `roll`."""
     p, r = math.radians(pitch), math.radians(roll)
     forward = np.array([0.0, math.cos(p), -math.sin(p)])
     level_right, level_down = np.array([1.0, 0.0, 0.0]), np.array([0.0, -math.sin(p), -math.cos(p)])
@@ -49,7 +50,43 @@ def pixels(points, pitch, roll=0.0, above=2.0):
     down = -math.sin(r) * level_right + math.cos(r) * level_down
     rel = np.asarray(points, dtype=np.float64) - np.array([0.0, 0.0, above])
     x, y, z = rel @ right, rel @ down, rel @ forward
-    return np.column_stack([0.5 + FOCAL * x / z / SIZE[0], 0.5 + FOCAL * y / z / SIZE[1]])
+    return np.column_stack([0.5 + focal * x / z / SIZE[0], 0.5 + focal * y / z / SIZE[1]])
+
+
+# A made-up room seen down its length: 8 m wide, its far wall 6.5 m from a spot half a metre inside the near one, with
+# walls 2.4 m tall. The camera's world here is the room's side (x right of it, y ahead, z up from the floor under it).
+ROOM = plans.scene('plan "Home" walls 0.2/0.1\nroom r1 "Room" other rect -4,-7 8x7\n')
+SPOT = plan_import.Camera("cam0", (0.0, -0.5), 2.0, 0.0)
+WIDE_SHARE = 0.401  # a wide lens: its focal as a share of the frame's width, about 100 degrees across
+TOP = 2.4  # metres: how tall the room's walls are, so a picture of them has a line at the top too
+FAR = 6.5  # metres from that spot to the far wall
+
+
+def wall_lines():
+    """((start, end) in world metres) the straight lines the room's walls make in its picture: each wall's floor line,
+    its top line, and the corners between walls."""
+    lines = [((-4.0, FAR, 0.0), (4.0, FAR, 0.0)), ((-4.0, FAR, TOP), (4.0, FAR, TOP))]
+    for x in (-4.0, 4.0):
+        lines += [((x, 0.2, 0.0), (x, FAR, 0.0)), ((x, 0.2, TOP), (x, FAR, TOP)), ((x, FAR, 0.0), (x, FAR, TOP))]
+    return lines
+
+
+def room_picture(pitch, roll=0.0, above=2.0, focal=WIDE_SHARE):
+    """A picture of the room from a camera `above` the floor, pitched `pitch` degrees down, rolled `roll` clockwise,
+    and at `focal` (a share of the frame's width): its walls' lines drawn on a plain background, as that camera's
+    frame shows them."""
+    import cv2
+
+    img = np.full((SIZE[1], SIZE[0], 3), 235, np.uint8)
+    for start, end in wall_lines():
+        along = np.linspace(0.0, 1.0, 120)
+        points = np.array(start)[None, :] * (1.0 - along)[:, None] + np.array(end)[None, :] * along[:, None]
+        seen = pixels(points, pitch, roll, above, focal * SIZE[0])
+        kept = seen[(seen[:, 0] > -1.0) & (seen[:, 0] < 2.0) & (seen[:, 1] > -1.0) & (seen[:, 1] < 2.0)]
+        drawn = np.column_stack([kept[:, 0] * SIZE[0], kept[:, 1] * SIZE[1]]).round().astype(np.int32)
+        if len(drawn) > 1:
+            cv2.polylines(img, [drawn], False, (30, 30, 30), 2)
+    return img
 
 
 HELD = lens.Held(FOCAL / SIZE[0], 0.0, "test")
@@ -71,6 +108,114 @@ def test_the_tilt_is_found_from_walking_people_with_no_height_assumed(pitch, rol
     assert (found.pitch, found.roll) == pytest.approx((pitch, roll), abs=0.5)
     assert found.tall == pytest.approx(tall, abs=0.05)
 
+
+def test_a_pictures_straight_edges_recover_a_wide_lenses_tilt_roll_and_focal():
+    # The room's lines across the whole frame, and walkers in one strip of it who would put the tilt anywhere with a
+    # lens whose focal is a quarter off: the edges' tilt and focal are found, and the walkers agree with them there.
+    pitch, roll = 18.0, 6.0
+    edges = spots.edges_in(room_picture(pitch, roll))
+    assert len(edges) >= spots.EDGE_MIN
+    feet, heads, tall = walkers(pitch, roll, across=0.6, focal=WIDE_SHARE * SIZE[0])
+    assert float(np.ptp(np.percentile(feet[:, 0], [5, 95]))) < spots.ROLL_SPAN  # one strip of the view
+    held = lens.Held(WIDE_SHARE * 0.75, 0.0, "a plumb line's")
+    shape = places.CameraPose(tuple(float(x) for x in np.eye(4).ravel()), held.focal * SIZE[0], *SIZE)
+    walked = spots.up_from_people(spots.rays(shape, feet), spots.rays(shape, heads), roll=False)
+    assert walked is not None
+    assert abs(spots._pitch_roll(walked)[0] - pitch) > 3.0  # the walkers alone, at that focal, are the wrong tilt
+
+    found = spots.aim(
+        "cam0", SPOT, held, SIZE, feet, heads, T, edges=edges, room=spots.room(ROOM, SPOT), mirrored=False
+    )
+
+    assert found is not None
+    assert (found.pitch, found.roll) == pytest.approx((pitch, roll), abs=1.5)
+    assert found.focal == pytest.approx(WIDE_SHARE * SIZE[0], rel=0.08)
+    assert found.confirmed
+    assert found.edges >= spots.EDGE_MIN
+    assert found.tall == pytest.approx(tall, abs=0.08)
+    assert "confirmed" in spots.edge_note(found)
+
+
+def test_the_plans_headings_and_the_walls_its_spot_should_see():
+    assert spots.headings(ROOM) == (90.0, 0.0)  # the far wall across the view, the side walls running away
+    assert spots.headings("not a scene") == ()
+    seen = spots.room(ROOM, SPOT)
+    assert len(seen.floor) > 10
+    # every floor point is in front of the spot (which faces -y on the page) and inside the room, not behind it
+    assert (seen.floor[:, 1] < SPOT.at[1]).all()
+    assert (np.abs(seen.floor[:, 0]) <= 4.0).all()
+    assert seen.eye == (0.0, -0.5, 2.0)
+    assert not len(spots.room(ROOM, plan_import.Camera("cam0", (0.0, -0.5), None, 0.0)).floor)
+
+
+def test_too_few_straight_edges_leave_the_walkers_tilt_and_say_so():
+    # A picture with one line across it says nothing of a tilt: the walkers' own fit stands, and the note says why.
+    picture = np.full((SIZE[1], SIZE[0], 3), 235, np.uint8)
+    picture[140:143, 60:460] = 30
+    edges = spots.edges_in(picture)
+    feet, heads, _ = walkers(24.0, 4.0)
+    found = spots.aim(
+        "cam0",
+        SPOT,
+        lens.Held(WIDE_SHARE, 0.0, "test"),
+        SIZE,
+        feet,
+        heads,
+        T,
+        edges=edges,
+        room=spots.room(ROOM, SPOT),
+        mirrored=False,
+    )
+    assert found is not None
+    assert (found.pitch, found.roll) == pytest.approx((24.0, 4.0), abs=1.0)
+    assert not found.confirmed
+    assert found.focal is None
+    assert "too few" in spots.edge_note(found) or "no straight edges" in spots.edge_note(found)
+
+
+def test_a_fitted_focal_is_the_one_the_poses_rays_are_cast_with(tmp_path, monkeypatch, pinhole, vision):
+    # The picture's edges fit the focal, so the aim keeps it and the pose reads frames through it.
+    pitch, roll = 18.0, 6.0
+    picture = room_picture(pitch, roll)
+    vision.frames[("cam0", T)] = picture
+    feet, heads, _ = walkers(pitch, roll, across=0.6, focal=WIDE_SHARE * SIZE[0])
+    taught(tmp_path, "x-camera cam0 at 0,-0.5 height 2 yaw 0", rooms=ROOM, held=False)
+    lens.hold(tmp_path, "cam0", lens.Held(WIDE_SHARE * 0.75, 0.0, "a plumb line's"), now=T - 50)
+    monkeypatch.setattr(spots, "people", lambda state, camera, now: (feet, heads))
+    monkeypatch.setattr(spots, "frame_size", lambda camera, t: SIZE)
+
+    fitted = spots.fit(tmp_path, T)["cam0"]
+
+    assert fitted.focal == pytest.approx(WIDE_SHARE * SIZE[0], rel=0.08)
+    spot = spots.read(tmp_path)["cam0"]
+    assert spot.missing == ()
+    assert spot.pose is not None
+    assert spot.pose.focal == pytest.approx(WIDE_SHARE * SIZE[0], rel=0.08)
+
+
+def test_an_aim_kept_before_the_pictures_edges_were_read_still_holds(tmp_path):
+    folder = places.root(tmp_path)
+    folder.mkdir(parents=True, exist_ok=True)
+    up = spots.up_at(20.0, 2.0)
+    json_state.write(
+        folder / spots.AIMS,
+        {
+            "cam0": {
+                "up": [float(v) for v in up],
+                "width": SIZE[0],
+                "height": SIZE[1],
+                "people": 120,
+                "tall": 1.65,
+                "at": T,
+                "basis": "2.0|None|0.28125/0.00000",
+            }
+        },
+        indent=1,
+        sort_keys=True,
+    )
+    kept = spots.aims(tmp_path)["cam0"]
+    assert (kept.edges, kept.edge_pitch, kept.edge_roll, kept.focal, kept.confirmed) == (0, None, None, None, False)
+    assert (kept.pitch, kept.roll) == pytest.approx((20.0, 2.0), abs=0.01)
 
 def test_too_few_walkers_fit_no_tilt():
     feet, heads, _ = walkers(25.0, n=spots.AIM_MIN - 1)
