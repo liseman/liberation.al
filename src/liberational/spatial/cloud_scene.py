@@ -48,9 +48,12 @@ fit nowhere or in two places) is not drawn: the camera is "lost", says why, and 
 when its old view comes back; every new cloud is tried again. The owner can put a followed or lost camera back on
 the plan's spot (`use_spot`), which holds until its view next changes, and take that back (`follow_again`).
 
-*While a camera is being carried* nothing is placed: a cloud is made only from a view that has held still with
-nobody in it (spatial/surroundings_clouds.py), so the scene shows the camera's last cloud where it last stood, with
-its age, until it rests and gets a new one. Tracking a camera continuously as it moves is not done here.
+*While a camera is being carried* no cloud of its own is made: one is made only from a view that has held still
+with nobody in it (spatial/surroundings_clouds.py). Meanwhile spatial/camera_track.py tracks it from its live frames
+(#516) and keeps its pose, its path, and its last keyframes' clouds beside its cloud (`tracked`). The scene shows the
+camera where the track has it, draws those keyframes' points with its own, and says how long ago the track was held
+to the plan's walls. When the camera rests and gets a cloud, that cloud is placed from where the track left it
+("tracking", then squared and fitted as any cloud is), and the track's files go.
 
 **Square to the house** (`align`, spatial/cloud_align.py). Between 1 and 2: a cloud's own walls say how its camera
 really faces, better than a facing set by hand. A camera placed from its spot is turned, and where its walls have
@@ -66,6 +69,7 @@ What a scene is good for: reliefs standing in the right places, not a whole room
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import math
 import shutil
@@ -269,6 +273,55 @@ def unsettled(store: camera_clouds.Store, camera: str, cloud: str, basis: str | 
     return was if basis is None or held.get("basis") == basis else None
 
 
+TRACK = "track.json"  # a moving camera's track (spatial/camera_track.py `Track.write`), beside its cloud
+TRACK_FOLDER = "track"  # and its keyframes' clouds, `<n>.ply`
+TRACK_FRESH_S = 180.0  # a cloud whose picture was taken this long after a track's last pose is placed from it
+
+
+def tracked(store: camera_clouds.Store, camera: str) -> dict[str, Any] | None:
+    """`camera`'s track as spatial/camera_track.py last wrote it, or None."""
+    got = json_state.read(_camera_file(store, camera, TRACK))
+    return got if isinstance(got, dict) and isinstance(got.get("xyb"), list) and len(got["xyb"]) == 3 else None
+
+
+def drop_track(store: camera_clouds.Store, camera: str) -> None:
+    """Forget `camera`'s track: its record and its keyframes' clouds."""
+    _camera_file(store, camera, TRACK).unlink(missing_ok=True)
+    shutil.rmtree(_camera_file(store, camera, TRACK_FOLDER), ignore_errors=True)
+
+
+def back_where_it_was(store: camera_clouds.Store, camera: str) -> None:
+    """`camera`'s picture shows it where its anchor was taken: a track that has ended says nothing more (it was
+    put back, or what was tracked wasn't the camera moving), and goes."""
+    was = tracked(store, camera)
+    if was is not None and was.get("state") != "tracking":
+        drop_track(store, camera)
+
+
+def _track_of(store: camera_clouds.Store, cloud: camera_clouds.Cloud, basis: str) -> dict[str, Any] | None:
+    """The track that says where `cloud`'s camera is now: one beside the spot `basis` that is still running, or
+    that ended after the cloud's picture was taken (the camera has moved since)."""
+    was = tracked(store, cloud.camera)
+    if was is None or was.get("basis") != basis:
+        return None
+    return was if was.get("state") == "tracking" or float(was.get("at") or 0.0) > cloud.at else None
+
+
+def standing(store: camera_clouds.Store, camera: str, spots: Mapping[str, SpotAt], rooms: Sequence[Ring]) -> At | None:
+    """Where `camera` stands in the scene by its own cloud, or None when it isn't placed (no cloud, no spot with a
+    facing, or a view that couldn't be placed)."""
+    cloud, spot = store.current(camera), spots.get(camera)
+    if cloud is None or spot is None or spot.at is None:
+        return None
+    stood = _stood(store, camera, cloud, spot, cloud_align.plan_key(rooms))
+    settled = stood.told is not None and stood.told.cloud == cloud.id
+    if settled and stood.told is not None and stood.told.lost:
+        return None
+    if not settled and unsettled(store, camera, cloud.id, spot.basis) is not None:
+        return None
+    return stood.at
+
+
 FOLLOW = "follow.json"
 #: Why a view can't be placed (`Follow.lost`): spatial/cloud_align.py `Located.state`'s, and "pending" in a scene
 #: read before the camera was placed again.
@@ -281,7 +334,9 @@ class Follow:
 
     basis: str  # the owner's spot it is beside (`SpotAt.basis`): it holds only while the spot is that one
     at: tuple[float, float, float] | None  # x, y, and bearing in the scene; None: the spot itself
-    by: str = ""  # what placed it: "pictures", "turned" (where it stood, facing another way), or "walls"
+    #: what placed it: "tracking" (where its track left it), "pictures", "turned" (where it stood, facing another
+    #: way), or "walls"
+    by: str = ""
     cloud: str = ""  # the cloud it was last worked out with
     since: float = 0.0  # when that cloud's picture was taken
     lost: str = ""  # why that cloud's view can't be placed (one of `LOST`), when it can't: `at` is the last good pose
@@ -426,7 +481,14 @@ def _place_again(
     told = following(store, camera, spot.basis)
     base, _ = _working(told, spot)
     pose, by, score, why = None, "", 0.0, ""
-    if was.get("state") == "followed":
+    track = tracked(store, camera)
+    if track is not None and track.get("basis") == spot.basis and abs(cloud.at - float(track["at"])) <= TRACK_FRESH_S:
+        # It was tracked to here: its walls may still turn it where it stands, and otherwise the track's word holds.
+        left = At(*(float(v) for v in track["xyb"]))
+        located = cloud_align.locate(found, cloud_align.edges_of(ring), ring, points, (left.x, left.y), anywhere=False)
+        near = located.state == "placed" and moved_by(At(located.x, located.y, located.bearing), left)[1] <= BOUND[1]
+        pose, by = (At(located.x, located.y, located.bearing) if near else left), "tracking"
+    elif was.get("state") == "followed":
         pose, by = base.step(*was["rel"]), "pictures"
     elif was.get("state") == "against":
         other = str(was.get("other"))
@@ -448,6 +510,7 @@ def _place_again(
     LOG.info("%s: its view changed; placed again by %s: turned %.0f degrees, moved %.2f m", camera, by, turn, shift)
     if store.picture(cloud).is_file():
         _set_anchor(store, cloud, spot.basis)  # this picture is the one it is placed with now
+    drop_track(store, camera)  # it is an ordinary camera again
     return _follow(
         store, camera, Follow(spot.basis, (pose.x, pose.y, wrap(pose.bearing)), by, cloud.id, cloud.at, score=score)
     )
@@ -476,6 +539,9 @@ def align(
     due = was is not None and (told is None or told.cloud != cloud.id)
     base, basis = _working(told, spot)
     have = cloud_align.kept(folder)
+    gone = tracked(store, camera)
+    if gone is not None and not due and gone.get("state") != "tracking" and float(gone.get("at") or 0.0) <= cloud.at:
+        drop_track(store, camera)  # a track that ended before this cloud, which shows the camera where it was
     if not due and have is not None and have.holds(cloud.id, basis, plan):
         return False
     points, _, _ = ply.read(store.file(cloud))
@@ -566,6 +632,7 @@ def record(
         rel = None if confident(against) else relative(held["pose"], against or {})
         if stayed(store, camera, [against]):
             _set_anchor(store, cloud, mine.basis)  # the same position: the newer picture is the one to match next
+            back_where_it_was(store, camera)
         elif rel is not None:
             was = {"state": "followed", "cloud": cloud.id, "rel": list(rel), "at": cloud.at}
             json_state.write(_camera_file(store, camera, "moved.json"), was)
@@ -691,6 +758,12 @@ class Placed:
     #: "walls"), `since` (when), `lost` (why its view can't be placed, one of `LOST`, else ""), and `pinned` (the
     #: owner put it back on the plan's spot). None for a camera that never left its spot.
     follow: Mapping[str, Any] | None = None
+    #: While the camera is being tracked as it moves, or has just stopped (spatial/camera_track.py): `state`
+    #: ("tracking" or "ended"), `since` and `at` (when the track began and when it last placed the camera), `held`
+    #: (when a keyframe was last held to the plan's walls, or None), `pose` (the camera in the scene now, 4 x 4),
+    #: `went_m` (how far its path ran), `from_m` and `from_deg` (how far it is from where its cloud has it), and
+    #: `keyframes` (each one's `n` and `transform`: its cloud's frame to the scene). None otherwise.
+    track: Mapping[str, Any] | None = None
     level: str = "none"  # what its cloud was levelled by: "floor", "walls", or "none"
     tilt_deg: float = 0.0  # the camera's tilt (down) and roll, by that
     roll_deg: float = 0.0
@@ -877,6 +950,24 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
             "fit": None if camera not in fits else asdict(fits[camera]),
             "fitted": camera in sized,
         }
+        moving = None if spot is None or spot.at is None else _track_of(store, cloud, spot.basis)
+        if moving is not None and camera in at:
+            now = At(*(float(v) for v in moving["xyb"]))
+            went = moving.get("path") or ()
+            from_m, from_deg = moved_by(now, at[camera])
+            about["track"] = {
+                "state": moving.get("state"),
+                "since": moving.get("since"),
+                "at": moving.get("at"),
+                "held": moving.get("held"),
+                "pose": moving.get("pose"),
+                "went_m": round(sum(math.hypot(b[1] - a[1], b[2] - a[2]) for a, b in itertools.pairwise(went)), 2),
+                "from_m": round(from_m, 2),
+                "from_deg": round(from_deg, 1),
+                "keyframes": [
+                    {"n": int(k["n"]), "transform": list(k["transform"])} for k in moving.get("keyframes") or ()
+                ],
+            }
         if camera in poses or camera in lost:
             kept_pose = poses.get(camera)
             about["follow"] = {
@@ -911,7 +1002,8 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
         )
     mirrored = next((spots[c].mirrored for c in mine if spots.get(c) is not None), False)
     kept = tuple(tuple((float(x), float(y)) for x, y in ring) for ring in rooms)
-    drawn = json.dumps([[[p.camera, p.cloud, p.transform] for p in out if p.placed], kept])
+    trails = [[p.camera, (p.track or {}).get("keyframes")] for p in out if p.placed and p.track]
+    drawn = json.dumps([[[p.camera, p.cloud, p.transform] for p in out if p.placed], kept, trails])
     return Scene(place, tuple(out), tuple(told), mirrored, kept, hashlib.sha256(drawn.encode()).hexdigest()[:32])
 
 
@@ -942,6 +1034,15 @@ def points(store: camera_clouds.Store, found: Scene, flat: bool = True) -> bytes
         xyz.append(own @ move[:3, :3].T + move[:3, 3] if fitted is None else cloud_align.flatten(own, move, fitted)[0])
         rgb.append(colours if colours is not None else np.full((len(own), 3), 160, dtype=np.uint8))
         view.append(np.full(len(own), index, dtype=np.uint16))
+        for keyframe in (placed.track or {}).get("keyframes") or ():  # what it saw on the way, where it saw it
+            try:
+                seen, tint, _ = ply.read(_camera_file(store, placed.camera, TRACK_FOLDER) / f"{int(keyframe['n'])}.ply")
+            except OSError, ValueError:
+                continue  # replaced by a newer keyframe since the scene was read
+            lie = np.asarray(keyframe["transform"], dtype=np.float64).reshape(4, 4)
+            xyz.append(seen @ lie[:3, :3].T + lie[:3, 3])
+            rgb.append(tint if tint is not None else np.full((len(seen), 3), 160, dtype=np.uint8))
+            view.append(np.full(len(seen), index, dtype=np.uint16))
     none = np.zeros(0, dtype=np.uint16)
     if not xyz:
         return ply.dumps(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.uint8), {"view": none, "outside": none})

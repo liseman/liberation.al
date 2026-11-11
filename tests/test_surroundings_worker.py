@@ -310,3 +310,52 @@ def test_the_status_says_what_a_cameras_last_looks_came_to_and_forgets_older_one
     front = sampler.status(switch, now=31.0)["cameras"]["front"]
     assert front["recent"] == {"same": worker.RECENT - 1, "person": 1}
     assert (front["view"], front["same"]) == (1, worker.RECENT - 1)  # the counts since the start keep it
+
+
+class Moving:
+    """A tracker for the service (spatial/camera_track.py `Tracker`): the camera begins to move at its `at`th
+    sample, and its track is over after `frames` frames."""
+
+    def __init__(self, at: int, frames: int):
+        self.at, self.frames = at, frames
+        self.looks = 0
+        self.steps: list[str] = []
+        self.ended: list[str] = []
+
+    def look(self, camera, pixels, now):
+        self.looks += 1
+        return self.looks == self.at
+
+    def step(self, camera, pixels, now):
+        self.steps.append(camera)
+        return len(self.steps) >= self.frames
+
+    def end(self, camera, now):
+        self.ended.append(camera)
+
+
+def test_a_camera_that_begins_to_move_is_given_to_the_tracker_frame_by_frame_until_its_track_is_over(sampler, scene):
+    async def run():
+        cams, fast = Cameras(), Cameras()
+        switch = surroundings.Switch(True, ("front",), ("front",), "front")
+        tracker = Moving(at=2, frames=3)
+        service = worker.Service(
+            sampler, read=lambda: switch, source=cams.pictures, tracker=tracker, fast=fast.pictures
+        )
+        service.step()
+        await settle(lambda: cams.asked == ["front"])
+        cams.queues["front"].put_nowait(scene.add(1))
+        await settle(lambda: tracker.looks == 1)
+        assert fast.asked == [] and not service.tracking  # a still camera's frames aren't asked for any faster
+        cams.queues["front"].put_nowait(scene.add(2))
+        await settle(lambda: fast.asked == ["front"])  # it moved: its frames now come at the tracker's rate
+        for _ in range(5):
+            fast.queues.setdefault("front", asyncio.Queue()).put_nowait(scene.add(3))
+        await settle(lambda: tracker.ended == ["front"])
+        assert tracker.steps == ["front"] * 3  # and stop being asked for once the track is over
+        await settle(lambda: not service.tracking)
+        stop = asyncio.Event()
+        stop.set()
+        await service.run(stop)
+
+    asyncio.run(run())

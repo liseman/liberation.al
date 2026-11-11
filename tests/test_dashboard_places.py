@@ -1111,6 +1111,28 @@ def test_the_way_back_puts_a_followed_camera_on_the_plans_spot_and_can_be_taken_
     assert plan_of(tmp_path, place) == SPOTTED and len(places.plan_history(tmp_path, place)) == versions
 
 
+def test_a_camera_tracked_as_it_moves_is_marked_where_its_track_has_it_not_where_its_cloud_was_made(tmp_path, spotted):
+    from liberational import json_state
+    from liberational.spatial import cloud_scene
+
+    place, store = spotted
+    now = [1.0, 0.0, 0.0, 2.5, 0.0, 0.0, 1.0, -3.0, 0.0, -1.0, 0.0, 1.4, 0.0, 0.0, 0.0, 1.0]
+    track = {"camera": "hall", "basis": cloud_scene.spots_of(tmp_path)["hall"].basis, "state": "tracking",
+             "since": T + 100, "at": T + 110, "xyb": [2.5, -3.0, 0.0], "pose": now, "held": T + 109,
+             "keyframes": [], "path": [[T + 105, 1.0, -2.0, 1.57], [T + 110, 2.5, -3.0, 0.0]]}  # fmt: skip
+    json_state.write(store.folder / "hall" / cloud_scene.TRACK, track)
+    reply = view.scene(tmp_path, place, combined=True)[1]
+    assert reply["cameras"]["hall"]["pose"] == now
+    assert reply["cameras"]["porch"]["pose"][3::4][:3] == pytest.approx([3.0, -5.0, 1.5])  # as its cloud has it
+    hall = next(c for c in reply["combined"]["cameras"] if c["camera"] == "hall")
+    assert (hall["how"], hall["track"]["state"], hall["track"]["held"]) == ("spot", "tracking", T + 109)
+    assert (hall["track"]["went_m"], hall["track"]["from_m"]) == (
+        pytest.approx(1.8, abs=0.01),
+        pytest.approx(1.8, abs=0.01),
+    )
+    assert plan_of(tmp_path, place) == SPOTTED
+
+
 def test_the_way_back_is_only_for_a_camera_with_a_spot_on_that_places_plan(tmp_path, spotted):
     place, _ = spotted
     assert view.follow({"place": place, "camera": "attic", "use": "spot"}, True, tmp_path)[0] == 400

@@ -34,6 +34,7 @@ import {
   planNote,
   splatNote,
   squareLine,
+  trackLine,
   viewNote,
   viewWhy,
   wayBack,
@@ -528,6 +529,10 @@ it.each([
     placedAs('spot', { follow: followed({ by: '', pinned: true }) }),
     'Placed from its spot on your plan, as you asked. It is followed again when its view next changes.',
   ],
+  [
+    placedAs('following', { shift_m: 0.8, turn_deg: 54, follow: followed({ by: 'tracking' }) }),
+    "Following: turned 54°, moved 80 cm from your plan's spot, a moment ago. Placed where it was tracked to as it moved. Your plan is unchanged.",
+  ],
   [placedAs('no_spot'), 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.'],
   [
     placedAs('lost', { follow: followed({ by: '', lost: 'no_walls' }) }),
@@ -544,6 +549,47 @@ it.each([
   [placedAs('lost', { follow: followed({ lost: 'pending' }) }), 'Its view changed. It is being placed again.'],
 ])('says how a camera is placed in the scene, or why it is not in it', (camera, text) => {
   expect(placedLine(camera, c => c, NOW)).toBe(text);
+});
+
+const tracked = (more: Partial<NonNullable<ScenePlaced['track']>> = {}): ScenePlaced['track'] => ({
+  state: 'tracking',
+  since: NOW - 40,
+  at: NOW - 1,
+  held: NOW - 2,
+  pose: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+  went_m: 0.9,
+  from_m: 0.62,
+  from_deg: 41.2,
+  keyframes: [],
+  ...more,
+});
+
+it.each([
+  [
+    tracked(),
+    "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
+  ],
+  [
+    tracked({ held: NOW - 13 }),
+    "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Last held to your plan's walls 12 s before, so it may have drifted since.",
+  ],
+  [
+    tracked({ held: null, from_m: 0, from_deg: 12 }),
+    'Tracking: it is moving, now turned 12° from where its points were made, a moment ago. No wall has held it to your plan yet, so it may be off.',
+  ],
+  [tracked({ pose: null, held: null }), 'Tracking: it began to move. Its first frames are being placed.'],
+  [
+    tracked({ state: 'ended', at: NOW - 300 }),
+    'It moved and came to rest 5 min ago, 62 cm and turned 41° from where its points were made. It is placed for good once it has had about 20 seconds with nobody in view.',
+  ],
+])('says where a moving camera is now and how far that can be trusted', (track, text) => {
+  expect(trackLine(placedAs('spot', { track }), NOW)).toBe(text);
+});
+
+it('says nothing of tracking for a camera that is not moving, and names a moving one first', () => {
+  expect(trackLine(placedAs('spot'))).toBeNull();
+  expect(placedState('spot', 'tracking')).toEqual({ label: 'Tracking', tone: 'plain' });
+  expect(placedState('following', 'ended')).toEqual({ label: 'Moved', tone: 'plain' });
 });
 
 it.each([

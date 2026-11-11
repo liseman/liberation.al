@@ -30,6 +30,19 @@ same way; all False without one). The report is {"load_seconds", "views": [{"sec
 
 Measured on six cameras' pictures beside the live services: 7.5 s to load, then 0.2 s and 2.9 GB of GPU memory a
 picture, and 0.35 s and 2.9 GB a pair.
+
+**Tracking a camera that moves** (a job with `"track": true`; spatial/camera_track.py runs it). The process stays up
+and keeps the model loaded: it prints one JSON line when it is ready ({"ready": true, "load_seconds"}), then reads
+one JSON line a frame on its standard input ({"image": path, "mask": path or null, "out": path, "reset": bool}) and
+answers each with one line. The frames go through MASt3R-SLAM's own frame tracker (`FrameTracker`): each is matched
+to the current keyframe and its pose solved against that keyframe's points, and a frame that shares too little with
+the keyframe becomes the next one. Nothing else of MASt3R-SLAM runs: no second process, no loop closing, no
+relocalising (the pack anchors the keyframes to the plan's walls instead, and starts the track again when it is
+lost). The answer: `ok` (false when the frame couldn't be tracked: too little of it matched the keyframe), `pose`
+(16 numbers, row by row: the frame's camera in the track's frame, which is the first keyframe's camera frame, as a
+similarity: its rotation block carries the frame's scale), `started` (this frame began a track: the first, or one
+sent with `reset`), `keyframe` (this frame is a keyframe, and its points were written to `out` as a view's are),
+and `seconds`. Only the current keyframe is held, so memory doesn't grow with the length of the track.
 """
 
 from __future__ import annotations
@@ -135,6 +148,85 @@ def pair(model, frame_a, frame_b):  # noqa: ANN001, ANN201 (the runtime's own ty
     return out
 
 
+class _Keyframes(list):
+    """What `FrameTracker` needs of MASt3R-SLAM's keyframe store, in this process: the last keyframe."""
+
+    def last_keyframe(self):  # noqa: ANN202 (the runtime's own type)
+        return self[-1] if self else None
+
+
+def track(model, device: str, answers) -> None:  # noqa: ANN001 (the runtime's own type, and a text stream)
+    """Follow frames named on standard input until it closes, answering on `answers` (the module docstring's
+    tracking)."""
+    import lietorch  # ty: ignore[import-not-found]
+    import numpy as np
+    import torch
+    from mast3r_slam.frame import create_frame  # ty: ignore[import-not-found]
+    from mast3r_slam.mast3r_utils import mast3r_inference_mono, resize_img  # ty: ignore[import-not-found]
+    from mast3r_slam.tracker import FrameTracker  # ty: ignore[import-not-found]
+    from PIL import Image
+
+    keyframes = _Keyframes()
+    tracker = FrameTracker(model, keyframes, device)
+    last = None
+    count = 0
+
+    def say(answer: dict) -> None:
+        answers.write(json.dumps(answer) + "\n")
+        answers.flush()
+
+    def keep(frame, asked: dict) -> None:  # noqa: ANN001
+        h, w = (int(v) for v in frame.img_true_shape[0])
+        covered = np.zeros((h, w), dtype=bool)
+        if asked.get("mask"):
+            mask = np.asarray(Image.open(asked["mask"]).convert("RGB"), dtype=np.float32) / 255.0
+            covered = np.asarray(resize_img(mask, SIZE)["unnormalized_img"])[:h, :w, 0] > 127
+        np.savez(
+            asked["out"],
+            points=frame.X_canon.reshape(h, w, 3).float().cpu().numpy(),
+            confidence=frame.get_average_conf().reshape(h, w).float().cpu().numpy(),
+            colour=(frame.uimg.cpu().numpy()[:h, :w, :3] * 255).astype(np.uint8),
+            covered=covered,
+        )
+
+    say({"ready": True})
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        asked = json.loads(line)
+        started = time.perf_counter()
+        rgb = np.asarray(Image.open(asked["image"]).convert("RGB"), dtype=np.float32) / 255.0
+        begin = asked.get("reset") or last is None
+        pose = lietorch.Sim3.Identity(1, device=device) if begin else last.T_WC
+        frame = create_frame(count, rgb, pose, img_size=SIZE, device=device)
+        count += 1
+        answer: dict = {"ok": True, "started": bool(begin), "keyframe": bool(begin)}
+        if begin:
+            points, confidence = mast3r_inference_mono(model, frame)
+            frame.update_pointmap(points, confidence)
+            keyframes.clear()
+            keyframes.append(frame)
+            tracker.reset_idx_f2k()
+            keep(frame, asked)
+            last = frame
+        else:
+            with torch.inference_mode():
+                new_keyframe, _, lost = tracker.track(frame)
+            if lost:
+                answer = {"ok": False, "started": False, "keyframe": False}
+            else:
+                last = frame
+                if new_keyframe:
+                    keyframes[0] = frame
+                    keep(frame, asked)
+                    answer["keyframe"] = True
+        if answer["ok"]:
+            answer["pose"] = [float(v) for v in last.T_WC.matrix()[0].reshape(-1).cpu().numpy()]
+        torch.cuda.synchronize()
+        answer["seconds"] = round(time.perf_counter() - started, 3)
+        say(answer)
+
+
 def main() -> None:
     with open(sys.argv[1]) as f:
         job = json.load(f)
@@ -144,7 +236,7 @@ def main() -> None:
         {k: (os.path.abspath(v) if isinstance(v, str) else v) for k, v in view.items()}
         for view in job.get("views") or []
     ]
-    report_path = os.path.abspath(job["out"])
+    report_path = os.path.abspath(job["out"]) if job.get("out") else ""
     os.chdir(repo)  # MASt3R-SLAM reads its config relative to its checkout
     sys.path.insert(0, repo)
 
@@ -156,10 +248,16 @@ def main() -> None:
     from mast3r_slam.mast3r_utils import load_mast3r, mast3r_inference_mono, resize_img  # ty: ignore[import-not-found]
     from PIL import Image
 
+    answers = sys.stdout
+    if job.get("track"):
+        sys.stdout = sys.stderr  # MASt3R and MASt3R-SLAM print as they go: the answers keep a stream of their own
     load_config("config/base.yaml")
     device = "cuda:0"
     started = time.perf_counter()
     model = load_mast3r(path=weights, device=device)
+    if job.get("track"):
+        track(model, device, answers)
+        return
     report = {"load_seconds": round(time.perf_counter() - started, 2), "views": [], "pairs": []}
 
     def frame_of(path):  # noqa: ANN001, ANN202

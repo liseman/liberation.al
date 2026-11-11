@@ -639,6 +639,7 @@ def refresh(
     if have is not None and still and not better(made.cloud, have):
         LOG.info("%s: a new cloud (%s, %d points) is no better than the one it has; kept", camera, made.cloud.level,
                  made.cloud.points)  # fmt: skip
+        cloud_scene.back_where_it_was(store, camera)
         return store.seen(have, thumb)
     store.replace(made)
     if compared:

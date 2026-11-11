@@ -114,6 +114,7 @@ const listed = (names: readonly string[]) =>
 
 /** What placed a followed camera, as a sentence. */
 const PLACED_BY: Record<string, string> = {
+  tracking: 'Placed where it was tracked to as it moved.',
   pictures: "Placed by what its new picture shares with an earlier one or another camera's.",
   turned: 'Placed where it stood, by the walls it now sees.',
   walls: 'Placed by the walls it now sees, where they fit your plan.',
@@ -164,6 +165,29 @@ export function placedLine(
       return `Not placed: its view changed, and ${why}. It isn't drawn, keeps where it last stood, and is tried again with each new picture.`;
     }
   }
+}
+
+/** What a moving camera's track says, in plain words: where the camera is now and how far that can be trusted, or,
+ *  once it has come to rest, what it waits for. Null for a camera that isn't tracked. `now` is epoch seconds. */
+export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string | null {
+  const track = camera.track;
+  if (!track) return null;
+  const moves = [
+    track.from_m >= 0.01 ? metres(track.from_m) : null,
+    track.from_deg >= 0.5 ? `turned ${degrees(track.from_deg)}` : null,
+  ].filter(Boolean);
+  const where = moves.length ? `${moves.join(' and ')} from where its points were made` : 'where its points were made';
+  if (track.state === 'ended')
+    return `It moved and came to rest ${since(track.at, now)}, ${where}. It is placed for good once it has had about 20 seconds with nobody in view.`;
+  if (!track.pose) return 'Tracking: it began to move. Its first frames are being placed.';
+  const unheld = track.held === null ? null : Math.round(track.at - track.held);
+  const held =
+    unheld === null
+      ? 'No wall has held it to your plan yet, so it may be off.'
+      : unheld < 5
+        ? "Held to your plan's walls."
+        : `Last held to your plan's walls ${unheld} s before, so it may have drifted since.`;
+  return `Tracking: it is moving, now ${where}, ${since(track.at, now)}. ${held}`;
 }
 
 /** The one way back a followed or unplaced camera's row offers, or null: put it on the plan's spot, or, once that
@@ -282,8 +306,13 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
 /** What the scene is, and isn't, said once over its cameras. */
 export const SCENE_LIMITS = 'Each camera shows only what it sees, so expect gaps and seams.';
 
-/** A camera's state in the scene, in a word or two, and whether it wants the owner ("warn"). */
-export function placedState(how: ScenePlaced['how']): { label: string; tone: 'plain' | 'warn' } {
+/** A camera's state in the scene, in a word or two, and whether it wants the owner ("warn"). A camera that is
+ *  tracked as it moves (`track`) says that before how its cloud is placed. */
+export function placedState(
+  how: ScenePlaced['how'],
+  track?: 'tracking' | 'ended' | null,
+): { label: string; tone: 'plain' | 'warn' } {
+  if (track) return { label: track === 'tracking' ? 'Tracking' : 'Moved', tone: 'plain' };
   switch (how) {
     case 'spot':
       return { label: 'Placed', tone: 'plain' };

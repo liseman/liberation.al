@@ -742,6 +742,33 @@ it('says a turned camera was placed again without asking, and offers the one way
   expect(await within(hall).findByText(/^Following: turned 90°/)).toBeTruthy();
 });
 
+it('shows a moving camera as Tracking, with where it is now, and asks for the scene more often meanwhile', async () => {
+  const at = Date.now() / 1000 - 1;
+  const track = {
+    state: 'tracking',
+    since: at - 30,
+    at,
+    held: at - 1,
+    pose: [1, 0, 0, 2, 0, 1, 0, 3, 0, 0, 1, 1.4, 0, 0, 0, 1],
+    went_m: 0.9,
+    from_m: 0.62,
+    from_deg: 41.2,
+    keyframes: [{ n: 3, transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }],
+  };
+  serveAll([placedRow('hall', { track }), placedRow('porch')]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  const [hall, porch] = (await screen.findAllByRole('listitem')) as [HTMLElement, HTMLElement];
+  expect(await within(hall).findByText('Tracking')).toBeTruthy();
+  expect(
+    within(hall).getByText(
+      "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
+    ),
+  ).toBeTruthy();
+  expect(within(porch).getByText('Placed')).toBeTruthy();
+  expect(within(porch).queryByText(/^Tracking/)).toBeNull();
+});
+
 it('says so when no camera can be placed, with why for each', async () => {
   server.use(
     http.get('/places/scene', ({ request }) =>
