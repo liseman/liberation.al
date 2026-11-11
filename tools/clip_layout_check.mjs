@@ -52,6 +52,10 @@ try {
       await context.route('**/ambient', route => route.fulfill({ json: {
         devices: { demo: { name: microphone, healthy: true } },
       } }));
+      await context.route('**/events', route => route.fulfill({
+        contentType: 'text/event-stream',
+        body: `event: ambient\ndata: ${JSON.stringify({ devices: { demo: { name: microphone, healthy: true } } })}\n\nevent: ready\ndata: {}\n\n`,
+      }));
       const start = Math.floor(Date.now() / 1000) - 3600;
       const clips = cameras.map((camera, i) => ({
         id: `demo-clip-${i}`, camera, start: start - i * 60, end: start - i * 60 + 10,
