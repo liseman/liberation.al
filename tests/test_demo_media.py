@@ -27,12 +27,15 @@ def test_demo_denies_network_and_command_execution(tmp_path: Path) -> None:
             "-c",
             """
 import socket, subprocess, sys
+from pathlib import Path
+from liberational import config as cfg
 from liberational.demo.server import offline
 sys.addaudithook(offline)
 for action in (lambda: socket.create_connection(('127.0.0.1', 9)),
                lambda: socket.getaddrinfo('example.test', 443),
                lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b'x', ('127.0.0.1', 9)),
-               lambda: subprocess.run([sys.executable, '-c', 'pass'])):
+               lambda: subprocess.run([sys.executable, '-c', 'pass']),
+               lambda: cfg.local_config().parent.parent.joinpath('outside.txt').write_text('escape')):
     try:
         action()
     except PermissionError:
@@ -88,6 +91,8 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
                 except URLError:
                     assert time.monotonic() < deadline, log.read_text()
                     time.sleep(0.2)
+            cameras = json.loads(read("/devices"))["cameras"]
+            assert [c["stream"] for c in cameras] == ["front-room", "kitchen", "porch", "study"]
             pictures = []
             for camera in ("front-room", "kitchen", "porch", "study"):
                 jpg = read(f"/demo/media/{camera}.jpg")
@@ -147,6 +152,22 @@ def test_demo_starts_with_media_and_answers_without_a_model(tmp_path: Path) -> N
             result = json.loads(read(job["poll_url"]))
             assert result["status"] == "completed"
             assert "pasta" in result["result"]["answer"]
+            saved = json.loads(read("/pack-ask/history"))["items"]
+            assert saved[0]["question"] == "What did we have for dinner?"
+            examples = json.loads(read("/people/examples?name=Alice"))["examples"]
+            removed = json.loads(read("/people/examples/remove", {"name": "Alice", "keys": [examples[0]["key"]]}))
+            assert removed["count"] == 6
+            assert json.loads(read("/people/examples?name=Alice"))["count"] == 6
+            zone = {"name": "Table", "polygon": [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8]]}
+            assert json.loads(read("/zones", {"cam": "kitchen", "base": None, "zones": [zone]}))["ok"]
+            assert json.loads(read("/zones"))["cameras"]["kitchen"]["zones"][0]["name"] == "Table"
+            links = json.loads(read("/device-links"))["links"]
+            assert len(links) == 3
+            assert json.loads(read("/device-links/remove", {"id": links[0]["id"]}))["ok"]
+            linked = json.loads(read("/device-links"))
+            assert len(linked["links"]) == 2
+            assert linked["unknown"] == 1
+            assert len(linked["devices"]) == 3
             pets = json.loads(read("/pets"))
             photo = pets["pets"][0]["photo"]
             assert Image.open(io.BytesIO(read(f"/pets/sightings/photo?track={photo}"))).size == (800, 800)
@@ -186,3 +207,68 @@ def test_demo_day_routes_cross_only_doorways() -> None:
                         )
     assert len({str(path) for path in paths.values()}) == 4
     assert set(paths) == {*dataset.PEOPLE, dataset.PET}
+
+
+@pytest.mark.parametrize("action", ["cameras", "remove", "zones", "settings"])
+def test_demo_settings_and_teaching_use_scratch_state(tmp_path: Path, action: str) -> None:
+    root = tmp_path / "demo"
+    cli.prepare(root)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import json, sys, threading
+from urllib.request import Request, urlopen
+from liberational import config as cfg
+from liberational.demo import dataset, server
+from liberational.dashboard.server import DashboardServer
+from liberational.vision import faces
+dataset.seed_faces(cfg.path('paths.faces'), 1000)
+http = DashboardServer(('127.0.0.1', 0), server.Handler)
+thread = threading.Thread(target=http.serve_forever, daemon=True)
+thread.start()
+base = 'http://127.0.0.1:' + str(http.server_port)
+def read(path, body=None):
+    request = Request(base + path, data=None if body is None else json.dumps(body).encode(),
+                      headers={'Origin': base, 'Content-Type': 'application/json'})
+    with urlopen(request, timeout=10) as reply:
+        return json.load(reply)
+try:
+    if sys.argv[1] == 'cameras':
+        cameras = read('/devices')['cameras']
+        assert [c['stream'] for c in cameras] == ['front-room', 'kitchen', 'porch', 'study'], cameras
+        assert all(c['present'] and c['selected'] and c['in_use'] for c in cameras)
+    elif sys.argv[1] == 'zones':
+        zone = {'name': 'Table', 'polygon': [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8]]}
+        result = read('/zones', {'cam': 'kitchen', 'base': None, 'zones': [zone]})
+        assert result['ok'], result
+        assert read('/zones')['cameras']['kitchen']['zones'][0]['name'] == 'Table'
+        assert (cfg.path('paths.state') / 'knowledge.sqlite3').exists()
+    elif sys.argv[1] == 'settings':
+        assert read('/config', {'values': {'vision.camera_names': ['kitchen: Counter']}})['ok']
+        assert 'Counter' in cfg.local_config().read_text()
+        assert read('/devices/camera', {'index': 1, 'flip': True})['cameras'][1]['flip']
+        assert 'flip = true' in cfg.devices_file().read_text()
+        assert read('/devices/sensitivity', {'mic': 'demo-mic', 'sensitivity': 45})['mics'][0]['sensitivity'] == 45
+        assert read('/devices/auto_gain', {'mic': 'demo-mic', 'on': True})['mics'][0]['auto_gain']
+    else:
+        rows = read('/people/examples?name=Alice')['examples']
+        assert len(rows) == 7
+        result = read('/people/examples/remove', {'name': 'Alice', 'keys': [rows[0]['key']]})
+        assert result['removed'] == 1, result
+        assert len(faces.examples('Alice')) == 6
+        assert faces.DB.resolve().is_relative_to(cfg.local_config().parent)
+finally:
+    http.shutdown()
+    http.server_close()
+    thread.join()
+""",
+            action,
+        ],
+        env=cli.environment(root, cli.PORT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert list(tmp_path.iterdir()) == [root]
