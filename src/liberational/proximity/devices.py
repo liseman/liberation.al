@@ -488,13 +488,22 @@ def seen(
     hits: list[Sighting] = []
     newest: dict[str, Any] | None = None
     aps = access_point_names()
+    # A payload fingerprint is the one rule that has to parse the whole sighting, so a row's signature is built once
+    # and only when a link matches by fingerprint; an address or name link reads a field and stays cheap.
+    wants_fp = any(link.kind == "ble_fingerprint" for link in links)
     for source, rows in records.items():
         for r in rows:
             # A router row counts only when the controller says it is connected now: ARP and DHCP cache rows
             # (connected null) and expired leases are history, not presence.
             if source == NET_OBSERVATIONS and r.get("connected") is not True:
                 continue
-            if any(matches(link, r, source) for link in links):
+            sig = signature(r, source) if wants_fp else None
+            hit = (
+                any(signature_matches(link, sig, source) for link in links)
+                if sig is not None
+                else any(matches(link, r, source) for link in links)
+            )
+            if hit:
                 hits.append((float(r["start"]), float(r["end"]), str(r["id"]), place(r, source, aps), 1))
                 if newest is None or float(r["end"]) >= float(newest["end"]):
                     newest = {**r, "source": source}
@@ -745,6 +754,7 @@ class Devices:
             if r.get("connected") is not True:
                 continue
             mac = str(r.get("identifier") or r.get("mac"))
+            sig = signature(r, NET_OBSERVATIONS)  # one MAC normalization per row, not one per location and link
             d = by_mac.setdefault(
                 mac,
                 {
@@ -755,11 +765,7 @@ class Devices:
                     "place_id": None,
                     "linked": None,
                     "location": next(
-                        (
-                            x.as_dict()
-                            for x in located
-                            if signature_matches(x, signature(r, NET_OBSERVATIONS), NET_OBSERVATIONS)
-                        ),
+                        (x.as_dict() for x in located if signature_matches(x, sig, NET_OBSERVATIONS)),
                         None,
                     ),
                 },
@@ -770,7 +776,7 @@ class Devices:
             d["place"] = place(r, NET_OBSERVATIONS, aps)
             d["place_id"] = place_id(r, NET_OBSERVATIONS)
             if d["linked"] is None:
-                hit = next((x for x in links if matches(x, r, NET_OBSERVATIONS)), None)
+                hit = next((x for x in links if signature_matches(x, sig, NET_OBSERVATIONS)), None)
                 if hit is not None:
                     d["linked"] = {"id": hit.id, "target": hit.target, "name": hit.name}
             hits.setdefault(mac, []).append((float(r["start"]), float(r["end"]), str(r["id"]), d["place"], 1))
