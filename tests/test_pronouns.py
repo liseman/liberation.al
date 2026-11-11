@@ -93,12 +93,10 @@ def test_ask_answers_the_resolved_question_and_says_who_it_took_the_pronoun_as(t
     said["live"] = [(30, "what has May been doing lately")]
     asked = []
     monkeypatch.setattr(ask, "STATE", tmp_path)
-    jobs = ask.JobManager(
-        runner=lambda q, mode, **o: asked.append(q) or {"status": "ok", "answer": "Twice.", "evidence": []}
-    )
+    jobs = ask.JobManager(runner=lambda q, **o: asked.append(q) or {"status": "ok", "answer": "Twice.", "evidence": []})
     monkeypatch.setattr(ask, "_history_start", lambda *a, **k: None)
     monkeypatch.setattr(ask, "_history_finish", lambda ident, result, *a, **k: (result, False))
-    job = jobs.submit("how many times did she use the litter box today", "local", surface="live")
+    job = jobs.submit("how many times did she use the litter box today", surface="live")
     job = _wait(jobs, job["id"])
     assert asked == ["how many times did May use the litter box today"]
     assert job["result"]["answer"] == 'Taking "she" as May. Twice.'
