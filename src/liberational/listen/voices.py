@@ -8,8 +8,11 @@ utterance's ReDimNet2 B3 embedding is its own row on `voice.embedding` in the se
 - **Numbers.** A voiceprint is an integer (`registry.voiceprint(n)`, "Speaker n" until it names
   someone), since the registry, voice auth (`voice:<n>`), and the dashboard all key voices that way. `Voiceprints`
   hands out the next number, kept in `state/voiceprints.json` and always above every number the registry knows.
-- **Matching.** Unnamed clusters use the nearest embedding at cosine 0.45 (0.55 under one second). Named people
-  use only individually human-confirmed utterances or explicit recording windows, never automatic observations, and
+- **Matching.** Unnamed clusters use the nearest embedding at cosine 0.45 (0.55 under one second). A line opens a
+  new unnamed voice only once it recurs: it must sound like an earlier line that opened nothing, at that same
+  0.45, and that earlier line is then spent. A one-off line (a show's, a passer-by's) stays unattributed, leaving it
+  out of the unnamed list while the dashboard can still label it. Named people use only individually human-confirmed
+  utterances or explicit recording windows, never automatic observations, and
   the gate (`calibrate`, `match_person`) is set on this home's room audio, not clean read speech. A person's
   core is their confirmed lines of REF_MIN_S (2 s) or more that agree at REF_AGREE (0.5) with another of their
   confirmations; short or stray answers stay out of it instead of disabling the person. They're eligible with three
@@ -93,6 +96,15 @@ MIN_WORDS = 2
 K = 20
 SEARCH_TIMEOUT_S = 0.5
 RECENT_S = 120.0
+# A line opens a new unnamed voice only once it recurs: it has to sound like a line that opened nothing, at
+# OPEN_AGREE, and that earlier line is spent on the opening. A one-off line stays unattributed (no speaker at all),
+# so a show playing near a microphone no longer mints a voice per line, and the dashboard can still label one by
+# hand. Measured on the Linux machine over three days (counts only): 258 lines opened a voice, 125 of them in one
+# hour of television, and no two of those 258 agreed at 0.45; voices that grew to a second line still opened in 50
+# of 76 cases with two minutes' memory, 59 of 76 with an hour's, and 74 of 76 with a day's.
+OPEN_AGREE = THRESHOLD  # the agreement that joins an unnamed voice is the agreement that opens one
+OPEN_HELD_S = 3600.0  # how long a line that opened nothing waits for the next line of its voice
+OPEN_HELD_MAX = 512  # such lines held at most (about 400 KB of vectors), the oldest dropped first
 NS = 1_000_000_000
 # The source of a voice tag's assertions (people/transcript_view.VOICE_TAG).
 VOICE_TAG = "ambient"
@@ -864,15 +876,16 @@ class VoiceMatcher:
         self.clones = clones  # the voice clones' voiceprints (clones/<n>.json): never a room line's voice
         self._recent: deque[tuple[float, np.ndarray, int]] = deque()  # (monotonic s, embedding, voiceprint)
         self._recent_lock = threading.Lock()
+        self._held: deque[tuple[float, np.ndarray]] = deque()  # (monotonic s, embedding): lines that opened nothing
         self.lock = asyncio.Lock()
         self.unavailable = 0  # lines committed unmatched because the search couldn't answer
 
     async def match(
         self, embedding: np.ndarray, start_ns: int, end_ns: int, *, words: int | None = None
     ) -> Match | None:
-        """The line's voice: a confirmed person, else an unnamed voiceprint (one it matches, or a new one). `words` is
-        the line's word count (`word_count`): under MIN_WORDS it can only name a confirmed person, never join or open
-        an unnamed voice. None (no transcript) counts as enough words."""
+        """The line's voice: a confirmed person, else an unnamed voiceprint (one it matches, or a new one it recurs
+        into). `words` is the line's word count (`word_count`): under MIN_WORDS it can only name a confirmed person,
+        never join or open an unnamed voice. None (no transcript) counts as enough words."""
         long_enough = (end_ns - start_ns) / NS >= MIN_EMB_S
         few_words = words is not None and words < MIN_WORDS
         threshold = THRESHOLD if long_enough else SHORT_THRESHOLD
@@ -946,6 +959,10 @@ class VoiceMatcher:
             if max(named_scores.values(), default=-1.0) >= threshold:
                 return None  # a likely named cluster with a closed gate stays unknown, without new-cluster churn
             if hits is None or not long_enough:
+                return None
+            # A new voice opens on recurrence: this line sounds like an earlier one that opened nothing.
+            if not self._recurs(embedding):
+                self._hold(embedding)
                 return None
             n = self.prints.new()
             log.info("a new voice: Speaker %d (nearest at %.2f)", n, best_sim)
@@ -1032,6 +1049,11 @@ class VoiceMatcher:
         with self._recent_lock:
             return tuple(self._recent)
 
+    @property
+    def held(self) -> int:
+        """How many lines that opened nothing are held, waiting for the next line of their voice."""
+        return len(self._held)
+
     def forget(self) -> None:
         """A person was deleted: their recent embeddings mustn't match anyone again."""
         with self._recent_lock:
@@ -1072,6 +1094,28 @@ class VoiceMatcher:
             if r["start_ns"] == start_ns and r["end_ns"] == end_ns and r.get("person") is None:
                 return np.asarray(r["vector"], np.float32)
         return None
+
+    def _recurs(self, embedding: np.ndarray) -> bool:
+        """Whether this line sounds like one that opened nothing (OPEN_AGREE), spending that line: the same voice
+        heard twice, so it may open a voiceprint. Too-old held lines go first, so a one-line voice is let go."""
+        now = time.monotonic()
+        while self._held and now - self._held[0][0] > OPEN_HELD_S:
+            self._held.popleft()
+        if not self._held:
+            return False
+        heard = np.stack([v for _, v in self._held])
+        closeness = heard @ np.asarray(embedding, np.float32)
+        i = int(np.argmax(closeness))
+        if float(closeness[i]) < OPEN_AGREE:
+            return False
+        del self._held[i]
+        return True
+
+    def _hold(self, embedding: np.ndarray) -> None:
+        """Keeps a line that opened nothing, as evidence for the next line of its voice; the oldest go first."""
+        self._held.append((time.monotonic(), np.asarray(embedding, np.float32)))
+        while len(self._held) > OPEN_HELD_MAX:
+            self._held.popleft()
 
     def _recent_best(self, embedding: np.ndarray, people: People | None = None) -> tuple[float, int | None]:
         now = time.monotonic()
