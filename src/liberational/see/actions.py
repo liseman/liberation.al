@@ -9,7 +9,7 @@ people go through a `vision_backend.Backend`, and only NumPy crosses that seam.
   find its people and skeletons, follows them with the ByteTrack-style tracker the body worker uses, and buffers
   one pose row per tracked person. About once a second it appends the rows to the pose sink, and a coverage row
   (the span of frames it analyzed) to the coverage sink.
-- `Scoring` keeps each track's last `stgcn.CLIP` frames of joints and has the backend's action model score them
+- `Scoring` keeps each track's last `CLIP` frames of joints and has the backend's action model score them
   every SCORE_EVERY_NS. Each score is an `action.window` row (its top classes), and an owner's activity
   (memory/activity_kinds.py) whose NTU classes add up to THRESHOLD or more over consecutive windows becomes
   one `action.span`.
@@ -33,9 +33,9 @@ import numpy as np
 
 from liberational import logs
 from liberational.memory import activity_kinds
-from liberational.see import action_classes as stgcn
 from liberational.see import screens
 from liberational.see.action_animals import Animals
+from liberational.see.action_classes import CLASSES, CLIP
 from liberational.see.action_movement import Movement
 from liberational.see.vision_backend import Backend, Frame
 from liberational.vision import crossings
@@ -85,7 +85,7 @@ WINDOW_SCHEMA = [
     ("ts_ns", "i64"),  # the window's first frame
     ("end_ns", "i64"),  # and its last
     ("track_id", "i64"),
-    ("classes", f"i16[{TOP}]"),  # the model's class indices, most likely first: NTU-120 (stgcn.CLASSES) for ST-GCN++,
+    ("classes", f"i16[{TOP}]"),  # the model's class indices, most likely first: NTU-120 (CLASSES) for ST-GCN++,
     # Kinetics-600 (movinet_classes.CLASSES) for MODEL in see/action_clips.py
     ("scores", f"f32[{TOP}]"),
     ("model", "str"),
@@ -285,7 +285,7 @@ class Scoring:
         self.spans = Spans(
             lambda span: (
                 f"{model}: NTU-120 "
-                f"{' or '.join(repr(stgcn.CLASSES[c]) for c in self._seen.pop((span.track_id, span.kind), ()))}, "
+                f"{' or '.join(repr(CLASSES[c]) for c in self._seen.pop((span.track_id, span.kind), ()))}, "
                 f"peak {span.peak:.2f}"
             ),
             who,
@@ -293,7 +293,7 @@ class Scoring:
 
     def add(self, track_id: int, capture_ns: int, joints: np.ndarray, box: np.ndarray) -> None:
         """`box` is x1, y1, x2, y2 normalized to the frame (and the score, unused)."""
-        frames = self._frames.setdefault(track_id, deque(maxlen=stgcn.CLIP))
+        frames = self._frames.setdefault(track_id, deque(maxlen=CLIP))
         frames.append((capture_ns, joints))
         x1, y1, x2, y2 = (float(v) for v in box[:4])
         x, y, reach = (x1 + x2) / 2, (y1 + y2) / 2, STILL_MOVE * (y2 - y1)
@@ -311,7 +311,7 @@ class Scoring:
         ready = [
             t
             for t, frames in self._frames.items()
-            if len(frames) == stgcn.CLIP
+            if len(frames) == CLIP
             and t not in self._skip
             and confident(frames) >= MIN_JOINTS
             and capture_ns - self._scored.get(t, -(1 << 62)) >= SCORE_EVERY_NS
