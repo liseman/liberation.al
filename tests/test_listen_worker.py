@@ -794,3 +794,19 @@ def test_ring_batches_takes_everything_landed_per_wake_and_waits_when_caught_up(
         [(6, b"f", 0)],
     ]
     assert waits == 1
+
+
+def test_two_mics_reach_the_transcriber_with_different_gate_thresholds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A loud mic's sensitivity no longer sets the speech gate for every other mic."""
+    from liberational import config as cfg
+    from liberational.listen import gate
+
+    pack = tmp_path / "pack.toml"
+    monkeypatch.setattr(cfg, "local_config", lambda: pack)
+    pack.write_text('[audio.mic_sensitivity]\n"Mic A" = 0\n"Mic B" = 100\n')
+    t = Transcriber(lambda: lambda audio: "", gate_for=gate.Gates())
+    try:
+        assert t._gate_for("Mic A.audio").threshold == pytest.approx(0.6)  # ty: ignore[unresolved-attribute]
+        assert t._gate_for("Mic B.audio").threshold == pytest.approx(0.25)  # ty: ignore[unresolved-attribute]
+    finally:
+        t.close()

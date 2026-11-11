@@ -11,7 +11,7 @@ import logging
 import pathlib
 import subprocess
 from collections.abc import Iterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -200,3 +200,25 @@ def speech_gate(threshold: float | None = None) -> SpeechGate | None:
     if threshold is None:
         threshold = sensitivity.tuning(sensitivity.default()).gate_threshold
     return SpeechGate(threshold, cfg.get("audio.speech_gate_min_s"))
+
+
+class Gates:
+    """One speech gate per device, tuned to that device's sensitivity, rebuilt when the sensitivity's stamp moves.
+
+    The transcriber runs on one pool thread and its gate is stateless between calls except last_speech_s, so a
+    separate SpeechGate per microphone is safe and keeps a loud mic from setting the threshold for every other."""
+
+    def __init__(self) -> None:
+        self._stamp: Any = None
+        self._gates: dict[str, SpeechGate | None] = {}
+
+    def __call__(self, device: str) -> SpeechGate | None:
+        """This device's gate now. `device` is the microphone's name or its stream's `<name>.audio`."""
+        name = device.removesuffix(".audio")
+        stamp = sensitivity.stamp()
+        if stamp != self._stamp:
+            self._stamp = stamp
+            self._gates.clear()
+        if name not in self._gates:
+            self._gates[name] = speech_gate(sensitivity.tuning(sensitivity.value(name)).gate_threshold)
+        return self._gates[name]
