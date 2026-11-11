@@ -218,6 +218,26 @@ div:has(> [data-room-label-dot]) {
   color: var(--muted-foreground);
 }
 
+/* A selection's action bar (and a room's Floor height under it), pinned under the editor's inspector in the
+   canvas's right-hand column instead of floating over the plan above the selection (selectionClear.ts marks it and
+   measures where the column's inspector ends). */
+[data-plan-actions] {
+  inset: var(--plan-actions-top, 5rem) 1rem auto auto !important;
+  transform: none !important;
+  align-items: flex-end;
+}
+
+/* A phone-sized editor: the level card folds to the storey's own row (its ground line and its add-a-storey buttons
+   go), so it takes as little of the small canvas as it can. */
+@media (max-width: 480px) {
+  [data-surface="level-selector"] {
+    & [data-guide-target="level-ground-line"],
+    & button.absolute.rounded-full.h-4.w-4 {
+      display: none;
+    }
+  }
+}
+
 /* The editor's own plugin directory has nothing for a home's plan: its rail entry, and the rule above it, are not
    shown. */
 button:has(img[src$="/icons/plugins.webp"]) {

@@ -18,6 +18,7 @@ import { CamerasTab } from './CamerasTab';
 import { framing } from './fit';
 import { installGridFade } from './gridFade';
 import { type Changed, fromHash, type Open, ours, type Ready, type Scene } from './protocol';
+import { installSelectionClear } from './selectionClear';
 import { useSpotsUi } from './spotsUi';
 import { installTheme, setChromeScheme } from './theme';
 
@@ -44,6 +45,7 @@ function applyScheme(next: 'light' | 'dark'): void {
 applyScheme(scheme);
 addEventListener('hashchange', () => applyScheme(fromHash(location.hash).scheme));
 installGridFade();
+installSelectionClear();
 useAudio.getState().setMuted(true); // its interface sounds are files we don't ship
 await loadPlugin(builtinPlugin);
 
