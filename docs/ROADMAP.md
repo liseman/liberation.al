@@ -6,9 +6,8 @@ The product has three goals, and specific examples are test cases for them, not 
 2. Answer questions about what happened.
 3. Summarize and analyze events.
 
-All three work today. [ARCHITECTURE.md](ARCHITECTURE.md) describes how. Work in flight is on the
-[project board](https://github.com/liseman/liberation.al/projects), and an issue's status there decides what is
-ready to build. This document says where each goal stands and what holds it back.
+All three work today. [ARCHITECTURE.md](ARCHITECTURE.md) describes how. Work in flight is in the
+[issues](https://github.com/liseman/liberation.al/issues), and the maintainers decide which are ready to build. This document says where each goal stands and what holds it back.
 
 ## Identify people
 
