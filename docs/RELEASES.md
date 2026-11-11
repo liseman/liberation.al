@@ -24,21 +24,27 @@ the lock and fetches the models.
 ## Install with apt
 
 On Ubuntu (24.04 and 26.04) and Debian (12 and 13), on x86-64 and arm64, install from the project's `apt` repository
-with no `uv`, `git`, or compiler required first:
+with no `uv`, `git`, or compiler first, but with `ca-certificates` and `curl`, which `apt` needs before it can reach
+the repository. The commands need an account with `sudo` (or root):
 
 ```sh
+sudo apt-get update && sudo apt-get install -y ca-certificates curl
 sudo install -d /etc/apt/keyrings
 curl -fsSL https://github.com/liseman/liberation.al/releases/download/apt/liberational-archive-keyring.gpg \
   | sudo tee /etc/apt/keyrings/liberational.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/liberational.gpg] https://github.com/liseman/liberation.al/releases/download/apt ./" \
   | sudo tee /etc/apt/sources.list.d/liberational.list
 sudo apt update && sudo apt install liberational
-pack-setup             # run as yourself, never with sudo: builds your environment and fetches models
+pack-setup             # run as yourself, never with sudo: fetches the models, and pulls Ollama's once it is installed
 ```
 
-Open Liberational from the applications menu, or run `pack-app` ([RUNNING.md](RUNNING.md)). Pass `--check` to
-`pack-setup` to inspect what is missing without installing or downloading, `--no-models` to skip model downloads, or
-`--no-ollama` to skip Ollama pulls.
+Ollama has no apt package, so the `.deb` names it only under Recommended packages. Install it from
+<https://ollama.com/download>, then run `pack-setup` again to pull its models.
+
+Open Liberational from the applications menu, or run `pack-app`, or run `pack-supervisor run` on a machine without a
+desktop session ([RUNNING.md](RUNNING.md)). Pass `--check` to `pack-setup` to list what it would install without
+installing or downloading (its exit status is not a completeness check: it is 0 while optional extras and models
+are still absent), `--no-models` to skip model downloads, or `--no-ollama` to skip Ollama pulls.
 
 ### Upgrade, remove, or purge an apt install
 
@@ -73,9 +79,9 @@ at the terminal.
 
 ## Install with uv
 
-On any supported Linux or macOS machine with [uv](https://docs.astral.sh/uv/) installed, download a release's files for
-your platform into one directory (`gh release download v0.1.0 --repo liseman/liberation.al -D release` fetches all
-assets), check them, and install the tool:
+On any supported Linux or macOS machine with [uv](https://docs.astral.sh/uv/) and the [GitHub
+CLI](https://cli.github.com) installed, download a release's files for your platform into one directory (`gh release
+download v0.1.0 --repo liseman/liberation.al -D release` fetches all assets), check them, and install the tool:
 
 ```sh
 (cd release && sha256sum -c --ignore-missing SHA256SUMS)
@@ -83,13 +89,15 @@ uv tool install --python 3.14 --find-links release \
   --constraints release/liberational-pack-0.1.0-lock-linux-x86_64.txt \
   liberational-pack --with continuum-daemons
 pack-system install    # installs missing system packages, after asking
-pack-setup             # installs this machine's Python extras and fetches models
-pack-app               # opens the application
+pack-setup             # installs this machine's Python extras, and pulls Ollama's once it is installed
+pack-app               # opens the application, or `pack-supervisor run` without a desktop session
 ```
 
-Replace `linux-x86_64` with `linux-aarch64` or `macos-arm64` to match your machine. `--constraints` pins every
-third-party dependency to the lock and verifies its SHA-256 hash; `--with continuum-daemons` installs the Rust daemons
-into the tool's `bin/` directory.
+On macOS, use `shasum -a 256 -c SHA256SUMS` for the first line: `sha256sum` is GNU coreutils. Replace
+`linux-x86_64` with `linux-aarch64` or `macos-arm64` to match your machine. `--constraints` pins every third-party
+dependency to the lock and verifies its SHA-256 hash; `--with continuum-daemons` installs the Rust daemons into the
+tool's `bin/` directory. Ollama has no apt package, so install it from <https://ollama.com/download>, then run
+`pack-setup` again to pull its models.
 
 ## Make a release
 
@@ -157,8 +165,9 @@ three wheels and platform lock in `/usr/lib/liberational/wheels/`, a pinned `uv`
 icon, and `/usr/bin/pack-*` symlinks to `/usr/lib/liberational/launch`.
 
 Package relations come from `config/system-packages.toml`: required unconditional `apt` packages (plus
-`ca-certificates`) go in `Depends`, hardware-conditional packages (`nvidia-cuda-toolkit`) and `ollama` go in
-`Recommends`, optional packages (`arp-scan`) go in `Suggests`, and source-build packages (`build = true`) are omitted.
+`ca-certificates`) go in `Depends`, hardware-conditional packages (`sox`, on a machine with an NVIDIA GPU) and
+`ollama` go in `Recommends`, optional packages (`arp-scan`) go in `Suggests`, and source-build packages
+(`build = true`) are omitted.
 The package registers nothing with `systemd` and compiles nothing as root.
 
 ### Per-user environments
@@ -239,6 +248,9 @@ older checkouts before pulling:
   to the device manifest. Restart every service that reads configuration after changing these settings.
 - Stored DINOv3 pet embeddings are not read. `tools/restore_pet_references.py` carries taught pet examples onto
   DINOv2 before a restart. MIGRATING.md has the arguments.
+- The position layer's records gained an `approximate` column, which a part written before this version does not
+  have: run `pack-positions --reset` after pulling, then restart the dashboard and the journal. It places the last
+  30 days again from the raw samples.
 
 The new 3D view is optional and off unless configured. Set `spatial.pointmap_runtime` to a MASt3R-SLAM setup you
 install yourself, set `spatial.pointmap_weights` to its weights, and turn on Learn surroundings. The pack downloads
@@ -246,9 +258,15 @@ none of that setup or its weights. MASt3R-SLAM and the weights have a non-commer
 This needs CUDA. For a fixed camera with a visible floor, `mount.height_m` in the device manifest sizes its cloud;
 otherwise the size is approximate.
 
-The view shows one camera's point cloud at a time: a relief of what that camera sees, not a room. It does not join
-cameras into a map of a place or make splats. It does not register cameras or place people on a plan.
+The view shows one camera's cloud by itself, or every camera's cloud placed where its camera stands on your plan.
+The clouds are separate layers, never blended into one model or a splat, and cameras are placed on the plan from
+their spots and its walls. People and pets are placed on the plan from each camera's spot.
 
 Voice naming no longer lets a person's own unnamed lines block their name. Positions on an owner plan no longer
 put people or animals behind a wall their camera cannot see through. The plan editor also gains version history,
 camera spots, and controls for the plan's scale.
+
+An unnamed voice now opens only when a line recurs, so a one-off line (a show playing near a microphone) stays
+unattributed. A pet's card says how many of its taught sightings keep no saved picture, and a picture saved after the
+first naming is kept by naming the sighting again. A camera's tilt can now be confirmed by the straight edges in its
+picture, and an animal whose floor point a solid wall hides is placed at the furniture, marked approximate.

@@ -86,17 +86,23 @@ person, and event, and the transcript beside it. Pick a line and the video goes 
 
 ## Install
 
-On Ubuntu or Debian, from the project's apt repository:
+On Ubuntu or Debian, from the project's apt repository. The commands need an account with `sudo` (or root), and `apt`
+needs `ca-certificates` to verify the repository over HTTPS and `curl` to fetch its keyring. A minimal server image
+has neither, so install them first:
 
 ```sh
+sudo apt-get update && sudo apt-get install -y ca-certificates curl
 sudo install -d /etc/apt/keyrings
 curl -fsSL https://github.com/liseman/liberation.al/releases/download/apt/liberational-archive-keyring.gpg \
   | sudo tee /etc/apt/keyrings/liberational.gpg > /dev/null
 echo "deb [signed-by=/etc/apt/keyrings/liberational.gpg] https://github.com/liseman/liberation.al/releases/download/apt ./" \
   | sudo tee /etc/apt/sources.list.d/liberational.list
 sudo apt update && sudo apt install liberational
-pack-setup    # as yourself, not with sudo: builds your environment and fetches the models
+pack-setup    # as yourself, not with sudo: fetches the models, and pulls Ollama's once Ollama is installed
 ```
+
+Ollama has no apt package, so install it from <https://ollama.com/download>, then run `pack-setup` again to pull its
+models. Until it runs, the **Models downloaded** step in the Getting started card stays to do.
 
 On a Mac, or any other supported machine, install the release's wheels with [uv](https://docs.astral.sh/uv/):
 [Releases](docs/RELEASES.md#install-with-uv) has the commands. To work on the code, [install from a
@@ -104,11 +110,12 @@ clone](docs/INSTALL.md).
 
 ## First run
 
-1. Open Liberational from the applications menu, or run `pack-app`. Its window says whether it is recording, and
-   quitting it stops everything.
-2. Press **Open the dashboard** in that window (<http://localhost:8765/>).
-3. Follow the **Getting started** list on Live: pick a camera and a microphone, name yourself, record your voice,
-   and tag your face.
+1. In a desktop session, open Liberational from the applications menu, or run `pack-app`. Its window says whether
+   it is recording, and quitting it stops everything. On a machine without a desktop session, run
+   `pack-supervisor run` instead ([Running](docs/RUNNING.md#open-and-quit-the-application)).
+2. Open <http://localhost:8765/>. In the application window, press **Open the dashboard**.
+3. Follow all six steps in the **Getting started** card on Live: system packages installed, models downloaded, pick
+   a camera and a microphone, name yourself, record your voice reference, and tag your face.
 4. As people and pets turn up, say who they are in **Known**, under "Who's this?". It never guesses a name it
    was not taught ([Naming](docs/NAMING.md)).
 5. The next morning, read yesterday in the **Journal**, or ask about it with **Ask**.
