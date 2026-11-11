@@ -95,11 +95,11 @@ def test_learning_coverage_is_held_out_and_missing_periods_are_not_zero():
     examples = similar_pets()
     check = R._temporal_check(examples, "cat", None)
     names = {"Alice": "Alice", "Dana": "Dana", "Sam": "Sam"}
-    result = R._learning({"cat": check}, examples, {}, names, T + 80 * 1800)
+    result = R._learning({"cat": check}, examples, {}, names, T + 80 * 1800, frozenset())
     assert (result["Alice"]["automatic_percent"], result["Alice"]["tested"]) == (100, 10)
     assert result["Alice"]["start"] >= T + 60 * 1800
     assert result["Sam"]["automatic_percent"] is None and result["Sam"]["start"] is None
-    expired = R._learning({"cat": check}, examples, {}, names, T + 30 * 86400)
+    expired = R._learning({"cat": check}, examples, {}, names, T + 30 * 86400, frozenset())
     assert expired["Alice"]["automatic_percent"] is None
 
 
@@ -1117,6 +1117,48 @@ def test_a_label_keeps_its_sightings_saved_photo_with_the_taught_state(log):
     assert R.photos(log.state) == {"m0": b"photo of m0"}  # m1 had no saved photo: a label without one
     R.label(log.state, ["m0"], POPPY, PETS, now=T + 30001)  # relabeled: its example and photo are already kept
     assert len(knowledge.Store(log.state / "knowledge.sqlite3").query(R.PHOTOS)) == 1
+
+
+def test_a_picture_saved_after_the_naming_is_kept_by_a_later_naming(log):
+    """Taught before its photo was saved: the label stays without one, and naming it again keeps the picture that
+    arrived since, without a second example."""
+    from liberational.people import face_shots, pet_shots
+
+    R.label(log.state, ["m0"], MIA, PETS, now=T + 30000)
+    assert R.kept_photo(log.state, "m0") is None and R.labels(log.state)["m0"]["label"] == MIA
+    face_shots.write(log.state, "m0", "3", b"photo of m0", pet_shots.KIND)  # the worker saves it a moment later
+    R.label(log.state, ["m0"], MIA, PETS, now=T + 30001)
+    assert R.kept_photo(log.state, "m0") == b"photo of m0"
+    assert R.photos(log.state) == {"m0": b"photo of m0"}, "what tools/restore_pet_references.py embeds again"
+    store = knowledge.Store(log.state / "knowledge.sqlite3")
+    assert (len(store.query(R.REFERENCES, key="m0")), len(store.query(R.PHOTOS, key="m0"))) == (1, 1)
+
+
+def test_a_picture_that_cannot_be_read_leaves_the_label_and_a_later_naming_keeps_the_next_one(log):
+    from liberational.people import face_shots, pet_shots
+
+    saved = face_shots.write(log.state, "m0", "3", b"photo of m0", pet_shots.KIND)
+    saved.unlink()
+    saved.mkdir()  # the newest saved photo cannot be read (a directory where the file should be)
+    R.label(log.state, ["m0"], MIA, PETS, now=T + 30000)
+    assert R.kept_photo(log.state, "m0") is None and R.labels(log.state)["m0"]["label"] == MIA
+    assert R.view(log.state, PETS, now=T + 30001)["learning"][MIA]["no_photo"] == 1, "said, not hidden"
+    saved.rmdir()
+    saved.write_bytes(b"photo of m0")
+    R.label(log.state, ["m0"], MIA, PETS, now=T + 30002)
+    assert R.kept_photo(log.state, "m0") == b"photo of m0"
+    assert R.view(log.state, PETS, now=T + 30003)["learning"][MIA]["no_photo"] == 0
+
+
+def test_a_pets_learning_counts_the_taught_sightings_with_no_kept_picture(log):
+    from liberational.people import face_shots, pet_shots
+
+    now = T + 30000
+    face_shots.write(log.state, "m0", "3", b"photo of m0", pet_shots.KIND)
+    R.label(log.state, ["m0", "m1"], MIA, PETS, now=now)
+    R.label(log.state, ["p0", "p1"], POPPY, PETS, now=now + 1)
+    learning = R.view(log.state, PETS, now=now + 2)["learning"]
+    assert (learning[MIA]["no_photo"], learning[POPPY]["no_photo"]) == (1, 2)
 
 
 def mia_with_a_wrong_sighting(state, now):
