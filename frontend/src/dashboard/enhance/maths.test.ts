@@ -234,6 +234,57 @@ describe('Stabiliser', () => {
     stab.update(frame(look), 1 / 30);
     expect(stab.update(frame(look), 2).reset).toBe(true);
   });
+
+  it('starts over when the frame times run backwards, and fades the highlight in as usual', () => {
+    const stab = new Stabiliser();
+    for (let i = 0; i < 40; i++) stab.update(frame(look), 1 / 30);
+    expect(stab.update(frame(look), -500)).toMatchObject({ reset: true, gain: 0 });
+    let out = stab.update(frame(look), 1 / 30);
+    expect(out.gain).toBeGreaterThan(0);
+    for (let i = 0; i < 30; i++) out = stab.update(frame(look), 1 / 30);
+    expect(out.gain).toBeCloseTo(1, 6);
+  });
+
+  it('takes the place a nudged camera comes to rest as its new reference', () => {
+    const stab = new Stabiliser();
+    for (let i = 0; i < 30; i++) stab.update(frame(look), 1 / 30);
+    // Knocked 6 pixels across and 3 down, and left there: held for a moment, then shown where it now is
+    const outs = Array.from({ length: 90 }, () => stab.update(frame(look, 6, 3), 1 / 30));
+    expect(Math.abs((outs[0]?.dx ?? 0) * W - 6)).toBeLessThanOrEqual(DEADBAND + 0.05);
+    const settled = outs.findIndex(o => o.reset);
+    expect(settled).toBeGreaterThan(15); // not at once: a wobble's far end is not a new resting place
+    expect(settled).toBeLessThan(50);
+    for (const out of outs.slice(settled)) expect(out).toMatchObject({ dx: 0, dy: 0 });
+    expect(outs.filter(o => o.reset)).toHaveLength(1);
+    expect(outs.at(-1)?.gain).toBeCloseTo(1, 6);
+  });
+
+  it('keeps correcting a wobble, small or large, without starting over', () => {
+    for (const size of [0.4, 1.5, 4]) {
+      const stab = new Stabiliser();
+      stab.update(frame(look), 1 / 30);
+      for (let i = 1; i <= 240; i++) {
+        const wobble = size * Math.sin(i * 0.65) + (size / 3) * Math.sin(i * 1.7);
+        expect(stab.update(frame(look, wobble, -wobble / 2), 1 / 30).reset).toBe(false);
+      }
+    }
+  });
+
+  it('shows a camera on the move as it is, and steadies it again once it stops', () => {
+    const stab = new Stabiliser();
+    for (let i = 0; i < 30; i++) stab.update(frame(look), 1 / 30);
+    // A pan of 1.5 pixels a frame for two seconds: 90 pixels, far more than a wobble
+    const moving = Array.from({ length: 60 }, (_, i) => stab.update(frame(look, 1.5 * (i + 1), 0), 1 / 30));
+    const left = moving.findIndex(o => o.reset);
+    expect(left).toBeGreaterThanOrEqual(0);
+    // From there on the picture is not held back and let go again and again: every frame is shown where it is
+    for (const out of moving.slice(left)) expect(out).toMatchObject({ dx: 0, dy: 0, gain: 0 });
+    // Stopped: within a second it steadies on the new view and the highlight fades back in
+    const stopped = Array.from({ length: 75 }, () => stab.update(frame(look, 90, 0), 1 / 30));
+    for (const out of stopped) expect(out).toMatchObject({ dx: 0, dy: 0 });
+    expect(stopped.slice(30).some(o => o.reset)).toBe(false);
+    expect(stopped.at(-1)?.gain).toBeCloseTo(1, 6);
+  });
 });
 
 describe('lumaSize', () => {
