@@ -258,15 +258,30 @@
   background: var(--mantine-color-default);
   cursor: help;
 }
-.cam-picture .flip-btn {
+/* The large camera's own buttons, top right; the Enhance look picker, when Enhance is on, sits under them so
+   nothing already there moves. */
+.cam-tools {
   position: absolute;
   right: 10px;
   top: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.cam-tools-row {
+  display: flex;
+  gap: 8px;
+}
+.cam-enhance-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px 0;
+}
+.cam-tools .flip-btn {
+  position: static;
   min-width: 32px;
   min-height: 32px;
-}
-.cam-picture .skel-btn {
-  right: 50px;
 }
 .cam-picture .bx-known {
   --bx: #4ade80;
