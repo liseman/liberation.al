@@ -11,7 +11,10 @@ A file download that was cut off carries on from where it stopped on the next ru
 same for theirs), and each shows how far it is.
 
 A gated Hugging Face repository this machine can't read yet doesn't stop the run: everything else is fetched, the
-gated ones are listed at the end with how to get access, and the exit status is 1.
+gated ones are listed at the end with how to get access, and the exit status is 1. An `optional` one is different:
+it is tried with whatever Hugging Face login this machine already has, and a refusal only prints a line saying it
+isn't available here, because the install works without it. An entry marked `only_without = "<name>"` is fetched
+only when that other one could not be had, so an install with the better model does not carry its fallback either.
 """
 
 import argparse
@@ -188,12 +191,25 @@ def fetch_ollama(models: Mapping[str, str]) -> None:
             present.add(tag)
 
 
+NOT_AVAILABLE = "not available here"  # an optional model this machine's Hugging Face login cannot read
+
+
+def _not_available(name: str, repo: str, why: str) -> bool:
+    """An optional model that could not be fetched: a clear line, and the run goes on and exits as it would have.
+    False, like any other miss, so a fallback declared with `only_without` is still fetched; unlike a required gated
+    repository, the caller doesn't collect it, so the exit status doesn't change. Nothing here asks for, prints, or
+    stores a token: the login is whatever huggingface_hub already has."""
+    print(f"  {name}: {NOT_AVAILABLE} ({repo} {why}); the install works without it")
+    return False
+
+
 def fetch_hf(name: str, entry: Mapping[str, Any]) -> bool:
-    """Fetches one repository. False when it's gated and this machine has no access yet (no token, or a token whose
-    account hasn't accepted the license or been approved): the caller goes on and reports it at the end."""
+    """Fetches one repository. False when it's gated and this machine has no access yet (no login, or a login whose
+    account hasn't accepted the license or been approved): the caller goes on and reports it at the end. An
+    `optional` repository is never a failure: it is simply not available here."""
     try:
         from huggingface_hub import snapshot_download
-        from huggingface_hub.errors import GatedRepoError
+        from huggingface_hub.errors import GatedRepoError, HfHubHTTPError
     except ImportError:
         print(f"  {name}: huggingface_hub not installed; it will download on first use")
         return True
@@ -210,8 +226,18 @@ def fetch_hf(name: str, entry: Mapping[str, Any]) -> bool:
     try:
         snapshot = snapshot_download(entry["repo"], **patterns)
     except GatedRepoError:
+        if entry.get("optional"):
+            return _not_available(name, entry["repo"], "is gated, and this machine's Hugging Face login has no access")
         print(f"  {name}: gated, and this machine has no access to it yet; skipped")
         return False
+    except HfHubHTTPError as error:
+        # A gated or private repository is also a 401 or 403 to a login that hasn't been approved, and Hugging Face
+        # reports a missing credential as "repository not found".
+        if entry.get("optional"):
+            return _not_available(
+                name, entry["repo"], f"refused this machine's login with HTTP {error.response.status_code}"
+            )
+        raise
     if entry.get("sha256"):
         verify_hf(name, entry, pathlib.Path(snapshot))
     return True
@@ -226,10 +252,14 @@ def verify_hf(name: str, entry: Mapping[str, Any], snapshot: pathlib.Path) -> No
         found = sha256(path) if path.is_file() else None
         if found != expected:
             path.unlink(missing_ok=True)
-            sys.exit(
+            why = (
                 f"{name}: {entry['repo']} {file} has checksum {found or 'none (the file is missing)'}, expected "
                 f"{expected}; removed it. The repository's content isn't what this configuration was written for."
             )
+            if entry.get("optional"):
+                _not_available(name, entry["repo"], "is not the file this configuration pins, so it was removed")
+                continue
+            sys.exit(why)
 
 
 def gated_help(gated: Mapping[str, str]) -> str:
@@ -255,10 +285,15 @@ def missing() -> list[str]:
         for name, e in models.get("files", {}).items()
         if wanted(e, key) and not owner_file(e["path"]).exists()
     ]
+    # An optional model (SAM 3 and its fallback, for instance) is never missing: the install works without it, and
+    # naming it here would report a gated download this machine cannot be expected to have as a broken install.
     gone += [
         f"{name}: {e['path']} ({e['repo']})"
         for name, e in models.get("hf", {}).items()
-        if wanted(e, key) and "path" in e and not (owner_file(e["path"]) / "config.json").exists()
+        if wanted(e, key)
+        and not e.get("optional")
+        and "path" in e
+        and not (owner_file(e["path"]) / "config.json").exists()
     ]
     return gone
 
@@ -286,7 +321,10 @@ def fetch(ollama: bool = True, listing: bool = False) -> dict[str, str]:
                 if "path" in e
                 else ""
             )
-            print(f"  hf      {name}: {e['repo']}{state}{'' if wanted(e, key) else '  (not for this platform)'}")
+            print(
+                f"  hf      {name}: {e['repo']}{state}{'' if wanted(e, key) else '  (not for this platform)'}"
+                f"{'  (optional)' if e.get('optional') else ''}"
+            )
         for name, e in models.get("files", {}).items():
             state = "present" if owner_file(e["path"]).exists() else "missing"
             print(f"  file    {name}: {e['path']} [{state}]{'' if wanted(e, key) else '  (not for this platform)'}")
@@ -298,8 +336,15 @@ def fetch(ollama: bool = True, listing: bool = False) -> dict[str, str]:
             fetch_file(name, e)
     print("hugging face:")
     gated: dict[str, str] = {}
+    fetched: dict[str, bool] = {}
     for name, e in models.get("hf", {}).items():
-        if wanted(e, key) and not fetch_hf(name, e):
+        if not wanted(e, key):
+            continue
+        if (source := e.get("only_without")) and fetched.get(source):
+            print(f"  {name}: not fetched ({source} is here, and this one is its fallback)")
+            continue
+        fetched[name] = fetch_hf(name, e)
+        if not fetched[name] and not e.get("optional"):
             gated[name] = e["repo"]
     if ollama:
         print("ollama:")
