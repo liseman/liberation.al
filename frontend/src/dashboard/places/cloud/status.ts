@@ -5,7 +5,7 @@
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
 import { ago, capitalize, dayWords, hm, isoDay, plural } from '../../lib/format';
-import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, ViewWhy } from '../api';
+import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, SceneTrack, ViewWhy } from '../api';
 
 const when = (at: number) =>
   new Date(at * 1000).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -171,6 +171,38 @@ export function placedLine(
   }
 }
 
+/** What a move has put into the place's map so far, and how long ago the last of it went in. */
+function addedLine(track: SceneTrack, now: number, ended: boolean): string {
+  const added = track.added ?? 0;
+  if (!added || track.added_at == null)
+    return ended ? 'This move added nothing to the map.' : 'This move has added nothing to the map yet.';
+  const count = `${added.toLocaleString()} ${added === 1 ? 'point' : 'points'}`;
+  if (ended) return `This move added ${count} to the map.`;
+  const gone = Math.max(0, Math.round(now - track.added_at));
+  return `This move has added ${count} to the map, the last ${gone < 90 ? `${gone} s ago` : ago(track.added_at, now)}.`;
+}
+
+/** What a moving camera's row says beside its badge, without opening it: how many points this move has put into the
+ *  map and how long ago the last went in. `wide` is for a row with room, `narrow` for a phone's, `label` is what a
+ *  screen reader hears. Null for a camera that isn't being tracked. */
+export function addedNote(
+  camera: ScenePlaced,
+  now = Date.now() / 1000,
+): { wide: string; narrow: string; label: string } | null {
+  const track = camera.track;
+  if (track?.state !== 'tracking') return null;
+  const added = track.added ?? 0;
+  if (!added || track.added_at == null)
+    return { wide: 'No points added yet', narrow: '+0', label: addedLine(track, now, false) };
+  const gone = Math.max(0, Math.round(now - track.added_at));
+  const when = gone < 90 ? `${gone} s` : `${Math.round(gone / 60)} min`;
+  return {
+    wide: `+${added.toLocaleString()} ${added === 1 ? 'point' : 'points'}, ${when} ago`,
+    narrow: `+${added.toLocaleString()}, ${when}`,
+    label: addedLine(track, now, false),
+  };
+}
+
 /** What a moving camera's track says, in plain words: where the camera is now and how far that can be trusted, or,
  *  once it has come to rest, what it waits for. Null for a camera that isn't tracked. `now` is epoch seconds. */
 export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string | null {
@@ -182,7 +214,7 @@ export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string 
   ].filter(Boolean);
   const where = moves.length ? `${moves.join(' and ')} from where its points were made` : 'where its points were made';
   if (track.state === 'ended')
-    return `It came to rest ${since(track.at, now)}, ${where}. It's placed for good after about 20 seconds with nobody in view.`;
+    return `It came to rest ${since(track.at, now)}, ${where}. ${addedLine(track, now, true)} It's placed for good after about 20 seconds with nobody in view.`;
   if (!track.pose) return 'It began to move. Its first frames are being placed.';
   const unheld = track.held === null ? null : Math.round(track.at - track.held);
   const held =
@@ -191,7 +223,7 @@ export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string 
       : unheld < 5
         ? "Held to your plan's walls."
         : `Last held to your plan's walls ${unheld} s before, so it may have drifted since.`;
-  return `It is moving, now ${where}, ${since(track.at, now)}. ${held}`;
+  return `It is moving, now ${where}, ${since(track.at, now)}. ${held} ${addedLine(track, now, false)}`;
 }
 
 /** What the place's map took of a camera's latest picture, in plain words; null before it was offered one. */

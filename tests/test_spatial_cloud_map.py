@@ -1,6 +1,7 @@
 """A place's map (spatial/cloud_map.py) and the agreement it asks of a shot (spatial/cloud_merge.py), on made-up
 rooms: a shot is what a camera standing somewhere in them would see, offered where it is said to stand."""
 
+import dataclasses
 import json
 import math
 from dataclasses import replace
@@ -164,6 +165,28 @@ def test_a_loose_shot_a_metre_off_and_turned_is_brought_onto_the_wall_and_table_
     standing = held.xyz[(held.xyz[:, 2] > 1.0) & (held.xyz[:, 0] > 0.3) & (held.xyz[:, 0] < 3.7)]
     assert standing[:, 1].min() > 4.85
     assert cloud_map.by_camera(held)["porch"] == told.points
+
+
+def test_a_tracked_shot_is_added_exactly_where_its_track_puts_it_or_refused_and_never_moved_to_agree(where):
+    cloud_map.offer(where, ROOMS, shot("good", at(2.0, 1.5, 0.0), things=table_top()))
+    truth = at(1.2, 2.0, 25.0)
+    wrong = truth.step(0.8, -0.6, math.radians(14.0))
+
+    def tracked(name: str, lies: scenes.At) -> cloud_map.Offer:
+        offer = shot(name, truth, wrong, held=False, things=table_top(), camera="porch")
+        return dataclasses.replace(offer, lie=cloud_map._lie(cloud_merge.Stand(lies.x, lies.y, lies.bearing), 1.0))
+
+    # the track has it right: it goes in where the track says, whatever its stand says, and is not moved
+    told = cloud_map.offer(where, ROOMS, tracked("right", truth))
+    assert (told.state, told.moved_m, told.turned_deg) == ("added", 0.0, 0.0) and told.points > 0
+    standing = the_map(where).xyz
+    standing = standing[(standing[:, 2] > 1.0) & (standing[:, 0] > 0.3) & (standing[:, 0] < 3.7)]
+    assert standing[:, 1].min() > 4.85  # one wall
+    # the track has it a metre off: a loose shot would be brought onto the map's wall and table, this one is refused
+    before = len(the_map(where).xyz)
+    told = cloud_map.offer(where, ROOMS, tracked("drifted", wrong))
+    assert (told.state, told.why, told.moved_m) == ("refused", "apart", 0.0)
+    assert len(the_map(where).xyz) == before
 
 
 def test_a_loose_shot_that_cant_be_made_to_agree_is_added_without_the_part_that_contradicts_the_map(where):

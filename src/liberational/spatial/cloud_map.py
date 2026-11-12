@@ -111,6 +111,10 @@ class Offer:
     width: int
     height: int
     fit: cloud_align.Fit | None = None  # for drawing its matched walls and floor flat
+    #: The cloud's frame in the scene (4 x 4), when something knows it better than `stand` says: a keyframe of a
+    #: tracked camera (spatial/camera_track.py), placed by its track. It is offered exactly there: not brought into
+    #: agreement with the map's surfaces first, only checked against what the map's shots saw.
+    lie: np.ndarray | None = None
 
 
 @dataclass(frozen=True)
@@ -295,6 +299,16 @@ def _outcome(row: Mapping[str, Any]) -> Outcome:
     )
 
 
+def surfaces(where: Path) -> cloud_merge.Placed:
+    """Where the surfaces of the held shots in the map kept in `where` stand: what a cloud nothing else places is
+    brought into agreement with (spatial/cloud_merge.py `agree`). None of them while there is no map."""
+    out = cloud_merge.Placed()
+    for row in (record(where) or {}).get("shots", ()):
+        if row.get("held"):
+            out = out + _surfaces_of(row)
+    return out
+
+
 def answered(meta: Mapping[str, Any] | None, shot: str) -> dict[str, Any] | None:
     """What a map said of the shot `shot` when it was offered, or None if it never was."""
     for row in [*(meta or {}).get("shots", ()), *(meta or {}).get("refused", ())]:
@@ -337,7 +351,7 @@ def offer(where: Path, rooms: Sequence[Sequence[tuple[float, float]]], shot: Off
         if earlier:
             _without(held, np.isin(held.shot, earlier))
         stand = shot.stand
-        if not shot.held:  # the plan's walls don't hold it: the map's surfaces may
+        if not shot.held and shot.lie is None:  # the plan's walls don't hold it: the map's surfaces may
             theirs = cloud_merge.Placed()
             for i, row in enumerate(held.meta["shots"]):
                 if i not in earlier and row.get("held"):
@@ -349,7 +363,7 @@ def offer(where: Path, rooms: Sequence[Sequence[tuple[float, float]]], shot: Off
                 stand = told.at
                 about |= {"off_m": told.off_m, "moved_m": told.moved_m, "turned_deg": told.turned_deg,
                           "resized": told.resized}  # fmt: skip
-        lie = _lie(stand, shot.up if shot.held else stand.scale)
+        lie = _lie(stand, shot.up if shot.held else stand.scale) if shot.lie is None else shot.lie
         xyz = (shot.own @ lie[:3, :3].T + lie[:3, 3]).astype(np.float32)
         view = cloud_merge.view_of(xyz, np.linalg.inv(lie @ shot.camera_pose), shot.focal, shot.width, shot.height)
         # What the new shot looked through of the map, and what earlier shots looked through of it.

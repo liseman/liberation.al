@@ -22,6 +22,7 @@ import {
 import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layers';
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import {
+  addedNote,
   bendLine,
   coveredLine,
   fitLine,
@@ -562,29 +563,46 @@ const tracked = (more: Partial<NonNullable<ScenePlaced['track']>> = {}): ScenePl
   went_m: 0.9,
   from_m: 0.62,
   from_deg: 41.2,
+  added: 12239,
+  added_at: NOW - 3,
   ...more,
 });
 
 it.each([
   [
     tracked(),
-    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
+    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Held to your plan's walls. This move has added 12,239 points to the map, the last 3 s ago.",
   ],
   [
-    tracked({ held: NOW - 13 }),
-    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Last held to your plan's walls 12 s before, so it may have drifted since.",
+    tracked({ held: NOW - 13, added: 1, added_at: NOW - 200 }),
+    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Last held to your plan's walls 12 s before, so it may have drifted since. This move has added 1 point to the map, the last 3 min ago.",
   ],
   [
-    tracked({ held: null, from_m: 0, from_deg: 12 }),
-    'It is moving, now turned 12° from where its points were made, a moment ago. No wall has held it to your plan yet, so it may be off.',
+    tracked({ held: null, from_m: 0, from_deg: 12, added: 0, added_at: null }),
+    'It is moving, now turned 12° from where its points were made, a moment ago. No wall has held it to your plan yet, so it may be off. This move has added nothing to the map yet.',
   ],
   [tracked({ pose: null, held: null }), 'It began to move. Its first frames are being placed.'],
   [
     tracked({ state: 'ended', at: NOW - 300 }),
-    "It came to rest 5 min ago, 62 cm away and turned 41° from where its points were made. It's placed for good after about 20 seconds with nobody in view.",
+    "It came to rest 5 min ago, 62 cm away and turned 41° from where its points were made. This move added 12,239 points to the map. It's placed for good after about 20 seconds with nobody in view.",
   ],
 ])('says where a moving camera is now and how far that can be trusted', (track, text) => {
   expect(trackLine(placedAs('spot', { track }), NOW)).toBe(text);
+});
+
+it("says on a moving camera's row what this move has added to the map, and nothing once it rests", () => {
+  expect(addedNote(placedAs('spot', { track: tracked() }), NOW)).toEqual({
+    wide: '+12,239 points, 3 s ago',
+    narrow: '+12,239, 3 s',
+    label: 'This move has added 12,239 points to the map, the last 3 s ago.',
+  });
+  expect(addedNote(placedAs('spot', { track: tracked({ added: 0, added_at: null }) }), NOW)).toEqual({
+    wide: 'No points added yet',
+    narrow: '+0',
+    label: 'This move has added nothing to the map yet.',
+  });
+  expect(addedNote(placedAs('spot', { track: tracked({ state: 'ended' }) }), NOW)).toBeNull();
+  expect(addedNote(placedAs('spot'), NOW)).toBeNull();
 });
 
 it("reads a tracked camera's own placement as background to where it is now", () => {

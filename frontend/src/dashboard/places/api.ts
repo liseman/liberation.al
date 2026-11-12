@@ -255,6 +255,10 @@ export interface SceneTrack {
   went_m: number;
   from_m: number;
   from_deg: number;
+  /** How many points this move has put into the place's map so far, and when the last went in (epoch seconds;
+   *  null while none has). */
+  added?: number;
+  added_at?: number | null;
 }
 
 /** A place's map is one cloud that every well-placed picture is added to, each surface once. This is one camera's
