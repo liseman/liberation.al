@@ -12,6 +12,7 @@ import pytest
 from liberational import config as cfg
 from liberational.dashboard import journal as journal_view
 from liberational.demo import cli, dataset
+from liberational.demo import server as demo_server
 from liberational.memory import journal, places, research
 from liberational.people import pets, registry, transcript_view
 from liberational.spatial import plan_scene, spots
@@ -115,6 +116,14 @@ def test_an_hour_lists_its_events(seeded):
 
     assert code == 200
     assert [r["text"][:5] for r in reply["items"]] == ["Alice", "Sam s", "Dana ", "Alice"]
+
+
+def test_the_demo_serves_made_up_heart_rates_for_its_people():
+    """Live's Here now shows a heart rate when there is one; the demo has to have one to show."""
+    got = demo_server.heart_rates(NOW)
+    assert set(got["people"]) == {"alice", "sam"}, "keyed by the name the list matches by"
+    assert got["people"]["alice"]["bpm"] == 71
+    assert 0.0 < got["people"]["sam"]["confidence"] <= 1.0
 
 
 def test_people_pet_and_place_are_seeded(seeded):
