@@ -79,12 +79,14 @@ it('discards queued writes on unmount', async () => {
   await new Promise(resolve => setTimeout(resolve, 350));
   expect(writes).toHaveLength(0);
 });
-it('recovers after a failed write', async () => {
+it('recovers after a failed write, and says why it failed only on the mark', async () => {
   const { writes } = setup();
   await open();
   server.use(http.post('/devices/camera-controls', () => HttpResponse.json({ error: 'Unavailable' }, { status: 503 })));
   fireEvent.click(screen.getByRole('switch'));
-  await screen.findByRole('alert');
+  // The reason is the mark's own: hovered, and read out, never a line of its own that pushes the controls down.
+  expect(await screen.findByTestId('save-error')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   server.use(
     http.post('/devices/camera-controls', async ({ request }) => {
       writes.push(await request.json());
@@ -93,7 +95,7 @@ it('recovers after a failed write', async () => {
   );
   fireEvent.change(screen.getByRole('combobox'), { target: { value: '2' } });
   await waitFor(() => expect(writes).toHaveLength(1));
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('save-error')).not.toBeInTheDocument();
 });
 it('serializes writes while preserving edits made during an in flight save', async () => {
   const { writes } = setup();
@@ -128,9 +130,9 @@ it('polls pending hardware changes and replaces optimistic values after applicat
     }),
   );
   fireEvent.click(screen.getByRole('switch'));
-  await screen.findByText('Saved. Applying camera controls…');
+  await screen.findByText('Saved. Applying camera controls.');
   expect(screen.getByRole('switch')).toBeChecked();
-  await waitFor(() => expect(screen.queryByText('Saved. Applying camera controls…')).not.toBeInTheDocument(), {
+  await waitFor(() => expect(screen.queryByText('Saved. Applying camera controls.')).not.toBeInTheDocument(), {
     timeout: 3000,
   });
   expect(screen.getByRole('switch')).not.toBeChecked();
@@ -198,4 +200,24 @@ it('keeps a queued reset separate from later edits behind an in flight save', as
       { camera: 'desk', values: { 3: 2 } },
     ]),
   );
+});
+
+it('keeps the save state in one slot beside the title, through saving, applying, and applied', async () => {
+  const { writes } = setup();
+  await open();
+  // The same element at every state, in the title row: a slot that is always there, so nothing under it moves.
+  const slot = screen.getByText('Camera controls').parentElement?.querySelector('[aria-live="polite"]');
+  expect(slot).toHaveAttribute('data-phase', 'idle');
+  server.use(
+    http.post('/devices/camera-controls', async ({ request }) => {
+      writes.push(await request.json());
+      return HttpResponse.json({ ...view, pending: true });
+    }),
+  );
+  fireEvent.click(screen.getByRole('switch'));
+  expect(slot).toHaveAttribute('data-phase', 'saving');
+  await waitFor(() => expect(slot).toHaveTextContent('Saved. Applying camera controls.'));
+  expect(slot).toHaveAttribute('data-phase', 'saving');
+  await waitFor(() => expect(slot).toHaveAttribute('data-phase', 'saved'), { timeout: 5000 });
+  expect(slot).toHaveTextContent('Saved and applied.');
 });

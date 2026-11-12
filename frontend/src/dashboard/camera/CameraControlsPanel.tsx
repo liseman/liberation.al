@@ -1,8 +1,9 @@
 // A camera's controls panel, loaded when its popover first opens (CameraControls.tsx): its sliders and form stay
 // out of Live's first load.
-import { Button, Checkbox, NativeSelect, Slider, Stack, Switch, Text } from '@mantine/core';
+import { Button, Checkbox, Group, NativeSelect, Slider, Stack, Switch, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { messageOf, request } from '../../shared/http';
+import { failed, SAVE_IDLE, SaveState, type SaveStatus, saved, saving } from '../lib/SaveState';
 
 export interface CameraControl {
   id: number;
@@ -39,6 +40,9 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
   const alive = useRef(true);
   const abort = useRef(new AbortController());
   const [reload, setReload] = useState(0);
+  // What the mark beside the title says: a change is queued or being written, the camera is applying it, or it did.
+  const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState(false);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload explicitly retries failed reads.
   useEffect(() => {
@@ -87,6 +91,7 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
             controller.signal,
           );
           if (!controller.signal.aborted && !writing.current && queue.current.length === 0) {
+            setApplied(!result.pending);
             setView(old =>
               result.pending && old
                 ? {
@@ -142,6 +147,7 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
             if (next.auto_exposure !== undefined) pending.auto_exposure = next.auto_exposure;
           }
         }
+        setApplied(!result.pending);
         setView({
           ...result,
           auto_exposure: pending.auto_exposure ?? result.auto_exposure,
@@ -159,11 +165,15 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
     } finally {
       writing.current = false;
       if (alive.current) {
+        if (queue.current.length === 0) setBusy(false);
         void flush();
       }
     }
   }
   function change(changes: Changes) {
+    setBusy(true);
+    setApplied(false);
+    setError(''); // a failed write's reason gives way to the change being tried now
     if (changes.reset) {
       // Reset is a barrier: writes on either side remain separate requests.
       queue.current.push(changes);
@@ -195,34 +205,41 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
       void flush();
     }, 300);
   }
+  // The mark beside the title replaces the "Saved. Applying…" line: saving and applying spin, a failure keeps its
+  // reason on the mark (hover, or a screen reader), and a change that went through checks for a moment. Its reason is
+  // never a line of its own, so nothing under the title moves while it comes and goes.
+  const status: SaveStatus = busy
+    ? saving('Saving the camera controls.')
+    : stalled
+      ? failed('Saved, but camera has not applied these values.')
+      : error
+        ? failed(error)
+        : view?.pending
+          ? saving('Saved. Applying camera controls.')
+          : applied
+            ? saved()
+            : SAVE_IDLE;
   return (
     <Stack gap="sm">
-      <Text fw={600}>Camera controls</Text>
-      {error && (
+      <Group justify="space-between" wrap="nowrap" gap="xs">
+        <Text fw={600}>Camera controls</Text>
+        <SaveState status={status} />
+      </Group>
+      {error && !view && (
         <Text role="alert" c="red" size="sm">
           {error}
         </Text>
       )}
       {!view && !error && <Text size="sm">Loading controls…</Text>}
-      {error && (
+      {error && !view && (
         <Button size="xs" variant="default" onClick={() => setReload(n => n + 1)}>
           Refresh controls
         </Button>
       )}
-      {view?.pending && !stalled && (
-        <Text size="sm" role="status">
-          Saved. Applying camera controls…
-        </Text>
-      )}
       {stalled && (
-        <>
-          <Text size="sm" role="alert">
-            Saved, but camera has not applied these values.
-          </Text>
-          <Button size="xs" variant="default" onClick={() => setPollRetry(value => value + 1)}>
-            Check again
-          </Button>
-        </>
+        <Button size="xs" variant="default" onClick={() => setPollRetry(value => value + 1)}>
+          Check again
+        </Button>
       )}
       {view?.note && <Text size="sm">{view.note}</Text>}
       {view?.available && (
