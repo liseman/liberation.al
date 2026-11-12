@@ -391,7 +391,14 @@ export interface Scene {
   views?: CameraView[];
   /** The scene of all the place's cameras' clouds, each placed where its camera is (asked for with `all`): every
    *  camera with how it is placed or why it isn't, in the order the points name them, and each pair's reading. */
-  combined?: { place: string; id: string; cameras: ScenePlaced[]; pairs: ScenePair[] };
+  combined?: {
+    place: string;
+    id: string;
+    cameras: ScenePlaced[];
+    pairs: ScenePair[];
+    /** How much of the plan's floor the place's map covers so far, in square metres; null while it has no map. */
+    covered?: { floor_m2: number; plan_m2: number } | null;
+  };
   /** The camera whose own cloud this scene is (its points, in a level frame of its own, with the camera in it), with
    *  how it was sized: always the model's own approximate metres (`cloud.size`, spatial/camera_clouds.py); a measured
    *  mounting height only checks which plane is the floor. Only `camera` while that camera has no cloud yet. */
