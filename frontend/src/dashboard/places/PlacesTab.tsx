@@ -13,6 +13,8 @@ import { BlockSkeleton } from '../lib/loading';
 import { PageHeader, PageLoading } from '../lib/page';
 import { useRoute } from '../router';
 import { type PlaceSummary, placesQuery } from './api';
+// The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
+import { SCENE_MODES } from './cloud/modes';
 import { EXAMPLE_PLACES, type Place } from './examples';
 import { LearningBadge, LearningPanel, useLearning } from './learning';
 import { OwnerBar, type Showing } from './OwnerBar';
@@ -21,7 +23,6 @@ import classes from './places.module.css';
 import { drawScene, summarise } from './scene/draw';
 import { PlaceEditor } from './scene/PlaceEditor';
 
-// The 3D view is its own chunk: the viewer and its engine load only when someone opens it.
 const CloudView = lazy(() => import('./cloud/CloudView'));
 
 /** What a plan in the format before scenes reads as: it is no longer read, and the editor starts a new one. */
@@ -257,6 +258,19 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     )}
                     {/* the 3D view's own switch (One camera, All cameras) sits here, on the switcher's line */}
                     {!editing && shown === 'map' && <span ref={setViewSwitch} style={{ display: 'contents' }} />}
+                    {/* and its room is kept in Plan, unseen and out of reach, so the line is the same in both views:
+                        the switcher stays under the pointer, and Edit plan stays on the line on a phone */}
+                    {!editing && shown !== 'map' && views.some(view => view.value === 'map') && (
+                      <SegmentedControl
+                        size="xs"
+                        value="all"
+                        data={SCENE_MODES}
+                        style={{ visibility: 'hidden' }}
+                        aria-hidden
+                        inert
+                        data-testid="scene-mode-room"
+                      />
+                    )}
                     {editable &&
                       (editing ? (
                         <Button size="compact-sm" variant="default" onClick={() => leave(() => {})}>

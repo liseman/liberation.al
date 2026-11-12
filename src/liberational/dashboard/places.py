@@ -53,6 +53,10 @@
                                        caching for good: a revision's files never change once written. With
                                        `camera`, that camera's own cloud, whose id is the revision; with
                                        `scene=1`, the points of the scene of all cameras, whose id it is
+    GET /places/map?...&scene=1&since=
+                                       the same for a page that drew the revision `since`: what changed since
+                                       then (`scene_change`, as `CHANGE_TYPE`), when that is much less to send
+                                       than the points, and otherwise the points whole as above
     GET /places/splat?place=&revision=&format=sog
                                        that revision's 3D Gaussian splat (SOG), served the same way; the scene
                                        names it (`splat`, null while the revision has none). The URL and the ETag
@@ -265,6 +269,8 @@ def camera_views(state: Path, place: str) -> list[dict[str, Any]]:
 
 
 FLAT, RAW = "flat-", "r"  # what marks the revision of a camera's own flat drawing, and of a scene's raw one
+#: What GET /places/map answers with when it sends what changed since an earlier revision, not the points whole.
+CHANGE_TYPE = "application/x-map-change"
 
 
 def _fitted(state: Path, place: str, camera: str) -> Any:
@@ -411,6 +417,25 @@ def scene_file(state: Path, place: str, revision: str) -> Path | None:
     if found.id != revision.removesuffix(RAW) or not any(p.placed for p in found.cameras):
         return None
     return cloud_scene.drawn(store, found, flat)
+
+
+def scene_change(state: Path, place: str, revision: str, since: str) -> bytes | None:
+    """GET /places/map with `scene` and `since`: what turns the scene's points as they were at revision `since`
+    into those of `revision`, for a page that holds the earlier ones (spatial/cloud_scene.py `changed`). None when
+    the page should read the points whole: `revision` is not the scene there is, the earlier drawing is gone, or
+    most of it changed."""
+    from liberational.spatial import camera_clouds, cloud_scene
+
+    held = places.get(state, place)
+    if held is None or not since:
+        return None
+    store = camera_clouds.Store(camera_clouds.root(state))
+    found = _scene_of(state, held)
+    if found.id != revision.removesuffix(RAW) or not any(p.placed for p in found.cameras):
+        return None
+    return cloud_scene.changed(
+        store, found, since.removesuffix(RAW), not revision.endswith(RAW), not since.endswith(RAW)
+    )
 
 
 def follow(body: Mapping[str, Any], control: bool, state: Path) -> Reply:
@@ -919,6 +944,11 @@ def _get_places_scene(h: H) -> None:
 def _get_places_map(h: H) -> None:
     p = h.path.split("?")[0]
     q = h._query()
+    if p == "/places/map" and q.get("scene") == "1" and q.get("since"):
+        # a page that drew an earlier revision is sent what changed; the address names both, so it never changes
+        change = scene_change(h.state, q.get("place", ""), q.get("revision", ""), q["since"])
+        if change is not None:
+            return h._send(200, CHANGE_TYPE, change)
     if p == "/places/map" and q.get("scene") == "1":
         found = scene_file(h.state, q.get("place", ""), q.get("revision", ""))
     elif p == "/places/map":

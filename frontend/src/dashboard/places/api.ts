@@ -259,6 +259,8 @@ export interface SceneTrack {
    *  null while none has). */
   added?: number;
   added_at?: number | null;
+  /** Where it went: the last places of its track, x and y in the scene's frame, oldest first. */
+  path?: [number, number][];
 }
 
 /** A place's map is one cloud that every well-placed picture is added to, each surface once. This is one camera's

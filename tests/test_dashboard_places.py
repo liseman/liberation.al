@@ -1058,6 +1058,34 @@ def test_the_scene_of_all_cameras_places_each_cloud_at_its_spot_on_the_plan(tmp_
     assert view.scene_file(tmp_path, place, "0" * 32) is None  # another scene's points aren't served for this one
 
 
+def test_a_page_that_drew_the_scene_before_is_asked_what_changed_since_only_for_the_scene_there_is(
+    tmp_path, spotted, monkeypatch
+):
+    from liberational.spatial import cloud_scene
+
+    place, _ = spotted
+    now = view.scene(tmp_path, place, combined=True)[1]["revision"]
+    asked = []
+
+    def changed(store, found, since, flat=True, was_flat=True):
+        asked.append((found.id, since, flat, was_flat))
+        return b"LMC1"
+
+    monkeypatch.setattr(cloud_scene, "changed", changed)
+    earlier = "1" * 32
+    assert view.scene_change(tmp_path, place, now, earlier) == b"LMC1"
+    # either drawing may be the raw one: its revision says so, and the scene's own id is what is compared
+    assert view.scene_change(tmp_path, place, now + view.RAW, earlier) == b"LMC1"
+    assert view.scene_change(tmp_path, place, now, earlier + view.RAW) == b"LMC1"
+    assert asked == [(now, earlier, True, True), (now, earlier, False, True), (now, earlier, True, False)]
+    # a revision that is no longer the scene there is, a page that names no earlier one, and a place there isn't
+    assert view.scene_change(tmp_path, place, earlier, now) is None
+    assert view.scene_change(tmp_path, place, now, "") is None
+    assert view.scene_change(tmp_path, "no-such-place", now, earlier) is None
+    assert len(asked) == 3
+    assert view.CHANGE_TYPE == "application/x-map-change"  # what the page looks for (frontend cloud/load.ts)
+
+
 def test_reading_the_scene_never_writes_the_owners_plan_or_spots(tmp_path, spotted):
     place, _ = spotted
     before = [r.value for r in places.plan_history(tmp_path, place)]

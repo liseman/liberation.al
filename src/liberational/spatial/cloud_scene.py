@@ -77,6 +77,7 @@ import itertools
 import json
 import math
 import shutil
+import struct
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
@@ -107,6 +108,9 @@ FIRM = 10.0  # and how much a camera squared to the plan weighs against a match
 TURN_M = 1.5  # metres a radian of facing counts as, when a shift and a turn are weighed together
 TINY = (0.01, 0.5)  # metres and degrees: a correction under both isn't one
 PAIRS = "pairs.json"
+EARLIER = 6  # scenes before the one drawn whose drawings are kept, for a page to be sent what changed since
+CHANGE = b"LMC1"  # what the answer of `changed` begins with
+MOST_CHANGE = 0.8  # of a drawing's size: what changed is sent in place of the drawing only when it is under this
 
 
 @dataclass(frozen=True)
@@ -279,6 +283,7 @@ def unsettled(store: camera_clouds.Store, camera: str, cloud: str, basis: str | 
 
 TRACK = "track.json"  # a moving camera's track (spatial/camera_track.py `Track.write`), beside its cloud
 TRACK_FOLDER = "track"  # where a track kept its keyframes' clouds before the place had a map: removed with it
+PATH_SHOWN = 240  # the last places of a track that a scene says, for the view to draw where the camera went
 TRACK_FRESH_S = 180.0  # a cloud whose picture was taken this long after a track's last pose is placed from it
 
 
@@ -857,7 +862,8 @@ class Placed:
     #: ("tracking" or "ended"), `since` and `at` (when the track began and when it last placed the camera), `held`
     #: (when a keyframe was last held to the plan's walls, or None), `pose` (the camera in the scene now, 4 x 4),
     #: `went_m` (how far its path ran), `from_m` and `from_deg` (how far it is from where its cloud has it), and
-    #: `added` and `added_at` (how many points this move has put into the place's map, and when the last went in).
+    #: `added` and `added_at` (how many points this move has put into the place's map, and when the last went in),
+    #: `path` (where it went: the last `PATH_SHOWN` places of its track, x and y in the scene).
     #: None otherwise.
     track: Mapping[str, Any] | None = None
     #: What the place's map (spatial/cloud_map.py) holds of the camera, once its cloud was offered: `points` (of the
@@ -1103,6 +1109,7 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
                 "from_deg": round(from_deg, 1),
                 "added": int(moving.get("added") or 0),
                 "added_at": moving.get("added_at"),
+                "path": [[round(float(p[1]), 3), round(float(p[2]), 3)] for p in went[-PATH_SHOWN:]],
             }
         if camera in mapped:
             about["map"] = mapped[camera]
@@ -1194,23 +1201,93 @@ def points(store: camera_clouds.Store, found: Scene, flat: bool = True) -> bytes
     return ply.dumps(every, np.concatenate(rgb), {"view": np.concatenate(view), "outside": beyond})
 
 
-def _kept_drawing(folder: Path, path: Path, others: str, make: Callable[[], bytes]) -> Path:
-    """`path`, written by `make` on the first asking; the drawings matching `others` that aren't `keep`'s go."""
+def _kept_drawing(folder: Path, path: Path, others: str, make: Callable[[], bytes], before: int = 0) -> Path:
+    """`path`, written by `make` on the first asking. Of the other drawings matching `others`, those of the
+    `before` scenes drawn most lately stay and the rest go."""
     if not path.is_file():
         folder.mkdir(parents=True, exist_ok=True)
         places.write_whole(path, make())
         mine = path.name.rsplit(".", 2)[0]  # the two drawings of one scene, flat and not, are kept side by side
+        earlier: dict[str, list[Path]] = {}
         for old in folder.glob(others):
             if old.name.rsplit(".", 2)[0] != mine:
+                earlier.setdefault(old.name.rsplit(".", 2)[0], []).append(old)
+
+        def newest(files: list[Path]) -> float:
+            try:
+                return max(file.stat().st_mtime for file in files)
+            except OSError:
+                return 0.0
+
+        latest_first = sorted(earlier.values(), key=newest, reverse=True)
+        for files in latest_first[before:]:
+            for old in files:
                 old.unlink(missing_ok=True)
     return path
 
 
+def _drawing(store: camera_clouds.Store, place: str, scene: str, flat: bool) -> Path:
+    return store.folder / "scenes" / f"{place}.{scene}.{'flat' if flat else 'raw'}.ply"
+
+
 def drawn(store: camera_clouds.Store, found: Scene, flat: bool = True) -> Path:
-    """The file of `points` for `found`, made on the first asking and kept until the scene is another (`found.id`)."""
-    folder = store.folder / "scenes"
-    name = f"{found.place}.{found.id}.{'flat' if flat else 'raw'}.ply"
-    return _kept_drawing(folder, folder / name, f"{found.place}.*.ply", lambda: points(store, found, flat))
+    """The file of `points` for `found`, made on the first asking. The drawings of the `EARLIER` scenes before it
+    are kept beside it, so that a page which drew one of them can be sent only what has changed (`changed`)."""
+    path = _drawing(store, found.place, found.id, flat)
+    return _kept_drawing(path.parent, path, f"{found.place}.*.ply", lambda: points(store, found, flat), EARLIER)
+
+
+def changed(
+    store: camera_clouds.Store, found: Scene, since: str, flat: bool = True, was_flat: bool = True
+) -> bytes | None:
+    """What turns the drawing of an earlier scene (`since`, its id) into `found`'s, for a page that holds the
+    earlier one: far less to send than the drawing while a map fills in, since a shot adds some points and takes
+    a few away and leaves the rest as they were. None when the earlier drawing is no longer kept or isn't of the
+    same kind, or when saying what changed would take most of what the drawing itself does: the page then reads
+    the drawing.
+
+    It is `CHANGE` and three counts (uint32, little-endian: the drawing's points, the runs, the new points), then
+    the runs, then the new points as a PLY like the drawing's. A run is two int32: where in the earlier drawing a
+    stretch of points is taken from (or -1: from the new points, in their order), and how many. The runs in order
+    give the drawing, point for point. Points are matched by everything a drawing says of them, so the same point
+    is the same row in both."""
+    old = _drawing(store, found.place, since, was_flat)
+    if since == found.id and flat == was_flat:
+        return None
+    try:
+        whole = drawn(store, found, flat).read_bytes()
+        was, now = ply.vertices(old.read_bytes()), ply.vertices(whole)
+    except OSError, ply.PlyError:
+        return None
+    if was is None or now is None or was.dtype != now.dtype:
+        return None
+    width = now.dtype.itemsize
+    theirs = np.ascontiguousarray(was).view(np.uint8).reshape(-1, width)
+    ours = np.ascontiguousarray(now).view(np.uint8).reshape(-1, width)
+    # rows are looked up by a number made of their bytes, and a row found that way is then compared byte for byte
+    weights = np.random.default_rng(width).integers(1, 2**63, width, dtype=np.uint64) | np.uint64(1)
+    key_theirs, key_ours = theirs.astype(np.uint64) @ weights, ours.astype(np.uint64) @ weights
+    order = np.argsort(key_theirs, kind="stable")
+    source = np.full(len(ours), -1, dtype=np.int64)
+    if len(theirs) and len(ours):
+        at = order[np.minimum(np.searchsorted(key_theirs[order], key_ours), len(order) - 1)]
+        same = (key_theirs[at] == key_ours) & (theirs[at] == ours).all(axis=1)
+        source[same] = at[same]
+    new = source < 0
+    starts = np.ones(len(source), dtype=bool)
+    if len(source) > 1:
+        runs_on = (~new[1:] & ~new[:-1] & (source[1:] == source[:-1] + 1)) | (new[1:] & new[:-1])
+        starts[1:] = ~runs_on
+    first = np.flatnonzero(starts)
+    runs = np.stack([source[first], np.diff(np.append(first, len(source)))], axis=1).astype("<i4")
+    end = whole.index(b"\n", whole.index(b"end_header")) + 1
+    head = whole[:end].replace(
+        f"element vertex {len(now)}\n".encode(), f"element vertex {int(new.sum())}\n".encode(), 1
+    )
+    out = (
+        CHANGE + struct.pack("<III", len(now), len(runs), int(new.sum())) + runs.tobytes() + head + ours[new].tobytes()
+    )
+    return out if len(out) < MOST_CHANGE * len(whole) else None
 
 
 def own_pose(placed: Placed, cloud: camera_clouds.Cloud) -> np.ndarray:

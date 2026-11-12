@@ -234,8 +234,8 @@ export function mapLine(camera: ScenePlaced): string | null {
   const holds = `The map holds ${count} from this camera`;
   if (map.state === 'refused')
     return map.why === 'full'
-      ? `Its latest picture isn't in the map: the map is full. ${holds}.`
-      : `Its latest picture isn't in the map or drawn: it stands somewhere else than the pictures the map is made of, so it would be a second copy. ${holds}.`;
+      ? `Its latest picture isn't in the map: the map holds as many points as it keeps, so newer pictures add nothing for now. ${holds}.`
+      : `Its latest picture is left out: it doesn't line up with what the map already holds, so it would draw the room twice. It's tried again with each new picture. ${holds}.`;
   const moves = [
     map.moved_m >= 0.01 ? `moved ${metres(map.moved_m)}` : null,
     map.turned_deg >= 0.5 ? `turned ${degrees(map.turned_deg)}` : null,
@@ -246,12 +246,14 @@ export function mapLine(camera: ScenePlaced): string | null {
       ? ` It couldn't be lined up with what the map holds there (${metres(map.off_m)} out).`
       : '';
   const out = map.left_out
-    ? ` ${plural(map.left_out, 'point').replace(String(map.left_out), map.left_out.toLocaleString())} of it ${map.left_out === 1 ? 'is' : 'are'} left out: better-placed pictures saw nothing there.`
+    ? ` ${map.left_out.toLocaleString()} of its points ${map.left_out === 1 ? 'is' : 'are'} left out, where better-placed pictures see empty space.`
     : '';
-  const latest = map.added
-    ? `${map.added.toLocaleString()} from its latest picture`
-    : 'its latest picture showed nothing new';
-  return `${holds}: ${latest}.${lined}${out}`;
+  const latest = !map.added
+    ? ': its latest picture showed nothing new'
+    : map.added === map.points
+      ? ', all from its latest picture'
+      : `: ${map.added.toLocaleString()} from its latest picture`;
+  return `${holds}${latest}.${lined}${out}`;
 }
 
 /** The one way back a followed or unplaced camera's row offers, or null: put it on the plan's spot, or, once that
@@ -367,14 +369,15 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
   }
 }
 
-/** What the scene is, and isn't, said once over its cameras. */
-/** How much of the plan's floor the map covers so far, as a line; null while the place has no map or no floor. */
+/** How much of the plan's floor the map covers so far, as a line; null while the place has no map or no floor. Each
+ *  number is joined to what it counts, so a narrow page never leaves a unit on a line of its own. */
 export function coveredLine(covered: { floor_m2: number; plan_m2: number } | null | undefined): string | null {
   if (!covered || !(covered.plan_m2 > 0)) return null;
   const share = Math.min(100, Math.round((100 * covered.floor_m2) / covered.plan_m2));
-  return `It covers about ${share} percent of your plan's floor so far (${Math.round(covered.floor_m2)} of ${Math.round(covered.plan_m2)} m²).`;
+  return `The map covers about ${share}\u00a0percent of your plan's floor so far (${Math.round(covered.floor_m2)}\u00a0of\u00a0${Math.round(covered.plan_m2)}\u00a0m²).`;
 }
 
+/** What the scene is, and isn't, said once over its cameras. */
 export const SCENE_LIMITS =
   'One map of what the cameras have seen, each surface once. It fills in as they look around, so expect gaps.';
 

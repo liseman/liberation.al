@@ -94,9 +94,13 @@ export function SceneLayers({
     });
   return (
     <Stack gap="xs" mt="sm">
-      <Text size="xs" c="dimmed">
-        {[SCENE_LIMITS, coveredLine(covered)].filter(Boolean).join(' ')}
-      </Text>
+      {/* how far along the map is comes first and in full ink; what the map is, and isn't, under it */}
+      <div>
+        {coveredLine(covered) && <Text size="sm">{coveredLine(covered)}</Text>}
+        <Text size="xs" c="dimmed">
+          {SCENE_LIMITS}
+        </Text>
+      </div>
       <Stack gap={4} component="ul" m={0} p={0} style={{ listStyle: 'none' }} aria-label="Cameras in the scene">
         {cameras.map((camera, index) => {
           const name = viewName(camera.camera);
@@ -106,8 +110,9 @@ export function SceneLayers({
           const added = addedNote(camera);
           const shown = open.has(camera.camera);
           const way = wayBack(camera);
+          const mapped = mapLine(camera);
           const lines = [
-            mapLine(camera),
+            leftOut ? null : mapped, // a picture left out is what the badge is about: its line leads the detail
             camera.fit ? fitLine(camera.fit) : null,
             squareLine(camera),
             levelLine(camera.level, camera.tilt_deg, camera.roll_deg),
@@ -193,6 +198,11 @@ export function SceneLayers({
               </Group>
               <Collapse expanded={shown}>
                 <Stack gap={2} pl={44} pt={2} pb="xs">
+                  {leftOut && mapped && (
+                    <Text size="xs" c="dimmed">
+                      {mapped}
+                    </Text>
+                  )}
                   {tracked && (
                     <Text size="xs" c="dimmed">
                       {tracked}

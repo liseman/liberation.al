@@ -103,6 +103,50 @@ export function parseCloud(bytes: ArrayBuffer, format: CloudFormat): Cloud {
   }
 }
 
+/** What the server answers with when a page that holds a scene's points is sent what changed since, not the
+ *  points whole (GET /places/map with `since`; dashboard/places.py `CHANGE_TYPE`). */
+export const CHANGE_TYPE = 'application/x-map-change';
+
+const CHANGE = 'LMC1';
+
+/** The points of a scene after what changed since `was` (spatial/cloud_scene.py `changed`): the marker and three
+ *  counts (the points now, the runs, the new points), then the runs, then the new points as a PLY. A run is where
+ *  in `was` a stretch of points is taken from (or -1: from the new points, in their order) and how many; the runs
+ *  in order give the points now. `was` is left as it was. */
+export function applyChange(was: Cloud, bytes: ArrayBuffer): Cloud {
+  const head = new DataView(bytes);
+  const marker = new TextDecoder('ascii').decode(new Uint8Array(bytes, 0, Math.min(4, bytes.byteLength)));
+  if (marker !== CHANGE || bytes.byteLength < 16) throw new Error("The map's change can't be read.");
+  const count = head.getUint32(4, true);
+  const runs = head.getUint32(8, true);
+  const fresh = parsePly(bytes.slice(16 + runs * 8));
+  if (fresh.count !== head.getUint32(12, true)) throw new Error("The map's change can't be read.");
+  const out: Cloud = {
+    count,
+    positions: new Float32Array(count * 3),
+    colours: was.colours || fresh.colours ? new Uint8Array(count * 3) : null,
+    views: was.views || fresh.views ? new Uint16Array(count) : null,
+    outside: was.outside || fresh.outside ? new Uint8Array(count) : null,
+  };
+  let at = 0;
+  let taken = 0;
+  for (let i = 0; i < runs; i++) {
+    const start = head.getInt32(16 + i * 8, true);
+    const length = head.getInt32(20 + i * 8, true);
+    const [from, first] = start < 0 ? [fresh, taken] : [was, start];
+    if (length < 0 || first + length > from.count || at + length > count)
+      throw new Error("The map's change doesn't fit the map drawn.");
+    out.positions.set(from.positions.subarray(first * 3, (first + length) * 3), at * 3);
+    if (out.colours && from.colours) out.colours.set(from.colours.subarray(first * 3, (first + length) * 3), at * 3);
+    if (out.views && from.views) out.views.set(from.views.subarray(first, first + length), at);
+    if (out.outside && from.outside) out.outside.set(from.outside.subarray(first, first + length), at);
+    at += length;
+    if (start < 0) taken += length;
+  }
+  if (at !== count) throw new Error("The map's change doesn't fit the map drawn.");
+  return out;
+}
+
 /** The splat formats the view can draw: what PlayCanvas is given (scene.ts). */
 export const SPLAT_FORMATS = ['sog'] as const;
 
