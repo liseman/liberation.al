@@ -718,8 +718,10 @@ function CloudMap({
             ))}
           </Group>
         )}
+        {/* the cameras' rows are under the map and its settings, inside the view's own height: the page never
+            scrolls for them, and a window too short for all of it scrolls here, inside the card */}
+        {layers}
       </div>
-      {layers}
     </>
   );
 }
