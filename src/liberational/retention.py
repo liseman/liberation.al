@@ -16,7 +16,8 @@ most `MAX_DAYS` a run, and for each:
 2. **Drops** the per-frame rows that the kept spans already condense (`pose.track` into `action.span`,
    `walkby.span`, `presence.span`, and `zone.visit`; `face.match` and `face.signal` into `face.visit`), the per-frame
    face embeddings beside them (`face.embedding`; taught face and voice vectors live in the knowledge store and
-   `faces/db.npz`, never here), and the condensed streams' originals: one segment-store forget of kind `reset` over
+   `faces/db.npz`, never here), the heart-rate readings (`vitals.heart_rate`, one a second a measured person), and
+   the condensed streams' originals: one segment-store forget of kind `reset` over
    the day, so what was learned from the rows (the vector index, the journal) stands.
 3. **Drops silent audio**: every audio chunk of the day (`*.audio`, about 15 s each) that no speech touches is aged
    out like old video. Speech is an utterance (`speech.utterance`, by its audio span) or a second the voice gate
@@ -55,7 +56,7 @@ GATE_S = 1.0  # a speech.activity row says the gate heard speech for about this 
 HOUR_S = 3600.0
 
 # see-actions writes it with its own schema; it's dropped by name
-DROPPED = (S.POSE_TRACKS, S.FACE_MATCHES, S.FACE_SIGNALS, S.FACE_EMBEDDINGS)
+DROPPED = (S.POSE_TRACKS, S.FACE_MATCHES, S.FACE_SIGNALS, S.FACE_EMBEDDINGS, S.VITALS_HEART_RATES)
 COVERAGE = (S.ACTION_COVERAGE, S.WALKBY_COVERAGE, S.ANIMAL_COVERAGE, S.ZONE_COVERAGE)
 SIGHTINGS = (S.NET_OBSERVATIONS, S.BLE_SIGHTINGS)
 POSITIONS = (S.POSITIONS, S.PLACED, S.PLACED_PATHS)

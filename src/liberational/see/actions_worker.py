@@ -7,7 +7,9 @@ It follows the shared decode (`shared_frames.decoded_frames`, NV12 on the host) 
 decoder applies before it downloads a picture from the GPU (`shared_frames.Schedule`), and hands each frame to
 `actions.ActionPipeline` on this machine's vision backend (see/vision_backend.py: CUDA on the Linux machine, Core ML and
 MPS on the Mac, `--backend` to choose), whose tracked heads also give the faces (`see.head_faces`: `face.match`,
-`face.visit`, and `face.embedding`). The rows go to one `continuum_py.SegmentWriter` per stream under
+`face.visit`, and `face.embedding`) and whose tracked faces, on a camera run at 20 frames a second or faster, give
+heart rates from the colour of skin (`see.hearts`: `vitals.heart_rate`). The rows go to one
+`continuum_py.SegmentWriter` per stream under
 `paths.state/segments`, synced every SYNC_S and on stop. Once a minute it logs each camera's frames, frame rate, time
 per frame, and how far behind live it is.
 
@@ -41,6 +43,7 @@ from liberational.people import face_shots, pet_shots
 from liberational.see import action_clips, actions, pose_boxes, screens, vision_backend
 from liberational.see.action_animals import Animals
 from liberational.see.action_movement import Movement
+from liberational.see.hearts import Hearts
 from liberational.see.shared_frames import Schedule
 
 log = logs.get("see-actions")
@@ -130,6 +133,21 @@ async def follow(
     return seen
 
 
+def hearts_for(camera: str, fps: float, spans: Any, who: Any) -> Hearts | None:
+    """The camera's heart rate, or None when it isn't measured.
+
+    `vision.heart_rate` is read here, once when the camera starts following, so turning it off or on takes a
+    see-actions restart. A heart rate is an extra: a failure to set one up costs the camera its heart rate and
+    nothing else, and never its people."""
+    if not cfg.get("vision.heart_rate"):
+        return None
+    try:
+        return Hearts(camera, fps, spans, who=who)
+    except Exception:
+        log.exception("%s: no heart rate, though vision.heart_rate is on", camera)
+        return None
+
+
 def fps_of(camera: str) -> float:
     """A camera's analysis rate: `vision.actions_camera_fps` by name, else `vision.actions_fps`."""
     per = cfg.get("vision.actions_camera_fps") or {}
@@ -199,6 +217,7 @@ class Camera:
         self.counted = Counted(self.poses)
         heads = faces(camera)
         who = heads.who if heads is not None else None
+        hearts = hearts_for(camera, self.fps, spans, who)
         clip_weights = getattr(backend, "clip_weights", None)
         live = activity_kinds.Live(cfg.path("paths.state"))  # the owner's activities, reread each minute
         clips = (
@@ -219,6 +238,7 @@ class Camera:
                 camera, lambda stream, records: spans.append(stream, camera, records), backend, shots=pet_photos
             ),
             faces=heads,
+            hearts=hearts,
             clips=clips,
             live=(lambda ns, people: live_poses(pose_boxes.record(camera, ns, people))) if live_poses else None,
             camera=camera,

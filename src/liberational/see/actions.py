@@ -46,6 +46,7 @@ SCREEN_LOG_NS = 600 * 10**9  # how often each camera logs what its screen mask d
 if TYPE_CHECKING:
     from liberational.see.action_clips import Clips
     from liberational.see.head_faces import HeadFaces
+    from liberational.see.hearts import Hearts
 
 JOINTS = 26  # halpe26
 SCALE = 10000  # joints are stored as int16: x and y normalized to the frame, and the confidence, times this
@@ -382,6 +383,7 @@ class ActionPipeline:
         animals: Animals | None = None,
         flush_ns: int = FLUSH_NS,
         faces: HeadFaces | None = None,
+        hearts: Hearts | None = None,
         clips: Clips | None = None,
         live: Callable[[int, list[tuple[int, np.ndarray, np.ndarray]]], None] | None = None,
         camera: str = "",
@@ -397,7 +399,8 @@ class ActionPipeline:
         kind "screen": with the screens the detector saw, they keep the people a TV shows out of everything
         (see/screens.py). `screens_on` gets when this camera's screens were on (their pictures moving), for
         tagging what was heard then as a TV's. `kinds()` is the owner's activities as NTU class indices
-        (`activity_kinds.Live.ntu`); without it, the starting list."""
+        (`activity_kinds.Live.ntu`); without it, the starting list. `hearts` measures each tracked person's heart
+        rate from their face's colour (see/hearts.py), on a camera analyzed fast enough for it."""
         self.backend, self.poses, self.coverage, self.model = backend, poses, coverage, model
         self.windows, self.spans, self.movement, self.animals = windows, spans, movement, animals
         self.scoring = (
@@ -406,6 +409,7 @@ class ActionPipeline:
             else None
         )
         self.flush_ns, self.faces, self.clips, self.live = flush_ns, faces, clips, live
+        self.hearts = hearts
         self._last_ns: int | None = None
         self.tracker = crossings.Tracker(max_gap=LOST_S)
         self.tracker.next_id = first_track
@@ -468,6 +472,8 @@ class ActionPipeline:
         on_screen = self.screens.update(self.tracker.assigned, inside, capture_ns, known=bool(len(held)) or bool(zones))
         for track in ended:
             self._sure_ns.pop(track.id, None)
+            if self.hearts is not None:
+                self.hearts.end(track.id)
             if self.scoring is not None:
                 self.scoring.end(track.id)
             if self.clips is not None:
@@ -514,6 +520,15 @@ class ActionPipeline:
                     [(track_id, people.joints[det]) for det, track_id in sorted(counted.items())],
                     int(frame.source_header.get("seq") or 0),
                 )
+            if self.hearts is not None:
+                self.hearts.feed(
+                    capture_ns,
+                    width,
+                    height,
+                    [(track_id, people.joints[det]) for det, track_id in sorted(counted.items())],
+                    lambda box: self.backend.crop(image, box),
+                )
+                self.hearts.due(capture_ns)
             # The Live overlay gets the people whose pose is confident on this frame, as a track starts on: a track
             # carried by an unsure detection (up to UNSURE_NS) draws nothing. The rows' own numbers, so the
             # Live overlay and recorded video's draw the same skeleton.
@@ -598,6 +613,8 @@ class ActionPipeline:
             self.animals.gap()
         if self.faces is not None:
             self.faces.gap()
+        if self.hearts is not None:
+            self.hearts.gap()
         self.flush()
         self.tracker.flush()
         self._sure_ns.clear()
@@ -632,6 +649,8 @@ class ActionPipeline:
                 self.spans(closed)
         if self.faces is not None and self._last_ns is not None:
             self.faces.flush(self._last_ns)
+        if self.hearts is not None:
+            self.hearts.flush()
         if self._rows["frame_id"]:
             columns = {
                 "frame_id": list(self._rows["frame_id"]),

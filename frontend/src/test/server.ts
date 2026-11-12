@@ -39,6 +39,8 @@ export const server = setupServer(
   // People's Pets: no animal sightings, unless a test serves its own.
   http.get('/calls/live', () => HttpResponse.json({ live: null, count: 0 })), // Calls looks for a call on
   http.get('/pets', () => HttpResponse.json({ pets: [], species: [] })), // Live's large view reads it for animal boxes
+  // Live's heart rates: nobody measured, unless a test serves its own.
+  http.get('/vitals', () => HttpResponse.json({ at: 0, people: {} })),
   http.post('/frontend/log', () => HttpResponse.json({ kept: 0 })), // the page's own log (shared/telemetry.ts)
   http.get('/pets/sightings', () => HttpResponse.json({ groups: [], recognition: [], names: {} })),
 );
