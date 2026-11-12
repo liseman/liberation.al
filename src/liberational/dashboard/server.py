@@ -330,6 +330,7 @@ routes.load(
     "liberational.dashboard.surroundings",
     "liberational.dashboard.transcript_lines",
     "liberational.dashboard.unnamed_groups",
+    "liberational.dashboard.vitals",
     "liberational.dashboard.voice_clones",
     "liberational.dashboard.zones",
 )

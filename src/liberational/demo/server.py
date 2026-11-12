@@ -87,6 +87,31 @@ def here(name: str) -> dict[str, Any]:
     return {"cam": camera, "camera_name": views.names().get(camera, label), "since": dataset._local(day(), *since)}
 
 
+def heart_rates(now: float | None = None) -> dict[str, Any]:
+    """The demo household's made-up heart rates, as GET /vitals answers them (dashboard/vitals.py): a confident
+    reading of a person beside the close camera, keyed by the name Live's list matches by.
+
+    `at` is the wall clock and not the demo's pinned one, because the page hides a reading by its own age: a reading
+    stamped at the demo's photographed evening would be hours old and never show."""
+    import time
+
+    from liberational.people import registry
+
+    now = time.time() if now is None else now
+    return {
+        "at": now,
+        "people": {
+            registry.norm(name): {
+                "bpm": bpm,
+                "confidence": confidence,
+                "face_px": 168,
+                "at": now - 3.0,
+            }
+            for name, (bpm, confidence) in dataset.HEARTS.items()
+        },
+    }
+
+
 def devices(path: str) -> dict[str, Any]:
     now = clock()
     from dataclasses import asdict
@@ -431,6 +456,8 @@ window.Date=class extends NativeDate {{constructor(...args){{super(...(args.leng
                 ],
             }
             return self._json(view)
+        if path == "/vitals":
+            return self._json(heart_rates())
         if path == "/live/happening":
             now = clock()
             return self._json(

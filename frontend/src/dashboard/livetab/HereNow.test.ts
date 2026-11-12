@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptEntry } from '../live/types';
+import type { Vitals } from '../live/vitals';
 import type { Person } from '../people/api';
 import type { PetsView } from '../people/petLinks';
-import { HEARD_S, hereNow } from './HereNow';
+import { HEARD_S, HEART_FRESH_S, hereNow } from './HereNow';
 
 const NOW = 1_793_000_000;
 const clock = (ts: number) =>
@@ -64,5 +65,40 @@ describe('who is here now', () => {
     expect(here[2]?.photo).toContain('track=run%3Adog%3A2');
     expect(here[1]?.href).toBe('/pets#pet=Mia');
     expect(here[0]?.href).toBe('/people#card=Kara');
+  });
+
+  it('shows a heart rate only for the people a close camera has a confident recent reading for', () => {
+    const people: Person[] = [
+      person({ name: 'Kara', here_now: { cam: 'cam0', since: NOW - 30 } }),
+      person({ name: 'Luca', here_now: { cam: 'cam0', since: NOW - 30 } }),
+      person({ name: 'Dana' }),
+    ];
+    const vitals: Vitals = {
+      at: NOW,
+      // The server only sends readings it trusts and that are recent; the name is the one it keys by, case folded.
+      people: { kara: { bpm: 72, confidence: 0.81, face_px: 160, at: NOW - 2 } },
+    };
+    const here = hereNow(people, [line('Dana', 5)], NOW, undefined, vitals);
+    expect(here.map(h => [h.name, h.heart])).toEqual([
+      ['Kara', 72],
+      ['Luca', undefined],
+      ['Dana', undefined],
+    ]);
+  });
+
+  it('hides a reading on its own clock once it is older than the fresh window', () => {
+    // The list polls every 15 s, so a reading the server sent 14 s ago can be 20 s old before the next poll: the
+    // page hides it by its age rather than by the last answer's arrival.
+    const people: Person[] = [person({ name: 'Kara', here_now: { cam: 'cam0', since: NOW - 30 } })];
+    const vitals: Vitals = {
+      at: NOW - 14,
+      people: { kara: { bpm: 72, confidence: 0.81, face_px: 160, at: NOW - 20 } },
+    };
+    expect(hereNow(people, [], NOW, undefined, vitals).map(h => h.heart)).toEqual([72]);
+    const aged: Vitals = {
+      at: vitals.at,
+      people: { kara: { bpm: 72, confidence: 0.81, face_px: 160, at: NOW - HEART_FRESH_S - 1 } },
+    };
+    expect(hereNow(people, [], NOW, undefined, aged).map(h => h.heart)).toEqual([undefined]);
   });
 });

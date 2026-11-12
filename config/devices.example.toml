@@ -24,6 +24,11 @@
 # exposure_target = 110.0  # mean luma (0 to 255) to steer toward: the faces' when some are in view, else the frame's
 # flip = false       # mounted upside down: readers flip it
 # encoding = { enabled = true }  # store an MJPEG camera as H.264 (NVENC on gpu 0, else libx264), see docs/VISION.md
+# A close camera that reads heart rate off the face's colour needs the fine colour changes to survive capture: the
+# quality setting is NVENC's constant quality, 0 to 51, 36 unless this camera says otherwise, and about 20 or lower
+# keeps them (at a few times the disk: see docs/STORAGE.md). Only NVENC honours it; VideoToolbox on a Mac and the CPU
+# fallback encoder write the stream's bit rate, where cq changes nothing.
+# encoding = { cq = 20 }
 
 [[device]]
 name = "facecam"
