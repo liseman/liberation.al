@@ -123,6 +123,8 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   // The plan editor (scene/PlaceEditor.tsx), opened by Edit plan: the one way into changing a plan. `unsaved` is
   // whether it holds changes that leaving it would drop.
   const [editing, setEditing] = useState(false);
+  // Where the 3D view puts its One camera / All cameras switch: on the Plan / 3D switcher's line.
+  const [viewSwitch, setViewSwitch] = useState<HTMLElement | null>(null);
   const [unsaved, setUnsaved] = useState(false);
   /** Leave the editor (to look, or for another place), asking first when that drops unsaved changes. */
   const leave = async (then: () => void) => {
@@ -247,6 +249,8 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         aria-label="Show the place as"
                       />
                     )}
+                    {/* the 3D view's own switch (One camera, All cameras) sits here, on the switcher's line */}
+                    {!editing && shown === 'map' && <span ref={setViewSwitch} style={{ display: 'contents' }} />}
                     {editable &&
                       (editing ? (
                         <Button size="compact-sm" variant="default" onClick={() => leave(() => {})}>
@@ -278,7 +282,12 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   />
                 ) : !place.example && shown === 'map' ? (
                   <Suspense fallback={<BlockSkeleton label="the 3D view" />}>
-                    <CloudView key={place.id} place={place.id} onEditPlan={() => setEditing(true)} />
+                    <CloudView
+                      key={place.id}
+                      place={place.id}
+                      onEditPlan={() => setEditing(true)}
+                      switchIn={viewSwitch}
+                    />
                   </Suspense>
                 ) : (
                   <>

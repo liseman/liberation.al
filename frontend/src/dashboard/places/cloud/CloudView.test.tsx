@@ -22,6 +22,7 @@ let splatLoaded: () => Promise<void> = () => Promise.resolve();
 type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | View | null];
 
 beforeEach(() => {
+  localStorage.clear(); // which scene was last chosen is remembered per browser
   shown = [];
   lookedFrom = [];
   splatLoaded = () => Promise.resolve();
@@ -584,7 +585,7 @@ it('shows every camera placed in one scene from above, each saying how it is pla
   expect(screen.getByText(/Not in the scene: it has no spot on your plan/)).toBeTruthy();
   // what the pair's pictures said is detail of its two cameras' rows
   expect(screen.getAllByText(/hall and porch see the same space and are adjusted/)).toHaveLength(2);
-  expect(screen.getByText('Each camera shows only what it sees, so expect gaps and seams.')).toBeTruthy();
+  expect(screen.getByText(/^One map of what the cameras have seen, each surface once\./)).toBeTruthy();
   // each row leads with its state in a word, and the camera that needs a spot says so and opens the plan editor
   const rows = screen.getAllByRole('listitem');
   expect(
@@ -717,7 +718,7 @@ it('says a turned camera was placed again without asking, and offers the one way
   // what was done is said plainly, and nothing was asked: no dialog, no button in the row that changes the plan
   expect(
     await screen.findByText(
-      "Following: turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
+      "Turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
     ),
   ).toBeTruthy();
   expect(screen.queryByRole('dialog')).toBeNull();
@@ -729,6 +730,8 @@ it('says a turned camera was placed again without asking, and offers the one way
   expect(within(porch).getByText(/the walls it sees fit your plan in more than one place/)).toBeTruthy();
   expect((within(porch).getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
   expect(within(porch).queryByRole('button', { name: 'Set its spot' })).toBeNull();
+  // its one fix is on the row itself, where a camera with no spot has Set its spot
+  expect(within(porch).getByRole('button', { name: "Use the plan's spot" })).toBeTruthy();
   // the way back is in the row's detail, and is itself taken back from the message that says it was done
   expect(within(hall).queryByRole('button', { name: "Use the plan's spot" })).toBeNull(); // not in the row itself
   await userEvent.click(within(hall).getByRole('button', { name: 'Details of hall' }));
@@ -739,7 +742,7 @@ it('says a turned camera was placed again without asking, and offers the one way
   expect(within(hall).getByRole('button', { name: 'Follow it again' })).toBeTruthy();
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
   await waitFor(() => expect(posted.at(-1)).toEqual({ place: 'p1', camera: 'hall', use: 'cloud' }));
-  expect(await within(hall).findByText(/^Following: turned 90°/)).toBeTruthy();
+  expect(await within(hall).findByText(/^Turned 90° from your plan's spot/)).toBeTruthy();
 });
 
 it('shows a moving camera as Tracking, with where it is now, and asks for the scene more often meanwhile', async () => {
@@ -753,7 +756,6 @@ it('shows a moving camera as Tracking, with where it is now, and asks for the sc
     went_m: 0.9,
     from_m: 0.62,
     from_deg: 41.2,
-    keyframes: [{ n: 3, transform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }],
   };
   serveAll([placedRow('hall', { track }), placedRow('porch')]);
   renderPage(<CloudView place="p1" />);
@@ -761,12 +763,84 @@ it('shows a moving camera as Tracking, with where it is now, and asks for the sc
   const [hall, porch] = (await screen.findAllByRole('listitem')) as [HTMLElement, HTMLElement];
   expect(await within(hall).findByText('Tracking')).toBeTruthy();
   expect(
-    within(hall).getByText(
-      "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
+    await within(hall).findByText(
+      "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
     ),
   ).toBeTruthy();
   expect(within(porch).getByText('Placed')).toBeTruthy();
-  expect(within(porch).queryByText(/^Tracking/)).toBeNull();
+  expect(within(porch).queryByText(/^It is moving/)).toBeNull();
+});
+
+it('opens a place with several cameras on all of them, and after that on what was last chosen here', async () => {
+  const two = [view('hall'), view('porch')];
+  const asked: (string | null)[] = [];
+  server.use(
+    http.get('/places/scene', ({ request }) => {
+      const q = new URL(request.url).searchParams;
+      asked.push(q.get('all'));
+      const reply = q.get('all') === '1' ? allCameras([placedRow('hall'), placedRow('porch')]) : cloudOf('hall');
+      return HttpResponse.json({ ...reply, views: two });
+    }),
+    http.get('/places/map', () => bytes(MAP)),
+  );
+  const first = renderPage(<CloudView place="p1" />);
+  // nothing was chosen in this browser yet: two cameras have clouds, so the place's map is what opens
+  await waitFor(() => expect(asked.at(-1)).toBe('1'));
+  expect(((await screen.findByRole('radio', { name: 'All cameras' })) as HTMLInputElement).checked).toBe(true);
+  await userEvent.click(screen.getByRole('radio', { name: 'One camera' }));
+  first.unmount();
+  const before = asked.length;
+  renderPage(<CloudView place="p1" />); // the page opened again: the choice made here holds
+  expect(((await screen.findByRole('radio', { name: 'One camera' })) as HTMLInputElement).checked).toBe(true);
+  await waitFor(() => expect(build).toHaveBeenCalled());
+  expect(asked.slice(before)).not.toContain('1'); // and the scene of all cameras isn't asked for
+});
+
+it('opens a place whose one camera has a cloud on that camera', async () => {
+  const asked = serveAll([placedRow('hall')]);
+  renderPage(<CloudView place="p1" />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  expect(((await screen.findByRole('radio', { name: 'One camera' })) as HTMLInputElement).checked).toBe(true);
+  expect(asked.every(q => q.get('all') === null)).toBe(true);
+});
+
+it("says what the map took of a camera's picture, and marks one that was left out of it", async () => {
+  const held = {
+    points: 18204,
+    state: 'added',
+    why: '',
+    added: 3100,
+    off_m: 0.03,
+    moved_m: 0,
+    turned_deg: 0,
+    resized: 1,
+  };
+  serveAll([
+    placedRow('hall', { map: held }),
+    placedRow('porch', { map: { ...held, points: 0, state: 'refused', why: 'apart', added: 0, off_m: 0.45 } }),
+  ]);
+  renderPage(<CloudView place="p1" />);
+  await toAll();
+  const [hall, porch] = (await screen.findAllByRole('listitem')) as [HTMLElement, HTMLElement];
+  expect(
+    await within(hall).findByText('The map holds 18,204 points from this camera: 3,100 from its latest picture.'),
+  ).toBeTruthy();
+  expect(within(hall).getByText('Placed')).toBeTruthy();
+  expect(within(porch).getByText('Left out')).toBeTruthy();
+  expect(within(porch).getByText(/it stands somewhere else than the pictures the map is made of/)).toBeTruthy();
+});
+
+it('puts its One camera / All cameras switch where the page gives a place for it, and nowhere else', async () => {
+  serveAll([placedRow('hall')]);
+  const slot = document.createElement('div');
+  document.body.append(slot);
+  const page = renderPage(<CloudView place="p1" switchIn={slot} />);
+  await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+  const radios = await screen.findAllByRole('radio', { name: 'All cameras' });
+  expect(radios).toHaveLength(1);
+  expect(slot.contains(radios[0] as HTMLElement)).toBe(true); // on the page's line, not at the head of the view
+  page.unmount();
+  slot.remove();
 });
 
 it('says so when no camera can be placed, with why for each', async () => {

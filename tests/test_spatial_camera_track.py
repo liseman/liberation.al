@@ -9,6 +9,7 @@ import pytest
 
 from liberational.spatial import camera_clouds as clouds
 from liberational.spatial import camera_track as tracks
+from liberational.spatial import cloud_map
 from liberational.spatial import cloud_scene as scenes
 
 T = 1_762_500_000.0
@@ -121,7 +122,7 @@ def walk(start: scenes.At, steps: int, ahead: float = 0.0, turn: float = 0.0) ->
 
 
 def follow(store, session: Moves, stood: scenes.At, frames: int) -> tracks.Track:
-    track = tracks.Track(store, "desk", "desk-spot", ROOMS, stood, T)
+    track = tracks.Track(store, "desk", PLACE, "desk-spot", ROOMS, stood, T)
     for n in range(frames):
         track.take(session.step(None, None, track.begin), T + 0.5 * (n + 1))
     return track
@@ -172,12 +173,29 @@ def test_a_stretch_the_tracker_cant_match_begins_the_track_again_where_it_was_la
     assert len(track.path) == 9  # the frames that couldn't be matched have no pose: none was made up
 
 
-def test_only_the_last_keyframes_clouds_are_kept_each_thinned(store):
-    truth = walk(at(1.0, 1.0, 20.0), 30, turn=3.0)
-    track = follow(store, Moves(truth, every=2), stood=at(1.0, 1.0, 20.0), frames=31)
-    kept = sorted(int(path.stem) for path in track.folder.glob("*.ply"))
-    assert kept == [row["n"] for row in track.keyframes] == [11, 12, 13, 14, 15, 16]
-    assert all(row["points"] <= tracks.THIN for row in track.keyframes)
+def test_the_keyframes_the_walls_hold_fill_in_the_places_map_and_a_wall_seen_in_several_is_one_wall(store):
+    truth = walk(at(1.0, 1.0, 20.0), 30, turn=3.0)  # turned through 90 degrees where it stands
+    track = follow(store, Moves(truth, every=5), stood=at(1.0, 1.0, 20.0), frames=31)
+    held = cloud_map.read(cloud_map.folder(store.folder, PLACE))
+    assert held is not None and [row["camera"] for row in held.meta["shots"]] == ["desk"] * len(held.meta["shots"])
+    added = [row["added"] for row in track.keyframes]
+    assert len(added) == 7 and all(row["held"] for row in track.keyframes)
+    assert added[0] > 0 and sum(added[1:]) > 0  # what later keyframes saw that the first didn't went in too
+    assert max(added[1:]) < added[0]  # and what they saw again did not
+    # the wall between the two rooms, seen in most of the keyframes, is drawn once: on the plan's wall
+    wall = held.flat[
+        (held.flat[:, 2] > 0.3) & (held.flat[:, 0] > 3.5) & (held.flat[:, 1] > 0.3) & (held.flat[:, 1] < 4.7)
+    ]
+    assert len(wall) > 100 and wall[:, 0] == pytest.approx(4.0, abs=0.02)
+    _, count = np.unique(np.floor(held.flat / cloud_map.CELL_M).astype(np.int64), axis=0, return_counts=True)
+    assert count.max() <= cloud_map.CAP
+
+
+def test_a_keyframe_the_walls_dont_hold_is_not_added_to_the_map(store):
+    truth = walk(at(1.0, 1.0, 20.0), 6, ahead=0.1)
+    follow(store, Moves(truth, floor_only={3, 6}), stood=at(1.0, 1.0, 20.0), frames=7)
+    held = cloud_map.read(cloud_map.folder(store.folder, PLACE))
+    assert held is not None and len(held.meta["shots"]) == 1  # the first keyframe; the two that saw no wall are not
 
 
 # ---- when a camera is tracked, and when it stops
@@ -248,6 +266,26 @@ def test_a_track_ends_once_the_camera_has_rested_and_the_camera_is_left_alone_fo
     assert tracker.look("desk", STILL_VIEW, T + 5 + 0.5 * (ended + 1) + tracks.COOLDOWN_S)
 
 
+def test_a_camera_that_came_to_rest_somewhere_else_is_asked_for_a_cloud_and_one_that_went_nowhere_is_not(
+    store, tmp_path, monkeypatch
+):
+    asked: list[str] = []
+    moved = walk(at(1.0, 1.0, 20.0), 8, ahead=0.1, turn=5.0)
+    went = tracker_of(store, tmp_path, monkeypatch, Moves(moved + [moved[-1]] * 40))
+    went.rested = asked.append
+    went.look("desk", STILL_VIEW, T)
+    went.look("desk", OTHER_VIEW, T + 5)
+    assert any(went.step("desk", STILL_VIEW, T + 5 + 0.5 * (n + 1)) for n in range(40))
+    assert asked == ["desk"] and (scenes.tracked(store, "desk") or {})["state"] == "ended"
+    # what changed the picture wasn't the camera moving (a lamp, someone the detector missed): it never left
+    stayed = tracker_of(store, tmp_path, monkeypatch, Moves([at(1.0, 1.0, 20.0)] * 40))
+    stayed.rested = asked.append
+    stayed.look("shelf", STILL_VIEW, T + 200)
+    stayed.look("shelf", OTHER_VIEW, T + 205)
+    assert any(stayed.step("shelf", STILL_VIEW, T + 205 + 0.5 * (n + 1)) for n in range(40))
+    assert asked == ["desk"] and scenes.tracked(store, "shelf") is None
+
+
 def test_a_tracker_that_stops_answering_ends_the_track_and_says_so(store, tmp_path, monkeypatch):
     class Broken(Moves):
         def step(self, picture, overlay, reset):
@@ -258,8 +296,7 @@ def test_a_tracker_that_stops_answering_ends_the_track_and_says_so(store, tmp_pa
     tracker.look("desk", STILL_VIEW, T)
     tracker.look("desk", OTHER_VIEW, T + 5)
     assert tracker.step("desk", STILL_VIEW, T + 6) and session.closed and tracker.active is None
-    kept = scenes.tracked(store, "desk")
-    assert kept is not None and kept["state"] == "ended"
+    assert scenes.tracked(store, "desk") is None  # it went nowhere: there is nothing to say of it
 
 
 def test_a_track_left_open_by_a_service_that_stopped_is_over_when_the_next_one_starts(store, tmp_path, monkeypatch):
@@ -285,13 +322,12 @@ def placed_camera(store, stood: scenes.At) -> dict[str, scenes.SpotAt]:
     return spots
 
 
-def test_a_moving_camera_is_shown_where_its_track_has_it_with_its_keyframes_points_and_nothing_else_is_written(
-    store, tmp_path
-):
+def test_a_moving_camera_is_shown_where_its_track_has_it_and_what_it_sees_on_the_way_joins_the_map(store, tmp_path):
     stood = at(1.0, 1.0, 20.0)
     spots = placed_camera(store, stood)
     before = scenes.scene(store, PLACE, spots, ROOMS)
-    assert before.cameras[0].track is None
+    own = scenes.ply.vertices(scenes.points(store, before))
+    assert before.cameras[0].track is None and own is not None
     truth = walk(stood, 9, ahead=0.1, turn=6.0)
     follow(store, Moves(truth), stood, frames=10)
     found = scenes.scene(store, PLACE, spots, ROOMS)
@@ -307,12 +343,13 @@ def test_a_moving_camera_is_shown_where_its_track_has_it_with_its_keyframes_poin
     )
     now = np.array(desk.track["pose"]).reshape(4, 4)  # the camera, drawn where it is now
     assert now[:3, 3] == pytest.approx([truth[-1].x, truth[-1].y, HEIGHT], abs=0.05)
-    # its cloud still stands where it was made, and the keyframes' points are drawn with it, in the plan's rooms
+    # what is drawn is the place's map: it grew by what the keyframes saw that the camera's own cloud hadn't, it
+    # is all this camera's, and all of it lies in the plan's rooms
     assert found.id != before.id
     rows = scenes.ply.vertices(scenes.points(store, found))
-    own = scenes.ply.vertices(scenes.points(store, before))
-    assert rows is not None and own is not None
-    assert len(rows) == len(own) + sum(row["points"] for row in (scenes.tracked(store, "desk") or {})["keyframes"])
+    assert rows is not None and len(rows) > len(own)
+    charted = cloud_map.read(cloud_map.folder(store.folder, PLACE))
+    assert charted is not None and len(rows) == len(charted.xyz)
     assert set(rows["view"].tolist()) == {0} and not rows["outside"].any()
     assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]  # no spot and no plan was written
     assert spots["desk"].at == stood
@@ -335,7 +372,7 @@ def test_when_it_rests_its_new_cloud_is_placed_from_where_the_track_left_it_and_
     assert (desk.how, (desk.follow or {})["by"], desk.track) == ("following", "tracking", None)
     pose = np.array(desk.pose).reshape(4, 4)
     assert pose[:2, 3] == pytest.approx([rest.x, rest.y], abs=0.1)
-    assert scenes.tracked(store, "desk") is None and not track.folder.exists()
+    assert scenes.tracked(store, "desk") is None
 
 
 def test_a_track_that_ended_before_the_cameras_cloud_was_made_says_nothing_of_where_it_is(store):

@@ -222,6 +222,8 @@ export interface ScenePlaced {
   follow?: SceneFollow | null;
   /** While the camera is tracked as it moves, or has just come to rest and waits for a cloud of its new view. */
   track?: SceneTrack | null;
+  /** What the place's map holds of this camera, once its cloud was offered to it. */
+  map?: SceneMap | null;
   /** When its cloud's picture was taken (epoch seconds). */
   at?: number;
   /** What its cloud was levelled by: its own floor, its walls (no floor in view), or nothing (it stands as if the
@@ -253,8 +255,28 @@ export interface SceneTrack {
   went_m: number;
   from_m: number;
   from_deg: number;
-  /** Its last keyframes, whose points are drawn with the camera's own. */
-  keyframes: { n: number; transform: number[] }[];
+}
+
+/** A place's map is one cloud that every well-placed picture is added to, each surface once. This is one camera's
+ *  part in it. */
+export interface SceneMap {
+  /** How many of the map's points came from this camera. */
+  points: number;
+  /** What became of its latest picture: "added" (`added` points of it went in; none when it showed nothing the
+   *  map lacked) or "refused". */
+  state: 'added' | 'refused';
+  /** Why it was refused: "apart" (as a whole it stands somewhere else than the pictures the map is made of), or
+   *  "full". */
+  why: '' | 'apart' | 'full';
+  added: number;
+  /** Points of it left out because better-placed pictures saw nothing where they stand. */
+  left_out: number;
+  /** How far a camera the plan's walls don't hold stayed from the map's surfaces when it couldn't be lined up. */
+  off_m: number;
+  /** How a camera the plan's walls don't hold was moved to agree with the map: metres, degrees, and its resize. */
+  moved_m: number;
+  turned_deg: number;
+  resized: number;
 }
 
 /** How a camera whose view changed was placed again, or why it couldn't be. */
