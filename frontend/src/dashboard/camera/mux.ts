@@ -4,6 +4,7 @@
 // layer; its JPEG frames are decoded once and drawn on each of those canvases. A camera's session is released when
 // its last canvas goes (leaving the Live tab) or the page is hidden, and taken again when they come back.
 import { create } from 'zustand';
+import type { SmallCopy } from '../enhance/small';
 import { watchFrames, watchVideo } from './gateway';
 import type { FrameMetadata } from './geometry';
 import { paintThumb } from './thumbs';
@@ -22,9 +23,12 @@ const watching = new Map<string, () => void>(); // cam -> stops its frames
 let ticker: ReturnType<typeof setInterval> | undefined;
 
 /** Something that also wants each decoded frame of a camera (Live's Enhance view): handed the picture before the
- *  canvases' copy is closed, never kept. capturedAt is in seconds; flip as for draw. */
-export type FrameTap = (bitmap: ImageBitmap, capturedAt: number, flip: boolean) => void;
+ *  canvases' copy is closed, never kept. capturedAt is in seconds; flip as for draw; small is the frame's small
+ *  copy and luma (enhance/small.ts), upright, when the frame came from the video decoder while a tap was on. */
+export type FrameTap = (bitmap: ImageBitmap, capturedAt: number, flip: boolean, small?: SmallCopy) => void;
 const taps = new Map<string, Set<FrameTap>>();
+/** cam -> tells its video decoder whether anything wants small copies, while the camera is watched. */
+const smallWanted = new Map<string, (on: boolean) => void>();
 
 /** Hand cam's frames to tap as they're drawn; returns the function that stops. It never starts a camera on its own:
  *  a canvas showing the camera (attach) does that. */
@@ -36,17 +40,19 @@ export function tapFrames(cam: string, tap: FrameTap): () => void {
   }
   const mine = set;
   mine.add(tap);
+  smallWanted.get(cam)?.(true);
   return () => {
     mine.delete(tap);
     if (!mine.size && taps.get(cam) === mine) taps.delete(cam);
+    smallWanted.get(cam)?.(taps.has(cam));
   };
 }
 
 /** Hand a frame to cam's taps. The demo's still cameras (LiveCam.tsx) call it too. */
-export function feedTaps(cam: string, bitmap: ImageBitmap, capturedAt: number, flip = false): void {
+export function feedTaps(cam: string, bitmap: ImageBitmap, capturedAt: number, flip = false, small?: SmallCopy): void {
   for (const tap of taps.get(cam) ?? []) {
     try {
-      tap(bitmap, capturedAt, flip);
+      tap(bitmap, capturedAt, flip, small);
     } catch {
       // a tap's failure is its own: the plain picture is drawn regardless
     }
@@ -56,7 +62,14 @@ export function feedTaps(cam: string, bitmap: ImageBitmap, capturedAt: number, f
 /** Draw a frame on each of cam's canvases. flip: the camera is mounted upside down (its video.flip) and this picture is
  *  as captured, so it is turned half way round here, as the Review player turns its frames (live JPEG; live video
  *  arrives already turned by the player worker). Overlay boxes come in upright coordinates either way. */
-function draw(cam: string, bmp: ImageBitmap, capturedAt: number, metadata?: FrameMetadata, flip = false): void {
+function draw(
+  cam: string,
+  bmp: ImageBitmap,
+  capturedAt: number,
+  metadata?: FrameMetadata,
+  flip = false,
+  small?: SmallCopy,
+): void {
   try {
     for (const c of canvases.get(cam) ?? []) {
       if (c.width !== bmp.width || c.height !== bmp.height) {
@@ -79,9 +92,10 @@ function draw(cam: string, bmp: ImageBitmap, capturedAt: number, metadata?: Fram
       if (metadata) c.dataset.frameMetadata = JSON.stringify(metadata);
       else delete c.dataset.frameMetadata;
     }
-    feedTaps(cam, bmp, capturedAt, flip);
+    feedTaps(cam, bmp, capturedAt, flip, small);
   } finally {
     bmp.close();
+    small?.picture.close();
   }
   useLiveError.setState(Object.assign(Object.create(null), useLiveError.getState(), { [cam]: undefined }), true);
   lastAt.set(cam, Date.now());
@@ -132,17 +146,25 @@ function watchCamera(cam: string): () => void {
       return;
     }
     try {
-      video ??= new LiveVideoDecoder((bitmap, at, metadata) => {
-        if (active) draw(cam, bitmap, at, metadata);
-        else bitmap.close();
-      }, fail);
+      if (!video) {
+        video = new LiveVideoDecoder((bitmap, at, metadata, small) => {
+          if (active) draw(cam, bitmap, at, metadata, false, small);
+          else {
+            bitmap.close();
+            small?.picture.close();
+          }
+        }, fail);
+        video.wantSmall(taps.has(cam));
+      }
       video.take(buffer, media);
     } catch (error) {
       fail(error instanceof Error ? error.message : 'Could not decode live camera video.');
     }
   });
+  smallWanted.set(cam, on => video?.wantSmall(on));
   return () => {
     active = false;
+    smallWanted.delete(cam);
     jpegState.pending = undefined;
     video?.close();
     offJpeg();

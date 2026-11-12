@@ -6,11 +6,18 @@ import { usePrefs } from '../lib/prefs';
 import { EnhanceButton, EnhanceLayer, EnhanceLook, useEnhanceUnsupported } from './Enhance';
 
 // jsdom has no WebGL: where a test needs frames drawn, a stand-in takes the renderer's place
-const drawer = vi.hoisted(() => ({ on: false, draw: (): void => {}, drawn: 0, onPageAtDispose: [] as boolean[] }));
+const drawer = vi.hoisted(() => ({
+  on: false,
+  draw: (): void => {},
+  drawn: 0,
+  onPageAtDispose: [] as boolean[],
+  shift: { x: 0, y: 0 },
+}));
 vi.mock('./renderer', async original => {
   const real = await original<typeof import('./renderer')>();
   class StandIn {
     private readonly canvas: HTMLCanvasElement;
+    readonly shift = drawer.shift;
     constructor(canvas: HTMLCanvasElement) {
       this.canvas = canvas;
     }
@@ -55,6 +62,7 @@ afterEach(() => {
   useEnhanceUnsupported.setState({ reason: undefined });
   useLiveNow.setState(Object.create(null), true);
   Object.assign(drawer, { on: false, draw: () => {}, drawn: 0, onPageAtDispose: [] });
+  Object.assign(drawer.shift, { x: 0, y: 0 });
   vi.restoreAllMocks();
 });
 
@@ -135,6 +143,66 @@ describe('the Enhance layer', () => {
     expect(container.querySelector('canvas.enhance-canvas')).not.toHaveClass('drawn');
     act(() => feedTaps('cam0', FRAME, 3));
     expect(drawer.drawn).toBe(2);
+  });
+
+  it('gives the plain picture back, and says why, when this computer cannot keep up', async () => {
+    drawer.on = true;
+    const { TooSlow } = await import('./renderer');
+    const { container } = renderPage(<EnhanceLayer cam="cam0" />);
+    drawer.draw = () => {
+      throw new TooSlow();
+    };
+    act(() => feedTaps('cam0', FRAME, 1));
+    expect(useEnhanceUnsupported.getState().reason).toMatch(/can't keep up/);
+    expect(container.querySelector('canvas.enhance-canvas')).not.toHaveClass('drawn');
+  });
+
+  it('steadies the plain picture under it by what the camera moved, and lets go of it when it leaves', () => {
+    drawer.on = true;
+    useLiveNow.setState({ cam0: true });
+    const { container, unmount } = renderPage(
+      <div>
+        <canvas className="live-canvas" />
+        <EnhanceLayer cam="cam0" />
+      </div>,
+    );
+    const plain = container.querySelector<HTMLCanvasElement>('canvas.live-canvas');
+    if (!plain) throw new Error('no plain picture');
+    // Untouched until a highlight shows
+    expect(plain.dataset.enhance).toBeUndefined();
+    // The frame is sampled 1 % to the right and 2 % up of where it is shown: the picture moves the other way
+    Object.assign(drawer.shift, { x: 0.01, y: -0.02 });
+    act(() => feedTaps('cam0', FRAME, 1));
+    expect(plain.dataset.enhance).toBe('subtle');
+    expect(plain.style.getPropertyValue('--enhance-x')).toBe('-1.0000%');
+    expect(plain.style.getPropertyValue('--enhance-y')).toBe('2.0000%');
+    // Frames stopped: the dimmed last frame is shown as it is without Enhance
+    act(() => useLiveNow.setState({ cam0: false }));
+    expect(plain.dataset.enhance).toBeUndefined();
+    act(() => {
+      feedTaps('cam0', FRAME, 9);
+      useLiveNow.setState({ cam0: true });
+    });
+    expect(plain.dataset.enhance).toBe('subtle');
+    unmount();
+    expect(plain.dataset.enhance).toBeUndefined();
+    expect(plain.style.getPropertyValue('--enhance-x')).toBe('');
+  });
+
+  it('greys the plain picture for the Contrast look only', () => {
+    drawer.on = true;
+    reducedMotion(false);
+    usePrefs.setState({ enhanceLook: 'contrast' });
+    const { container } = renderPage(
+      <div>
+        <canvas className="live-canvas" />
+        <EnhanceLayer cam="cam0" />
+      </div>,
+    );
+    act(() => feedTaps('cam0', FRAME, 1));
+    expect(container.querySelector<HTMLCanvasElement>('canvas.live-canvas')?.dataset.enhance).toBe('contrast');
+    act(() => usePrefs.setState({ enhanceLook: 'subtle' }));
+    expect(container.querySelector<HTMLCanvasElement>('canvas.live-canvas')?.dataset.enhance).toBe('subtle');
   });
 
   it('disposes of its renderer once its canvas has left the page, so the graphics context is given up', () => {

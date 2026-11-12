@@ -9,6 +9,7 @@
 // their playhead before reporting the request ID and actual capture time.
 
 import { type FrameMetadata, sourceBoxToDecoded, sourceContentRect } from '../camera/geometry';
+import { CopyRoom, SmallCopier, type SmallCopy } from '../enhance/small';
 import { BONES, MIN_CONF } from '../pose/skeleton';
 import { av1Sequence, looksLikeAv1 } from './av1';
 import { avcParameterSets } from './avc';
@@ -20,6 +21,8 @@ import type { MediaContext } from './protocol';
 /** From the page. */
 export type ToWorker =
   | { type: 'canvas'; canvas: OffscreenCanvas; returnBitmap?: boolean }
+  /** Whether each returned frame should come with its small copy (Live's Enhance view analyses that). */
+  | { type: 'small'; on: boolean }
   | { type: 'media'; media: MediaContext }
   | { type: 'message'; buffer: ArrayBuffer; media?: MediaContext; epoch?: number }
   | { type: 'playhead'; us: number | 'live' }
@@ -28,7 +31,14 @@ export type ToWorker =
 
 /** To the page. */
 export type FromWorker =
-  | { type: 'frame'; bitmap: ImageBitmap; frameUs: number; metadata?: FrameMetadata; epoch?: number }
+  | {
+      type: 'frame';
+      bitmap: ImageBitmap;
+      small?: SmallCopy;
+      frameUs: number;
+      metadata?: FrameMetadata;
+      epoch?: number;
+    }
   | { type: 'captured'; requestId: number; frameUs: number | null }
   | {
       type: 'drawn';
@@ -81,6 +91,10 @@ type Picture = VideoFrame | ImageBitmap;
 class Pipeline {
   private canvas: OffscreenCanvas | null = null;
   private returnBitmap = false;
+  private small = false;
+  private copier: SmallCopier | null = null;
+  /** Whether there is room to make the small copy without holding the video up. */
+  private room = new CopyRoom();
   private ctx: OffscreenCanvasRenderingContext2D | null = null;
   private decoder: VideoDecoder | null = null;
   private codec: Codec | null = null;
@@ -114,6 +128,27 @@ class Pipeline {
 
   constructor(post: (m: FromWorker) => void) {
     this.post = post;
+  }
+
+  /** Whether to hand a small copy over with each returned frame. */
+  setSmall(on: boolean): void {
+    this.small = on;
+    this.room = new CopyRoom();
+    if (!on) this.copier = null;
+  }
+
+  /** The canvas's picture as a small copy with its luma (enhance/small.ts), made here so the page's thread doesn't
+   *  have to: reading pixels back and halving a large frame are what held it. */
+  private smallCopy(w: number, h: number): SmallCopy | undefined {
+    if (!this.canvas) return undefined;
+    try {
+      this.copier ??= new SmallCopier((width, height) => new OffscreenCanvas(width, height));
+      const { canvas, luma } = this.copier.copy(this.canvas, w, h, false, true);
+      const picture = (canvas as OffscreenCanvas).transferToImageBitmap();
+      return { picture, luma: luma.data, width: luma.width, height: luma.height };
+    } catch {
+      return undefined; // the page makes its own
+    }
   }
 
   setCanvas(canvas: OffscreenCanvas, returnBitmap = false): void {
@@ -399,6 +434,7 @@ class Pipeline {
     const frame = this.frames.get(best);
     if (!frame) return;
     const { picture, flip, media, epoch } = frame;
+    const began = performance.now();
     this.shownUs = best;
     const w = picture instanceof ImageBitmap ? picture.width : picture.displayWidth;
     const h = picture instanceof ImageBitmap ? picture.height : picture.displayHeight;
@@ -427,8 +463,25 @@ class Pipeline {
     // Inference overlays already use upright image coordinates, so they never inherit the pixel transform.
     const pick = this.overlays.pick(best);
     if (pick.kind !== 'none') draw(this.ctx, media ? projectedOverlay(pick.overlay, metadata) : pick.overlay, w, h);
-    if (this.returnBitmap)
-      this.post({ type: 'frame', bitmap: this.canvas.transferToImageBitmap(), frameUs: best, metadata, epoch });
+    if (this.returnBitmap) {
+      // The small copy, where there is room for it, before the canvas's picture leaves with the frame
+      let small: SmallCopy | undefined;
+      let copyMs: number | undefined;
+      if (this.small && this.room.wanted(performance.now())) {
+        const from = performance.now();
+        small = this.smallCopy(w, h);
+        copyMs = performance.now() - from;
+      }
+      this.post({
+        type: 'frame',
+        bitmap: this.canvas.transferToImageBitmap(),
+        ...(small ? { small } : {}),
+        frameUs: best,
+        metadata,
+        epoch,
+      });
+      if (this.small) this.room.took(best, performance.now() - began - (copyMs ?? 0), copyMs);
+    }
     this.post({
       type: 'drawn',
       metadata,
@@ -530,12 +583,19 @@ export function draw(
 
 // Only when running as a worker; importing this module in a test or the page registers nothing.
 if (typeof window === 'undefined' && typeof self !== 'undefined' && 'postMessage' in self) {
-  const pipeline = new Pipeline(m => self.postMessage(m, { transfer: m.type === 'frame' ? [m.bitmap] : [] }));
+  const pipeline = new Pipeline(m =>
+    self.postMessage(m, {
+      transfer: m.type === 'frame' ? (m.small ? [m.bitmap, m.small.picture, m.small.luma.buffer] : [m.bitmap]) : [],
+    }),
+  );
   self.onmessage = (e: MessageEvent<ToWorker>) => {
     const m = e.data;
     switch (m.type) {
       case 'canvas':
         pipeline.setCanvas(m.canvas, m.returnBitmap);
+        break;
+      case 'small':
+        pipeline.setSmall(m.on);
         break;
       case 'media':
         pipeline.context(m.media);

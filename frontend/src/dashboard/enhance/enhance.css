@@ -1,6 +1,6 @@
-/* The Enhance view sits exactly over the plain picture (same box, same fit), under the boxes layer. It shows only
-   once it has drawn a frame, and steps aside while frames have stopped, so the plain picture's dimmed last frame
-   shows as it does without Enhance. */
+/* The Enhance view's highlight sits exactly over the plain picture (same box, same fit), under the boxes layer. It
+   shows only once it has drawn a frame, and steps aside while frames have stopped, so the plain picture's dimmed
+   last frame shows as it does without Enhance. */
 .enhance-canvas {
   position: absolute;
   inset: 0;
@@ -19,4 +19,19 @@
 }
 .mirror .enhance-canvas {
   transform: scaleX(-1);
+}
+
+/* While the highlight shows, the plain picture under it is steadied: moved by what the camera wobbled (Enhance.tsx
+   sets the two lengths every frame). translate, not transform, so mirroring's flip still applies; a mirrored picture
+   moves the other way across. */
+.live-canvas[data-enhance] {
+  translate: var(--enhance-x, 0) var(--enhance-y, 0);
+}
+.mirror .live-canvas[data-enhance] {
+  translate: calc(-1 * var(--enhance-x, 0)) var(--enhance-y, 0);
+}
+/* The Contrast look greys what is still; the highlight layer dims it and puts the colour back where it is lit
+   (renderer.ts, CONTRAST_SATURATION: keep the two the same). */
+.live-canvas[data-enhance="contrast"] {
+  filter: saturate(0.5);
 }

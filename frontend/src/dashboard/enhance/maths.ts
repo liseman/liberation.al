@@ -131,6 +131,28 @@ const MIN_TEXTURE = 2e-4; // a block's smallest Hessian eigenvalue per sample, b
 const MAX_RESIDUAL = 0.05; // mean absolute luma error left after aligning, above which a block saw real change
 const AGREE = 0.75; // luma-copy pixels: blocks within this of the median agree with it
 
+/** The small copy of a frame that Enhance analyses has a long side of at most this: enough for the 320-wide state
+ *  and the luma copy. */
+export const SMALL_MAX = 640;
+
+/** The sizes of the small-copy chain for a frame: each half the one before, until the long side is SMALL_MAX or
+ *  less. A frame already that small gets one copy at its own size. Halving is the point: a 2D canvas scales with
+ *  plain bilinear sampling, which at exactly half size is the 2 by 2 average, and at any smaller size skips pixels.
+ *  One copy straight to the small size was measured: fine detail then flickers with every wobble, the motion
+ *  estimate loses its place many times a second, and up to 40 % of the picture lights. */
+export function smallSizes(width: number, height: number): { width: number; height: number }[] {
+  const sizes: { width: number; height: number }[] = [];
+  let w = width;
+  let h = height;
+  while (Math.max(w, h) > SMALL_MAX) {
+    w = Math.ceil(w / 2);
+    h = Math.ceil(h / 2);
+    sizes.push({ width: w, height: h });
+  }
+  if (!sizes.length) sizes.push({ width, height });
+  return sizes;
+}
+
 /** A luma image: samples row by row, 0 to 1. */
 export interface Luma {
   data: Float32Array;
@@ -146,23 +168,26 @@ export function lumaSize(width: number, height: number): { width: number; height
     : { width: round4((LUMA_SIZE * width) / Math.max(1, height)), height: LUMA_SIZE };
 }
 
-/** Half the size, by averaging each 2 by 2. */
-function halve(l: Luma): Luma {
+/** Half the size, by averaging each 2 by 2; into, when given, is filled and returned (it must be that size). */
+function halve(l: Luma, into?: Luma): Luma {
   const width = Math.max(1, l.width >> 1);
   const height = Math.max(1, l.height >> 1);
-  const data = new Float32Array(width * height);
+  const data = into?.data ?? new Float32Array(width * height);
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
       const i = 2 * y * l.width + 2 * x;
       data[y * width + x] =
         ((l.data[i] ?? 0) + (l.data[i + 1] ?? 0) + (l.data[i + l.width] ?? 0) + (l.data[i + l.width + 1] ?? 0)) / 4;
     }
-  return { data, width, height };
+  return into ?? { data, width, height };
 }
 
-function pyramid(l: Luma): Luma[] {
-  const levels = [l];
-  for (let i = 1; i < LEVELS; i++) levels.push(halve(levels[i - 1] as Luma));
+/** l and its halvings, finest first. work, when given, holds the halvings from an earlier call and is reused, so a
+ *  frame's estimate allocates nothing. */
+function pyramid(l: Luma, work?: Luma[]): Luma[] {
+  const levels = work ?? [];
+  levels[0] = l;
+  for (let i = 1; i < LEVELS; i++) levels[i] = halve(levels[i - 1] as Luma, work ? levels[i] : undefined);
   return levels;
 }
 
@@ -191,6 +216,8 @@ interface Template {
   gy: Float32Array;
   inv: [number, number, number]; // inverse of [[a, b], [b, c]] as (a, b, c)
   textured: boolean;
+  /** Room for the current frame's samples, reused every frame. */
+  current: Float32Array;
 }
 
 function template(l: Luma, bx: number, by: number, step: number): Template {
@@ -235,6 +262,7 @@ function template(l: Luma, bx: number, by: number, step: number): Template {
     gy,
     inv: textured ? [c / det, -b / det, a / det] : [0, 0, 0],
     textured,
+    current: new Float32Array(n),
   };
 }
 
@@ -243,6 +271,8 @@ export interface Reference {
   width: number;
   height: number;
   levels: Template[][];
+  /** The current frame's pyramid, reused every frame. */
+  work: Luma[];
 }
 
 export function prepareReference(l: Luma): Reference {
@@ -254,25 +284,32 @@ export function prepareReference(l: Luma): Reference {
       return blocks;
     })
     .reverse();
-  return { width: l.width, height: l.height, levels };
+  return { width: l.width, height: l.height, levels, work: [] };
 }
 
 /** Where the current frame sits against the reference, in luma-copy pixels: current(x + dx, y + dy) matches
  *  reference(x, y). null when too few blocks place themselves, or they don't agree (a pan too large, a light switched
- *  on, someone filling the picture). */
-export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: number } | null {
+ *  on, someone filling the picture). start is where to begin looking (the frame before's answer): a camera moves
+ *  little between frames, so each block then settles in a pass or two instead of walking there from zero. */
+export function estimateShift(
+  ref: Reference,
+  current: Luma,
+  start?: { dx: number; dy: number } | null,
+): { dx: number; dy: number } | null {
   if (current.width !== ref.width || current.height !== ref.height) return null;
-  const levels = pyramid(current).reverse();
+  // Finest first; ref.levels is coarsest first
+  const pyr = pyramid(current, ref.work);
   const blocks = ref.levels[0]?.length ?? 0;
   const found: { dx: number; dy: number }[] = [];
+  const coarsest = 2 ** (pyr.length - 1);
   for (let k = 0; k < blocks; k++) {
-    let dx = 0;
-    let dy = 0;
+    let dx = (start?.dx ?? 0) / coarsest;
+    let dy = (start?.dy ?? 0) / coarsest;
     let ok = true;
     let residual = 0;
-    for (let li = 0; li < levels.length; li++) {
+    for (let li = 0; li < pyr.length; li++) {
       const t = ref.levels[li]?.[k];
-      const img = levels[li];
+      const img = pyr[pyr.length - 1 - li];
       if (!t || !img) break;
       if (li > 0) {
         dx *= 2;
@@ -287,7 +324,7 @@ export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: 
         // Mean difference first: an exposure drift moves every sample, not the picture
         let mean = 0;
         const n = t.values.length;
-        const cur = new Float32Array(n);
+        const cur = t.current;
         for (let s = 0; s < n; s++) {
           const v = sample(img, (t.xs[s] ?? 0) + dx, (t.ys[s] ?? 0) + dy);
           cur[s] = v;
@@ -314,9 +351,8 @@ export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: 
           ok = false;
           break;
         }
-        if (Math.abs(ddx) < 0.005 && Math.abs(ddy) < 0.005) {
-          it = iterations - 1; // converged: measure once more and stop
-        }
+        // Converged: a step this small leaves the residual just measured as it is
+        if (Math.abs(ddx) < 0.005 && Math.abs(ddy) < 0.005) break;
       }
       if (!ok) break;
     }
@@ -381,6 +417,8 @@ export class Stabiliser {
   private rest = { dx: 0, dy: 0 };
   private restFor = 0;
   private moving = false;
+  /** The frame before's shift against the same reference, where the next estimate starts looking. */
+  private last: { dx: number; dy: number } | null = null;
 
   update(luma: Luma, dt: number): Stabilised {
     const restart = (): Stabilised => {
@@ -389,6 +427,7 @@ export class Stabiliser {
       this.gain = 0;
       this.rest = { dx: 0, dy: 0 };
       this.restFor = 0;
+      this.last = null;
       return { dx: 0, dy: 0, reset: true, gain: 0 };
     };
     // A gap, or frame times running backwards (a stream that restarted): the frames before no longer line up
@@ -396,8 +435,9 @@ export class Stabiliser {
       this.moving = false;
       return restart();
     }
-    const shift = estimateShift(this.ref, luma);
+    const shift = estimateShift(this.ref, luma, this.last);
     if (!shift) return restart();
+    this.last = shift;
     if (Math.hypot(shift.dx, shift.dy) > MAX_SHIFT * luma.width) {
       this.moving = true;
       return restart();
@@ -429,5 +469,6 @@ export class Stabiliser {
   reset(): void {
     this.ref = null;
     this.moving = false;
+    this.last = null;
   }
 }

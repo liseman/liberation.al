@@ -1,13 +1,14 @@
-// Live's Enhance view: a toggle and a look picker over the large camera, and the WebGL2 canvas that draws the
-// stabilised picture with change highlighted (renderer.ts) on top of the plain one. Off by default and remembered in
-// this browser; off, nothing here runs: no canvas, no GPU context, no frame tap.
+// Live's Enhance view: a toggle and a look picker over the large camera, and the transparent WebGL2 canvas that
+// draws the highlight (renderer.ts) over the plain picture, which this layer steadies with a CSS translate. Off by
+// default and remembered in this browser; off, nothing here runs: no canvas, no GPU context, no frame tap, and the
+// plain picture is left as it is.
 import { SegmentedControl, Tooltip, UnstyledButton } from '@mantine/core';
 import { useReducedMotion } from '@mantine/hooks';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { tapFrames, useLiveNow } from '../camera/mux';
 import { setPref, usePrefs } from '../lib/prefs';
-import { type EnhanceCanvas, Enhancer, type Look } from './renderer';
+import { type EnhanceCanvas, Enhancer, type Look, TooSlow } from './renderer';
 import './enhance.css';
 
 /** Why this browser can't run Enhance, once it has tried; undefined until then. */
@@ -19,6 +20,7 @@ const LOOKS: { value: Look; label: string; tip: string }[] = [
   { value: 'colour', label: 'Colour', tip: 'Shows tiny colour changes too faint to see' },
 ];
 const CALM_TIP = 'Off because your system asks for reduced motion';
+const STOPPED = 'it stopped with an error; reload to try again';
 
 /** The look in use: Colour amplifies a pulse, which is motion a reduced-motion setting asks not to see. */
 export function useLook(): Look {
@@ -79,7 +81,22 @@ export function EnhanceLook() {
   );
 }
 
-/** The enhanced picture of cam, over its plain one (which stays underneath for face and object picks). */
+/** The plain picture a layer sits over: the camera's canvas beside it (camera/LiveCam.tsx). */
+function plainOf(layer: HTMLElement): HTMLCanvasElement | null {
+  return layer.parentElement?.querySelector<HTMLCanvasElement>('canvas.live-canvas') ?? null;
+}
+
+/** Put the plain picture back as it was. */
+function release(plain: HTMLCanvasElement | null): void {
+  if (!plain) return;
+  delete plain.dataset.enhance;
+  plain.style.removeProperty('--enhance-x');
+  plain.style.removeProperty('--enhance-y');
+}
+
+/** The highlight for cam, over its plain picture (which stays the video, and is what face and object picks read).
+ *  While the highlight shows, the plain picture carries data-enhance (the look) and --enhance-x and --enhance-y
+ *  (how far to move it, in percent of its box); enhance.css does the rest. */
 export function EnhanceLayer({ cam }: { cam: string }) {
   const ref = useRef<EnhanceCanvas>(null);
   const enhancer = useRef<Enhancer | null>(null);
@@ -106,19 +123,53 @@ export function EnhanceLayer({ cam }: { cam: string }) {
     drawer.setLook(wanted.current.look, wanted.current.calm);
     enhancer.current = drawer;
     let shown = false;
+    // The layer's box, to turn a shift in fractions of the frame into percent of the box (they differ where the
+    // picture is letterboxed)
+    const box = { width: 0, height: 0 };
+    const sized =
+      typeof ResizeObserver === 'undefined'
+        ? undefined
+        : new ResizeObserver(([entry]) => {
+            if (entry) Object.assign(box, { width: entry.contentRect.width, height: entry.contentRect.height });
+          });
+    sized?.observe(canvas);
+    let plain: HTMLCanvasElement | null = null;
+    const placed = { x: Number.NaN, y: Number.NaN };
+    const place = () => {
+      if (!plain?.isConnected) {
+        plain = plainOf(canvas);
+        placed.x = Number.NaN;
+      }
+      if (!plain) return;
+      let kx = 1;
+      let ky = 1;
+      if (box.width > 0 && box.height > 0 && canvas.width > 0 && canvas.height > 0) {
+        const across = Math.min(box.width, (box.height * canvas.width) / canvas.height);
+        kx = across / box.width;
+        ky = (across * canvas.height) / canvas.width / box.height;
+      }
+      const x = -100 * kx * drawer.shift.x;
+      const y = -100 * ky * drawer.shift.y;
+      if (x === placed.x && y === placed.y) return; // a still camera writes nothing
+      placed.x = x;
+      placed.y = y;
+      plain.style.setProperty('--enhance-x', `${x.toFixed(4)}%`);
+      plain.style.setProperty('--enhance-y', `${y.toFixed(4)}%`);
+    };
     // Giving up: the plain picture underneath is the fallback, so this layer's last frame must not stay over it
     const giveUp = (reason: string) => {
       stop();
       setDrawn(false);
       useEnhanceUnsupported.setState({ reason });
     };
-    const stop = tapFrames(cam, (bitmap, at, flip) => {
+    const stop = tapFrames(cam, (bitmap, at, flip, small) => {
       try {
-        drawer.draw(bitmap, at, flip);
-      } catch {
-        giveUp('it stopped with an error; reload to try again');
+        drawer.draw(bitmap, at, flip, small);
+      } catch (error) {
+        giveUp(error instanceof TooSlow ? error.message : STOPPED);
         return;
       }
+      place();
       if (!shown) {
         shown = true;
         setDrawn(true); // until a first frame, the plain picture shows through
@@ -131,7 +182,9 @@ export function EnhanceLayer({ cam }: { cam: string }) {
     canvas.addEventListener('webglcontextlost', lost);
     return () => {
       stop();
+      sized?.disconnect();
       canvas.removeEventListener('webglcontextlost', lost);
+      release(plain);
       drawer.dispose();
       enhancer.current = null;
       setDrawn(false);
@@ -141,6 +194,16 @@ export function EnhanceLayer({ cam }: { cam: string }) {
   useEffect(() => {
     enhancer.current?.setLook(look, !!calm);
   }, [look, calm]);
+
+  // The plain picture is moved and filtered only while the highlight shows over it
+  useEffect(() => {
+    const plain = ref.current && plainOf(ref.current);
+    if (!plain || !drawn || live === false) return;
+    plain.dataset.enhance = look;
+    return () => {
+      delete plain.dataset.enhance;
+    };
+  }, [drawn, live, look]);
 
   // Frames stopped: the plain picture underneath shows the last one, dimmed, as it does without Enhance
   return <canvas ref={ref} className={`enhance-canvas${drawn ? ' drawn' : ''}${live === false ? ' paused' : ''}`} />;
