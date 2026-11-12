@@ -471,6 +471,10 @@ def test_a_moving_camera_is_shown_where_its_track_has_it_and_what_it_sees_on_the
         "tracking", T, T + 5.0, T + 5.0,
     )  # fmt: skip
     assert desk.track["went_m"] == pytest.approx(0.9, abs=0.05)
+    # where it went is said too, for the view to draw: from where it stood to where it is now
+    went = desk.track["path"]
+    assert len(went) == 10 and went[0] == pytest.approx([truth[0].x, truth[0].y], abs=0.05)
+    assert went[-1] == pytest.approx([truth[-1].x, truth[-1].y], abs=0.05)
     assert (desk.track["from_m"], desk.track["from_deg"]) == (
         pytest.approx(math.hypot(truth[-1].x - 1.0, truth[-1].y - 1.0), abs=0.05),
         pytest.approx(54.0, abs=1.0),

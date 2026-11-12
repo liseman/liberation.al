@@ -84,6 +84,9 @@ export interface Built {
   }) => void;
   /** Settles once the splat has drawn its first frame, or rejects with why it couldn't be drawn; settled at once
    *  when the place was built without a splat. */
+  /** Draw a later reading of the same scene in place: its cameras where they now are and, with `cloud`, its points
+   *  as they now are. The view (where it looks from, how, and every setting) is left exactly as it is. */
+  update: (data: Scene, cloud: Cloud | null) => void;
   splatLoaded: Promise<void>;
   /** The cameras drawn, by name. */
   cameraNames: string[];
@@ -340,11 +343,28 @@ export async function build(
   // Each camera's view: lines from its centre to the four corners of its image, and the image's edge.
   const views: V3[] = [];
   const viewOf: Record<string, V3[]> = {};
-  for (const [name, cam] of Object.entries(data.cameras ?? {})) {
-    const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
-    viewOf[name] = [o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a];
-    views.push(...viewOf[name]);
-  }
+  const marksOf = (scene: Scene): Record<string, V3[]> => {
+    const out: Record<string, V3[]> = {};
+    for (const [name, cam] of Object.entries(scene.cameras ?? {})) {
+      const [o, a, b, c, d] = frustum(cam.pose, cam.focal, cam.width, cam.height) as [V3, V3, V3, V3, V3];
+      out[name] = [o, a, o, b, o, c, o, d, a, b, b, c, c, d, d, a];
+    }
+    // a camera that is being carried also has where it went drawn, at the height it is held, in its own colour
+    for (const placed of scene.combined?.cameras ?? []) {
+      const mark = out[placed.camera];
+      const path = placed.track?.path ?? [];
+      if (!mark?.[0] || path.length < 2) continue;
+      const height = mark[0][2];
+      for (let i = 1; i < path.length; i++) {
+        const [ax = 0, ay = 0] = path[i - 1] ?? [];
+        const [bx = 0, by = 0] = path[i] ?? [];
+        mark.push([ax, ay, height], [bx, by, height]);
+      }
+    }
+    return out;
+  };
+  Object.assign(viewOf, marksOf(data));
+  for (const segments of Object.values(viewOf)) views.push(...segments);
   views.forEach(grow);
 
   // The plan's rooms, outlined on the floor, and its walls, for the walk to be stopped by.
@@ -493,24 +513,6 @@ export async function build(
   overlays.setLocalRotation(...turn);
   app.root.addChild(overlays);
 
-  // The points. Colour by height: each point's height above the floor on a ramp over the middle 98% of heights.
-  const heights = new Float32Array(count);
-  for (let i = 0; i < count; i++)
-    heights[i] = heightOf([positions[i * 3] ?? 0, positions[i * 3 + 1] ?? 0, positions[i * 3 + 2] ?? 0], floorPlane);
-  const [low, high] = robustRange(heights);
-  const ramp = new Uint8Array(count * 3);
-  for (let i = 0; i < count; i++)
-    ramp.set(
-      heightColour(heights[i] ?? 0, low, high).map(v => Math.round(v * 255)),
-      i * 3,
-    );
-  const colours = {
-    height: perCorner(new Uint8Array(count * 16), ramp, 3, 255),
-    rgb: cloud.colours ? perCorner(new Uint8Array(count * 16), cloud.colours, 3, 255) : null,
-    camera: cloud.views
-      ? perCorner(new Uint8Array(count * 16), tinted(count, cloud.colours, cloud.views), 3, 255)
-      : null,
-  };
   const pointMaterial = new ShaderMaterial({
     uniqueName: 'PlacePoints',
     vertexGLSL: POINT_GLSL.vertex,
@@ -524,41 +526,88 @@ export async function build(
   pointMaterial.setParameter('view_size', [1, 1]);
   pointMaterial.update();
   const points = new Entity('points', app);
-  let colourBy: (want: Colour) => void = () => {};
-  // Which cameras' points are drawn, and whether those outside the plan are (a scene of several cameras' clouds):
-  // only those points' squares are drawn, by building the index buffer again. Nothing is loaded again.
-  let layersShown: (hidden: ReadonlySet<number>, inside: boolean) => void = () => {};
-  let anyPoint = count > 0;
-  if (count) {
-    const pointMesh = new Mesh(device);
-    pointMesh.setPositions(perCorner(new Float32Array(count * 12), positions, 3));
-    const corners = new Float32Array(count * 8);
-    for (let i = 0; i < count; i++) corners.set(CORNERS, i * 8);
-    pointMesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
-    pointMesh.setIndices(pointIndices(count, null, null, new Set(), false));
-    let layers = '|false';
-    layersShown = (hidden, inside) => {
-      const key = `${[...hidden].sort().join(',')}|${inside}`;
-      if (key === layers) return;
-      layers = key;
-      const indices = pointIndices(count, cloud.views, cloud.outside, hidden, inside);
-      anyPoint = indices.length > 0;
-      if (anyPoint) {
-        pointMesh.setIndices(indices);
-        pointMesh.update(PRIMITIVE_TRIANGLES);
-      }
+  // The points drawn, and how: which cameras' are hidden, whether those outside the plan are, and what they are
+  // coloured by. These outlive the points themselves, which are laid again in place when the map gains some
+  // (`update`): the same view, the same settings, other points.
+  let laid = cloud;
+  let pointMesh: Mesh | null = null;
+  let hiddenNow: ReadonlySet<number> = new Set();
+  let insideNow = false;
+  let colourNow: Colour = 'rgb';
+  let splatShown = false;
+  let anyPoint = false;
+  let colours: { height: Uint8Array; rgb: Uint8Array | null; camera: Uint8Array | null } | null = null;
+  const paint = () => {
+    if (!pointMesh || !colours) return;
+    const by =
+      colourNow === 'camera' && colours.camera ? 'camera' : colourNow !== 'height' && colours.rgb ? 'rgb' : 'height';
+    pointMesh.setVertexStream(SEMANTIC_COLOR, colours[by] ?? colours.height, 4, laid.count * 4, TYPE_UINT8, true);
+  };
+  // Only the squares of the points shown are drawn, by building the index buffer again. Nothing is loaded again.
+  const pick = () => {
+    if (!pointMesh) return;
+    const indices = pointIndices(laid.count, laid.views, laid.outside, hiddenNow, insideNow);
+    anyPoint = indices.length > 0;
+    if (anyPoint) pointMesh.setIndices(indices);
+  };
+  const layPoints = (next: Cloud) => {
+    laid = next;
+    const n = next.count;
+    // Colour by height: each point's height above the floor on a ramp over the middle 98% of heights.
+    const heights = new Float32Array(n);
+    for (let i = 0; i < n; i++)
+      heights[i] = heightOf(
+        [next.positions[i * 3] ?? 0, next.positions[i * 3 + 1] ?? 0, next.positions[i * 3 + 2] ?? 0],
+        floorPlane,
+      );
+    const [low, high] = robustRange(heights);
+    const ramp = new Uint8Array(n * 3);
+    for (let i = 0; i < n; i++)
+      ramp.set(
+        heightColour(heights[i] ?? 0, low, high).map(v => Math.round(v * 255)),
+        i * 3,
+      );
+    colours = {
+      height: perCorner(new Uint8Array(n * 16), ramp, 3, 255),
+      rgb: next.colours ? perCorner(new Uint8Array(n * 16), next.colours, 3, 255) : null,
+      camera: next.views ? perCorner(new Uint8Array(n * 16), tinted(n, next.colours, next.views), 3, 255) : null,
     };
-    let coloured: Colour | null = null;
-    colourBy = want => {
-      const by = want === 'camera' && colours.camera ? 'camera' : want !== 'height' && colours.rgb ? 'rgb' : 'height';
-      if (by === coloured) return;
-      coloured = by;
-      pointMesh.setVertexStream(SEMANTIC_COLOR, colours[by] ?? colours.height, 4, count * 4, TYPE_UINT8, true);
-      pointMesh.update(PRIMITIVE_TRIANGLES);
-    };
-    colourBy('rgb');
-    points.addComponent('render', { meshInstances: [new MeshInstance(pointMesh, pointMaterial)], castShadows: false });
-  }
+    pointMesh = null;
+    anyPoint = false;
+    const instances: MeshInstance[] = [];
+    if (n) {
+      const mesh = new Mesh(device);
+      mesh.setPositions(perCorner(new Float32Array(n * 12), next.positions, 3));
+      const corners = new Float32Array(n * 8);
+      for (let i = 0; i < n; i++) corners.set(CORNERS, i * 8);
+      mesh.setVertexStream(SEMANTIC_TEXCOORD0, corners, 2);
+      mesh.setIndices(pointIndices(n, null, null, new Set(), false));
+      pointMesh = mesh;
+      pick();
+      paint();
+      mesh.update(PRIMITIVE_TRIANGLES);
+      instances.push(new MeshInstance(mesh, pointMaterial));
+    }
+    // the component lets go of the points it drew before, and their buffers with them
+    if (points.render) points.render.meshInstances = instances;
+    else points.addComponent('render', { meshInstances: instances, castShadows: false });
+    points.enabled = !splatShown && anyPoint;
+  };
+  const layersShown = (hidden: ReadonlySet<number>, inside: boolean) => {
+    const same = inside === insideNow && hidden.size === hiddenNow.size && [...hidden].every(i => hiddenNow.has(i));
+    if (same) return;
+    hiddenNow = new Set(hidden);
+    insideNow = inside;
+    pick();
+    pointMesh?.update(PRIMITIVE_TRIANGLES);
+  };
+  const colourBy = (want: Colour) => {
+    if (want === colourNow) return;
+    colourNow = want;
+    paint();
+    pointMesh?.update(PRIMITIVE_TRIANGLES);
+  };
+  layPoints(cloud);
   overlays.addChild(points);
   // The squares are sized in the page's pixels, so they follow the view's size.
   const sized = () =>
@@ -566,16 +615,26 @@ export async function build(
   app.on('update', sized);
 
   // In a scene of several cameras' clouds each camera's view is drawn in its own colour (layers.ts), whatever the
-  // points are coloured by, so the colour beside its name always points at something.
+  // points are coloured by, so the colour beside its name always points at something. A camera that moves has its
+  // view drawn again where it now is (`update`); nothing else is touched.
   const order = data.combined?.cameras.map(c => c.camera);
-  let cameras: Entity;
-  if (order) {
-    cameras = new Entity('cameras', app);
-    for (const [name, segments] of Object.entries(viewOf)) {
+  const layCameras = (marks: Record<string, V3[]>): Entity => {
+    if (!order)
+      return lines(
+        device,
+        app,
+        'cameras',
+        Object.values(marks).flat(),
+        cssColour(host, '--mantine-primary-color-filled', '#228be6'),
+      );
+    const all = new Entity('cameras', app);
+    for (const [name, segments] of Object.entries(marks)) {
       const [r, g, b] = tintOf(Math.max(0, order.indexOf(name)));
-      cameras.addChild(lines(device, app, `camera-${name}`, segments, [r / 255, g / 255, b / 255]));
+      all.addChild(lines(device, app, `camera-${name}`, segments, [r / 255, g / 255, b / 255]));
     }
-  } else cameras = lines(device, app, 'cameras', views, cssColour(host, '--mantine-primary-color-filled', '#228be6'));
+    return all;
+  };
+  let cameras = layCameras(viewOf);
   overlays.addChild(cameras);
   const plan = lines(device, app, 'plan', outline, [0xe8 / 255, 0x59 / 255, 0x0c / 255]);
   overlays.addChild(plan);
@@ -667,6 +726,7 @@ export async function build(
       if (gone) return;
       wantSplat = s.splat;
       const showSplat = s.splat && !!splat;
+      splatShown = showSplat;
       layersShown(s.hidden ?? new Set(), !!s.inside);
       points.enabled = !showSplat && anyPoint;
       // The viewer counts itself loaded once its content has drawn a frame, so the content is only hidden after
@@ -682,6 +742,17 @@ export async function build(
       floor.enabled = s.floor;
       cameras.enabled = s.cameras;
       plan.enabled = s.plan;
+      draw();
+    },
+    update: (next, nextCloud) => {
+      if (gone) return;
+      if (nextCloud) layPoints(nextCloud);
+      const shown = cameras.enabled;
+      overlays.removeChild(cameras);
+      cameras.destroy();
+      cameras = layCameras(marksOf(next));
+      cameras.enabled = shown;
+      overlays.addChild(cameras);
       draw();
     },
     splatLoaded: splat ? splatLoaded : Promise.resolve(),

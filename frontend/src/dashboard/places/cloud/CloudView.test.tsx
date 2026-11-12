@@ -18,6 +18,9 @@ let shown: Parameters<Built['show']>[0][] = [];
 /** The cameras the stood-in viewer was asked to look from. */
 let lookedFrom: string[] = [];
 let splatLoaded: () => Promise<void> = () => Promise.resolve();
+/** What the stood-in viewer was asked to draw in place, newest last, and how many viewers were taken down. */
+let updated: Parameters<Built['update']>[] = [];
+let disposed = 0;
 /** The splat's own load is only followed for a viewer built around one, as scene.ts settles it at once without. */
 type BuildArgs = [HTMLDivElement, object, object, ArrayBuffer | null, string | View | null];
 
@@ -25,6 +28,8 @@ beforeEach(() => {
   localStorage.clear(); // which scene was last chosen is remembered per browser
   shown = [];
   lookedFrom = [];
+  updated = [];
+  disposed = 0;
   splatLoaded = () => Promise.resolve();
   build.mockReset();
   build.mockImplementation(
@@ -37,9 +42,14 @@ beforeEach(() => {
       show: s => {
         shown.push(s);
       },
+      update: (data, cloud) => {
+        updated.push([data, cloud]);
+      },
       splatLoaded: args[3] ? splatLoaded() : Promise.resolve(),
       cameraNames: [],
-      dispose: () => {},
+      dispose: () => {
+        disposed += 1;
+      },
     }),
   );
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({} as RenderingContext);
@@ -398,6 +408,7 @@ it('turns Floor, Cameras, and Plan on and off without building the view again, i
     view: () => LOOKING,
     home: () => {},
     lookFrom: () => {},
+    update: () => {},
     show: s => {
       shown.push(s);
     },
@@ -499,6 +510,7 @@ it('shows the shared error and Retry when the view fails, then builds it again',
       view: () => LOOKING,
       home: () => {},
       lookFrom: () => {},
+      update: () => {},
       show: s => {
         if (fail) throw new Error('the overlay could not be drawn');
         shown.push(s);
@@ -585,11 +597,11 @@ it('shows every camera placed in one scene from above, each saying how it is pla
   expect(screen.getByText(/Not in the scene: it has no spot on your plan/)).toBeTruthy();
   // what the pair's pictures said is detail of its two cameras' rows
   expect(screen.getAllByText(/hall and porch see the same space and are adjusted/)).toHaveLength(2);
-  expect(
-    screen.getByText(
-      /^One map of what the cameras have seen, each surface once\..* It covers about 38 percent of your plan's floor so far \(34 of 89 m²\)\.$/,
-    ),
-  ).toBeTruthy();
+  // how far along the map is has a line of its own, first, with each number joined to what it counts
+  const covers = screen.getByText(/^The map covers about 38 percent of your plan's floor so far \(34 of 89 m²\)\.$/);
+  expect(covers.textContent).toContain('89\u00a0m²'); // the unit can't be left on a line of its own
+  const limits = screen.getByText(/^One map of what the cameras have seen, each surface once\. .* so expect gaps\.$/);
+  expect(covers.compareDocumentPosition(limits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   // each row leads with its state in a word, and the camera that needs a spot says so and opens the plan editor
   const rows = screen.getAllByRole('listitem');
   expect(
@@ -835,7 +847,15 @@ it("says what the map took of a camera's picture, and marks one that was left ou
   ).toBeTruthy();
   expect(within(hall).getByText('Placed')).toBeTruthy();
   expect(within(porch).getByText('Left out')).toBeTruthy();
-  expect(within(porch).getByText(/it stands somewhere else than the pictures the map is made of/)).toBeTruthy();
+  // what the Left out badge is about leads that camera's detail
+  const why = within(porch).getByText(
+    /^Its latest picture is left out: it doesn't line up with what the map already holds/,
+  );
+  const how = within(porch).getByText('Placed from its spot on your plan.');
+  expect(why.compareDocumentPosition(how) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const holds = within(hall).getByText('The map holds 18,204 points from this camera: 3,100 from its latest picture.');
+  const stands = within(hall).getByText('Placed from its spot on your plan.');
+  expect(stands.compareDocumentPosition(holds) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 });
 
 it('puts its One camera / All cameras switch where the page gives a place for it, and nowhere else', async () => {
@@ -894,4 +914,201 @@ it("takes the window's height from where the view starts, and measures again whe
   await userEvent.click(floor);
   await waitFor(() => expect(frame?.style.getPropertyValue('--fills-top')).toBe('268px'));
   measure.mockRestore();
+});
+
+/** A scene's points as the server writes them (spatial/ply.py): x, y, z, colour, whose each is, and outside or not. */
+function scenePly(points: [number, number, number][]): Uint8Array {
+  const head = new TextEncoder().encode(
+    `ply\nformat binary_little_endian 1.0\nelement vertex ${points.length}\nproperty float x\nproperty float y\nproperty float z\n` +
+      'property uchar red\nproperty uchar green\nproperty uchar blue\nproperty ushort view\nproperty ushort outside\nend_header\n',
+  );
+  const body = new DataView(new ArrayBuffer(points.length * 19));
+  points.forEach(([x, y, z], i) => {
+    body.setFloat32(i * 19, x, true);
+    body.setFloat32(i * 19 + 4, y, true);
+    body.setFloat32(i * 19 + 8, z, true);
+    body.setUint8(i * 19 + 12, 100);
+  });
+  const out = new Uint8Array(head.length + body.byteLength);
+  out.set(head);
+  out.set(new Uint8Array(body.buffer), head.length);
+  return out;
+}
+
+/** What changed between two scenes' points (spatial/cloud_scene.py `changed`): runs of the earlier points kept
+ *  (where from, how many), -1 for the new ones, then the new ones. */
+function sceneChange(total: number, runs: [number, number][], fresh: [number, number, number][]): Uint8Array {
+  const added = scenePly(fresh);
+  const out = new Uint8Array(16 + runs.length * 8 + added.length);
+  out.set(new TextEncoder().encode('LMC1'));
+  const head = new DataView(out.buffer);
+  head.setUint32(4, total, true);
+  head.setUint32(8, runs.length, true);
+  head.setUint32(12, fresh.length, true);
+  runs.forEach(([start, count], i) => {
+    head.setInt32(16 + i * 8, start, true);
+    head.setInt32(20 + i * 8, count, true);
+  });
+  out.set(added, 16 + runs.length * 8);
+  return out;
+}
+
+it('draws a map that grew while a camera moved into the view it has, asking only for what changed', async () => {
+  const cam = (x: number) => ({
+    pose: [1, 0, 0, x, 0, 1, 0, 3, 0, 0, 1, 1.4, 0, 0, 0, 1],
+    focal: 300,
+    width: 512,
+    height: 288,
+    at: 1,
+  });
+  const track = (x: number, added: number) => ({
+    state: 'tracking',
+    since: Date.now() / 1000 - 30,
+    at: Date.now() / 1000 - 1,
+    held: Date.now() / 1000 - 2,
+    pose: cam(x).pose,
+    went_m: x,
+    from_m: x,
+    from_deg: 0,
+    added,
+    added_at: Date.now() / 1000 - 1,
+  });
+  // the scene as it is read first, then with the hall camera half a metre on and two more points in the map,
+  // one of the first three gone
+  let now = {
+    ...allCameras([placedRow('hall', { track: track(0.1, 3) }), placedRow('porch')]),
+    cameras: { hall: cam(0.1) },
+  };
+  const later = {
+    ...allCameras([placedRow('hall', { track: track(0.6, 5) }), placedRow('porch')]),
+    revision: 's2',
+    map: '/places/map?place=p1&revision=s2&scene=1',
+    cameras: { hall: cam(0.6) },
+  };
+  const first: [number, number, number][] = [
+    [0, 0, 0],
+    [1, 0, 0],
+    [2, 0, 0],
+  ];
+  const whole = scenePly([
+    [0, 0, 0],
+    [2, 0, 0],
+    [3, 0, 0],
+    [4, 0, 0],
+  ]);
+  const change = sceneChange(
+    4,
+    [
+      [0, 1],
+      [2, 1],
+      [-1, 2],
+    ],
+    [
+      [3, 0, 0],
+      [4, 0, 0],
+    ],
+  );
+  const maps: { revision: string | null; since: string | null; sent: number }[] = [];
+  server.use(
+    http.get('/places/scene', ({ request }) =>
+      HttpResponse.json(new URL(request.url).searchParams.get('all') === '1' ? now : cloudOf('hall')),
+    ),
+    http.get('/places/map', ({ request }) => {
+      const q = new URL(request.url).searchParams;
+      if (q.get('scene') !== '1') return bytes(MAP);
+      const body = q.get('since') ? change : q.get('revision') === 's1' ? scenePly(first) : whole;
+      maps.push({ revision: q.get('revision'), since: q.get('since'), sent: body.length });
+      return new HttpResponse(body.slice().buffer, {
+        headers: { 'content-type': q.get('since') ? 'application/x-map-change' : 'application/octet-stream' },
+      });
+    }),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await toAll();
+  await waitFor(() => expect((build.mock.calls.at(-1)?.[2] as { count: number } | undefined)?.count).toBe(3));
+  const builds = build.mock.calls.length;
+  const taken = disposed;
+  const canvas = screen.getByRole('img');
+  const [hall] = screen.getAllByRole('listitem') as [HTMLElement];
+  await userEvent.click(within(hall).getByRole('button', { name: /^Details of / }));
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Floor' })); // a setting changed from how it opens
+  expect(
+    within(hall)
+      .getByRole('button', { name: /^Details of / })
+      .getAttribute('aria-expanded'),
+  ).toBe('true');
+
+  now = later;
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  await waitFor(() => expect(updated.at(-1)?.[1]?.count).toBe(4));
+  // the points the view now has are the later scene's, made from the ones it held and the two that came
+  const [scene2, cloud] = updated.at(-1) as Parameters<Built['update']>;
+  expect(Array.from(cloud?.positions ?? [])).toEqual([0, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0]);
+  expect(scene2.cameras?.hall?.pose[3]).toBe(0.6); // and the camera's mark is where the camera now is
+  // only what changed was asked for and sent, not the points whole
+  expect(maps).toEqual([
+    { revision: 's1', since: null, sent: scenePly(first).length },
+    { revision: 's2', since: 's1', sent: change.length },
+  ]);
+  expect(change.length).toBe(
+    16 +
+      3 * 8 +
+      scenePly([
+        [3, 0, 0],
+        [4, 0, 0],
+      ]).length,
+  ); // two points, and where the rest are
+  // the view was not built again or taken down, the page is the same page, and nothing said it was loading
+  expect(build.mock.calls.length).toBe(builds);
+  expect(disposed).toBe(taken);
+  expect(screen.getByRole('img')).toBe(canvas);
+  expect(screen.getAllByRole('listitem')[0]).toBe(hall);
+  expect(
+    within(hall)
+      .getByRole('button', { name: /^Details of / })
+      .getAttribute('aria-expanded'),
+  ).toBe('true');
+  expect((screen.getByRole('checkbox', { name: 'Floor' }) as HTMLInputElement).checked).toBe(false);
+  expect(screen.queryByText(/Loading|newer version/)).toBeNull();
+  expect(within(hall).getByText(/^\+5 points, /)).toBeTruthy(); // its row has the move's new count
+
+  // a camera that only moved, with the map as it was, is drawn where it is without reading any points
+  now = { ...later, cameras: { hall: cam(0.9) } };
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  await waitFor(() => expect(updated.at(-1)?.[0].cameras?.hall?.pose[3]).toBe(0.9));
+  expect(updated.at(-1)?.[1]).toBeNull();
+  expect(maps).toHaveLength(2);
+  expect(build.mock.calls.length).toBe(builds);
+});
+
+it('reads the points whole when the server sends them in answer to a question about what changed', async () => {
+  let now = allCameras([placedRow('hall'), placedRow('porch')]);
+  const later = { ...now, revision: 's2', map: '/places/map?place=p1&revision=s2&scene=1' };
+  server.use(
+    http.get('/places/scene', ({ request }) =>
+      HttpResponse.json(new URL(request.url).searchParams.get('all') === '1' ? now : cloudOf('hall')),
+    ),
+    http.get('/places/map', ({ request }) => {
+      const q = new URL(request.url).searchParams;
+      if (q.get('scene') !== '1') return bytes(MAP);
+      return bytes(
+        scenePly(
+          q.get('revision') === 's1'
+            ? [[0, 0, 0]]
+            : [
+                [5, 5, 5],
+                [6, 6, 6],
+              ],
+        ),
+      );
+    }),
+  );
+  const { client } = renderPage(<CloudView place="p1" />);
+  await toAll();
+  await waitFor(() => expect((build.mock.calls.at(-1)?.[2] as { count: number } | undefined)?.count).toBe(1));
+  const builds = build.mock.calls.length;
+  now = later;
+  await client.invalidateQueries({ queryKey: ['places', 'scene', 'p1'] });
+  await waitFor(() => expect(Array.from(updated.at(-1)?.[1]?.positions ?? [])).toEqual([5, 5, 5, 6, 6, 6]));
+  expect(build.mock.calls.length).toBe(builds);
 });

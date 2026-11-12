@@ -434,11 +434,20 @@ it("switches a real place between its plan and its map in 3D, but not an example
   server.use(http.get('/places/scene', () => HttpResponse.json({ place: 'p1', revision: null })));
   renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: 'Edit plan' });
+  // in Plan the 3D view's own switch keeps its room on the line, unseen and out of reach, so going to 3D and back
+  // moves nothing: not the switcher under the pointer, and not Edit plan onto a second line on a phone
+  const room = () => screen.queryByTestId('scene-mode-room');
+  expect(room()?.style.visibility).toBe('hidden');
+  expect(room()?.hasAttribute('inert')).toBe(true);
+  expect(room()?.getAttribute('aria-hidden')).toBe('true');
+  expect(screen.queryByRole('radio', { name: 'All cameras' })).toBeNull();
   fireEvent.click(screen.getByRole('radio', { name: '3D view' }));
   expect(await screen.findByText(/Nothing to show in 3D here yet/)).toBeTruthy();
+  expect(room()).toBeNull(); // the view's own switch has the room now
   expect(screen.getByRole('button', { name: 'Edit plan' })).toBeTruthy(); // the way into editing stays put
   fireEvent.click(screen.getByRole('radio', { name: 'Plan' }));
   expect(await screen.findByRole('button', { name: 'Edit plan' })).toBeTruthy();
+  expect(room()).not.toBeNull();
   vi.restoreAllMocks();
 });
 

@@ -3,6 +3,7 @@ cameras' pictures match, and following a camera that was turned or carried. The 
 up from where the two cameras really stand, and a cloud from what a camera standing in made-up rooms would see."""
 
 import math
+import struct
 
 import numpy as np
 import pytest
@@ -299,7 +300,7 @@ def test_a_cloud_a_tenth_too_big_is_resized_to_the_plans_rooms_and_its_walls_and
     assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]  # only beside the clouds
 
 
-def test_the_flat_and_the_raw_drawing_of_one_scene_are_kept_side_by_side_and_an_older_scenes_go(store):
+def test_the_flat_and_the_raw_drawing_of_one_scene_are_kept_side_by_side_and_stay_for_the_next_scene(store):
     truth = at(1.0, 1.0, 20.0)
     spots = {"hall": spot("hall", truth)}
     keep(store, "hall", points=corner_seen_from(truth))
@@ -311,7 +312,8 @@ def test_the_flat_and_the_raw_drawing_of_one_scene_are_kept_side_by_side_and_an_
     keep(store, "hall", n=2, points=corner_seen_from(truth))
     scenes.align(store, "hall", spots, rooms_of_the_plan)
     later = scenes.drawn(store, scenes.scene(store, PLACE, spots, (HOUSE,)))
-    assert later.is_file() and not flat.exists() and not raw.exists()
+    # the scene before stays drawn, both ways, for a page that holds it to be sent what changed
+    assert later.is_file() and flat.exists() and raw.exists()
 
 
 def test_a_cloud_whose_walls_cant_be_matched_is_left_as_it_was_squared_and_says_why(store):
@@ -792,3 +794,59 @@ def test_the_runners_similarity_finds_the_turn_shift_and_scale_between_two_sets_
     scale, found, shift = runner.similarity(src, dst)
     assert scale == pytest.approx(1.3, abs=0.01) and shift == pytest.approx([0.5, -0.2, 2.0], abs=0.02)
     assert found == pytest.approx(turn, abs=0.01)
+
+
+def after_change(was: np.ndarray, change: bytes) -> np.ndarray:
+    """An earlier drawing's rows made into the later one's by what `scenes.changed` answered, as the page does it."""
+    assert change[:4] == scenes.CHANGE
+    total, runs, fresh = struct.unpack_from("<III", change, 4)
+    spans = np.frombuffer(change, dtype="<i4", count=2 * runs, offset=16).reshape(-1, 2)
+    new = ply.vertices(change[16 + 8 * runs :])
+    assert new is not None and len(new) == fresh
+    out, taken = [], 0
+    for start, count in spans:
+        out.append(new[taken : taken + count] if start < 0 else was[start : start + count])
+        taken += count if start < 0 else 0
+    rows = np.concatenate(out) if out else was[:0]
+    assert len(rows) == total
+    return rows
+
+
+def test_a_page_that_drew_an_earlier_scene_is_sent_only_what_the_map_has_gained_and_lost_since(store):
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0)), "porch": spot("porch", at(8.0, 1.0, -30.0))}
+    anchored(store, spots, "hall", view_from(at(1.0, 1.0, 20.0)))
+    scenes.align(store, "hall", spots, two_rooms)
+    first = scenes.scene(store, PLACE, spots, ROOMS)
+    before = scenes.drawn(store, first).read_bytes()
+    assert scenes.changed(store, first, first.id) is None  # nothing changed: nothing to send
+    # another camera's first cloud goes into the map: the hall's points are as they were
+    anchored(store, spots, "porch", view_from(at(8.0, 1.0, -30.0)))
+    scenes.align(store, "porch", spots, two_rooms)
+    second = scenes.scene(store, PLACE, spots, ROOMS)
+    whole = scenes.drawn(store, second).read_bytes()
+    change = scenes.changed(store, second, first.id)
+    assert second.id != first.id and change is not None
+    was, now = ply.vertices(before), ply.vertices(whole)
+    assert was is not None and now is not None and len(now) > len(was)
+    assert after_change(was, change).tobytes() == now.tobytes()  # point for point the later drawing
+    grown = (len(now) - len(was)) * now.dtype.itemsize
+    assert len(change) < 1.1 * grown and len(change) < 0.7 * len(whole)  # the new points and little else
+    # a page that drew something the house no longer keeps reads the drawing whole
+    assert scenes.changed(store, second, "0" * 32) is None
+
+
+def test_the_drawings_of_the_last_few_scenes_are_kept_and_older_ones_go(store):
+    import os
+
+    folder = store.folder / "scenes"
+    folder.mkdir(parents=True)
+    for n in range(scenes.EARLIER + 3):
+        old = folder / f"{PLACE}.{n:032d}.flat.ply"
+        old.write_bytes(b"ply")
+        os.utime(old, (T + n, T + n))
+    spots = {"hall": spot("hall", at(1.0, 1.0, 20.0))}
+    anchored(store, spots, "hall", view_from(at(1.0, 1.0, 20.0)))
+    found = scenes.scene(store, PLACE, spots, ROOMS)
+    path = scenes.drawn(store, found)
+    left = sorted(file.name.split(".")[1] for file in folder.glob(f"{PLACE}.*.ply") if file != path)
+    assert left == [f"{n:032d}" for n in range(3, scenes.EARLIER + 3)]  # the newest few, and the one just drawn

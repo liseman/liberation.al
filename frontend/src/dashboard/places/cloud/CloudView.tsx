@@ -36,7 +36,18 @@ import { linkClick } from '../../router';
 import { type CameraView, type Scene, sceneQuery } from '../api';
 import classes from '../places.module.css';
 import { outsideCounts } from './layers';
-import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
+import {
+  applyChange,
+  CHANGE_TYPE,
+  type Cloud,
+  canDraw,
+  canDrawSplat,
+  openingCamera,
+  parseCloud,
+  readBytes,
+  splatFault,
+} from './load';
+import { SCENE_MODES } from './modes';
 import { SceneLayers } from './SceneLayers';
 import { ABOVE, type Built, build, type Colour, type View } from './scene';
 import {
@@ -54,10 +65,10 @@ import {
 type Draw = 'points' | 'splat';
 type Mode = 'one' | 'all';
 
-/** What's drawn: a scene with its map's bytes and its splat's (null with none, or one that can't be drawn). */
+/** What's drawn: a scene with its map's points and its splat's bytes (null with none, or one that can't be drawn). */
 interface Drawn {
   scene: Scene;
-  map: ArrayBuffer;
+  map: Cloud;
   file: ArrayBuffer | null;
 }
 
@@ -85,6 +96,29 @@ function drawnPart(scene: Scene): string {
   });
 }
 
+/** The part of a scene the viewer is built around: which scene it is, its frame, its plan, its splat, and which
+ *  cameras it has. While this is the same text, a later reading of the scene is drawn in place (its points as they
+ *  now are, its cameras where they now are) and the view is left as the person has it: a map that fills in while a
+ *  camera moves is read every couple of seconds, and none of that may move the view or take it down. */
+function framePart(scene: Scene): string {
+  const { place, map_format, splat, splat_format, splat_bytes, splat_revision, floor, plan_transform, plan } = scene;
+  return JSON.stringify({
+    view: scene.view?.camera ?? null,
+    all: !!scene.combined,
+    order: scene.combined?.cameras.map(camera => camera.camera) ?? null,
+    place,
+    map_format,
+    splat,
+    splat_format,
+    splat_bytes,
+    splat_revision,
+    floor,
+    plan_transform,
+    plan,
+    cameras: Object.entries(scene.cameras ?? {}).map(([name, c]) => [name, c.focal, c.width, c.height]),
+  });
+}
+
 /** Whether this browser can draw the view at all: WebGL2 (not jsdom, not a GPU-less fallback). A browser with
  *  WebGPU has WebGL2 too. */
 function hasWebGL(): boolean {
@@ -95,19 +129,38 @@ function hasWebGL(): boolean {
   }
 }
 
-/** The map's bytes, read once per revision (the server lets them be cached for good). */
-function useMapBytes(scene: Scene | undefined) {
-  return useQuery({
+/** How long a revision's points are kept once nothing draws them: a map that fills in has a new revision every few
+ *  seconds, and each is a few megabytes. */
+const MAP_KEPT_MS = 30_000;
+
+/** The map's points, read once per revision. A page that already holds the points of an earlier revision of the
+ *  same scene of all cameras asks only for what changed since (`since`), and makes the new points from the ones it
+ *  holds; the server answers with the points whole when that is not much less to send, and the page reads those. */
+function useMapCloud(scene: Scene | undefined) {
+  const frame = scene ? framePart(scene) : null;
+  const held = useRef<{ frame: string; revision: string; cloud: Cloud } | null>(null);
+  const query = useQuery({
     queryKey: ['places', 'map', scene?.place, scene?.revision],
     queryFn: async ({ signal }) => {
-      const r = await fetch(scene?.map ?? '', { signal });
+      const was = held.current;
+      const since = was && scene?.combined && was.frame === frame && was.revision !== scene.revision ? was : null;
+      const url = scene?.map ?? '';
+      const r = await fetch(since ? `${url}&since=${encodeURIComponent(since.revision)}` : url, { signal });
       if (!r.ok) throw new Error(`The map couldn't be read (${r.status}).`);
-      return r.arrayBuffer();
+      const bytes = await r.arrayBuffer();
+      const change = since && (r.headers.get('content-type') ?? '').startsWith(CHANGE_TYPE);
+      return change ? applyChange(since.cloud, bytes) : parseCloud(bytes, 'ply');
     },
     enabled: !!scene?.map && canDraw(scene.map_format),
     staleTime: Number.POSITIVE_INFINITY,
-    gcTime: 10 * 60_000,
+    gcTime: MAP_KEPT_MS,
   });
+  const cloud = query.data;
+  const revision = scene?.revision;
+  useEffect(() => {
+    if (cloud && frame && revision) held.current = { frame, revision, cloud };
+  }, [cloud, frame, revision]);
+  return query;
 }
 
 /** The splat's bytes, read once per splat and try, with how much of them has come. A try after the first (Retry)
@@ -257,7 +310,7 @@ function CloudMap({
   const part = read ? drawnPart(read) : null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: `part` is what of `read` is drawn
   const data = useMemo(() => read, [part]);
-  const bytes = useMapBytes(data);
+  const bytes = useMapCloud(data);
   const hasSplat = !!data?.splat && canDrawSplat(data.splat_format);
   const [chosen, setChosen] = useState<Draw | null>(null);
   const wantSplat = (chosen ?? (hasSplat ? 'splat' : 'points')) === 'splat';
@@ -312,14 +365,23 @@ function CloudMap({
       return { scene: data, map: mapBytes, file };
     });
   }, [data, mapBytes, file, settled]);
-  const newer = !!drawn && !!data && drawn.scene !== data;
+  // Said only of a splat, which takes a while to read: points that changed are drawn in place the moment they come.
+  const newer = !!drawn && !!data && drawn.scene !== data && hasSplat;
   // Where the person was looking when a drawn splat was taken down for a newer one.
   const carried = useRef<View | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `rebuild` is Retry asking for this same scene again
+  // What the view is built around: while it stays the same, what's drawn is brought up to date in place.
+  const around = drawn ? framePart(drawn.scene) : null;
+  const drawnFile = drawn?.file ?? null;
+  const latest = useRef<Drawn | null>(null);
+  latest.current = drawn;
+  // What the view built last drew: the build's own scene, then each one drawn into it since.
+  const shown = useRef<Drawn | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `rebuild` is Retry (or Back to the start) asking for this same scene again; `around` is what of `drawn` the view is built around, and the rest of it is drawn in place below
   useEffect(() => {
     const el = host.current;
-    if (!webgl || !el || !drawn) return;
-    const { scene: data, map, file } = drawn;
+    const from = latest.current;
+    if (!webgl || !el || !from) return;
+    const { scene: data, map: cloud, file } = from;
     let gone = false;
     let made: Built | null = null;
     // A splat looks right from where its frames were taken, and like floaters from above: it opens from the first of
@@ -331,16 +393,14 @@ function CloudMap({
       carried.current ??
       (data.combined ? ABOVE : file || data.view ? openingCamera(Object.keys(data.cameras ?? {})) : null);
     carried.current = null;
-    (async () => {
-      const cloud = parseCloud(map, 'ply');
-      return { b: await build(el, data, cloud, file, opening), cloud };
-    })().then(
-      ({ b, cloud }) => {
+    build(el, data, cloud, file, opening).then(
+      b => {
         if (gone) return b.dispose();
         setBeyond(outsideCounts(cloud.views, cloud.outside));
         made = b;
         built.current = b;
-        setReady(n => n + 1); // the settings wait for the scene
+        shown.current = from;
+        setReady(n => n + 1); // the settings wait for the scene, and so does anything read while it was built
         if (!file) return;
         b.splatLoaded.then(
           () => {
@@ -358,12 +418,37 @@ function CloudMap({
     return () => {
       gone = true;
       built.current = null;
+      shown.current = null;
       setSplatReady(false);
       // only a splat's view is carried: the points drawn while a first splat loads give way to its opening view
       carried.current = file && made ? made.view() : null;
       made?.dispose();
     };
-  }, [webgl, drawn, rebuild]);
+  }, [webgl, around, drawnFile, rebuild, !!drawn]);
+
+  // A later reading of the scene the view is built around is drawn into it: the points as they now are, when they
+  // changed, and the cameras where they now are. The view itself is never touched by this: where the person looks
+  // from, how, and every setting stay, and nothing on the page says loading.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `ready` says a view was built, and may be behind what was read meanwhile
+  useEffect(() => {
+    const view = built.current;
+    const was = shown.current;
+    if (!view || !was || !drawn || was === drawn || was.file !== drawn.file) return;
+    if (framePart(was.scene) !== framePart(drawn.scene)) return; // another view is on its way for this one
+    try {
+      view.update(drawn.scene, was.map === drawn.map ? null : drawn.map);
+      shown.current = drawn;
+      if (was.map !== drawn.map) setBeyond(outsideCounts(drawn.map.views, drawn.map.outside));
+    } catch (error) {
+      built.current = null;
+      try {
+        view.dispose();
+      } catch {
+        // The view already failed; tearing it down can fail again once the device is gone.
+      }
+      setFailed(messageOf(error));
+    }
+  }, [drawn, ready]);
 
   // Settings change what's drawn, then one frame is drawn. A throw here is the view failing: take it down and say
   // so, with Retry, instead of leaving a canvas that no longer draws.
@@ -416,10 +501,7 @@ function CloudMap({
       size="xs"
       value={mode}
       onChange={value => setMode(value as Mode)}
-      data={[
-        { value: 'one', label: 'One camera' },
-        { value: 'all', label: 'All cameras' },
-      ]}
+      data={SCENE_MODES}
       aria-label="Show"
     />
   );

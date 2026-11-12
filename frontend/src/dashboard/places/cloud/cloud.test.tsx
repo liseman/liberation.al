@@ -20,7 +20,7 @@ import {
   type V3,
 } from './geometry';
 import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layers';
-import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
+import { applyChange, canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import {
   addedNote,
   bendLine,
@@ -144,6 +144,54 @@ it("reads a place map's points and colours from its PLY", () => {
   expect(Array.from(cloud.positions)).toEqual([1, 2, 3, -1, 0.5, 0]);
   // kept as bytes the GPU scales to 0 to 1, a quarter of the memory of floats; the counts after them are skipped
   expect(Array.from(cloud.colours ?? [])).toEqual([255, 0, 0, 0, 0, 255]);
+});
+
+/** What changed since some points: runs of them kept (where from, how many; -1 for the new ones), then `fresh`. */
+function change(total: number, runs: [number, number][], fresh: ArrayBuffer, said = 2): ArrayBuffer {
+  const out = new Uint8Array(16 + runs.length * 8 + fresh.byteLength);
+  out.set(new TextEncoder().encode('LMC1'));
+  const head = new DataView(out.buffer);
+  head.setUint32(4, total, true);
+  head.setUint32(8, runs.length, true);
+  head.setUint32(12, said, true);
+  runs.forEach(([start, count], i) => {
+    head.setInt32(16 + i * 8, start, true);
+    head.setInt32(20 + i * 8, count, true);
+  });
+  out.set(new Uint8Array(fresh), 16 + runs.length * 8);
+  return out.buffer;
+}
+
+it('makes the points of a later map from the ones held and what changed, leaving the ones held as they were', () => {
+  const was = { ...parseCloud(ply(), 'ply'), views: new Uint16Array([4, 5]), outside: new Uint8Array([0, 1]) };
+  // the second point held stays, then the two new ones, then the first held
+  const now = applyChange(
+    was,
+    change(
+      4,
+      [
+        [1, 1],
+        [-1, 2],
+        [0, 1],
+      ],
+      ply(),
+    ),
+  );
+  expect(now.count).toBe(4);
+  expect(Array.from(now.positions)).toEqual([-1, 0.5, 0, 1, 2, 3, -1, 0.5, 0, 1, 2, 3]);
+  expect(Array.from(now.colours ?? [])).toEqual([0, 0, 255, 255, 0, 0, 0, 0, 255, 255, 0, 0]);
+  expect(Array.from(now.views ?? [])).toEqual([5, 0, 0, 4]); // the new points here say nothing of whose they are
+  expect(Array.from(now.outside ?? [])).toEqual([1, 0, 0, 0]);
+  expect(Array.from(was.positions)).toEqual([1, 2, 3, -1, 0.5, 0]);
+});
+
+it.each([
+  ['a change that takes points the held map does not have', change(1, [[5, 1]], ply())],
+  ['one whose runs do not add up to the points it says', change(3, [[0, 1]], ply())],
+  ['one that says more new points than it brings', change(2, [[-1, 2]], ply(), 3)],
+  ['bytes that are no change at all', ply()],
+])('refuses %s', (_, bytes) => {
+  expect(() => applyChange(parseCloud(ply(), 'ply'), bytes)).toThrow(/change/);
 });
 
 it('draws only the formats it can read', () => {
@@ -628,30 +676,40 @@ const mapped = (more: Partial<NonNullable<ScenePlaced['map']>> = {}): ScenePlace
 it.each([
   [mapped(), 'The map holds 18,204 points from this camera: 3,100 from its latest picture.'],
   [mapped({ added: 0 }), 'The map holds 18,204 points from this camera: its latest picture showed nothing new.'],
+  [mapped({ added: 18204 }), 'The map holds 18,204 points from this camera, all from its latest picture.'],
   [
     mapped({ moved_m: 0.98, turned_deg: 14.2, added: 5200 }),
     'The map holds 18,204 points from this camera: 5,200 from its latest picture. It was moved 98 cm and turned 14° to line up with what the map holds there.',
   ],
   [
     mapped({ off_m: 0.2, added: 900, left_out: 4200 }),
-    "The map holds 18,204 points from this camera: 900 from its latest picture. It couldn't be lined up with what the map holds there (20 cm out). 4,200 points of it are left out: better-placed pictures saw nothing there.",
+    "The map holds 18,204 points from this camera: 900 from its latest picture. It couldn't be lined up with what the map holds there (20 cm out). 4,200 of its points are left out, where better-placed pictures see empty space.",
   ],
   [
     mapped({ state: 'refused', why: 'apart', added: 0, points: 1 }),
-    "Its latest picture isn't in the map or drawn: it stands somewhere else than the pictures the map is made of, so it would be a second copy. The map holds 1 point from this camera.",
+    "Its latest picture is left out: it doesn't line up with what the map already holds, so it would draw the room twice. It's tried again with each new picture. The map holds 1 point from this camera.",
   ],
   [
     mapped({ state: 'refused', why: 'full', added: 0 }),
-    "Its latest picture isn't in the map: the map is full. The map holds 18,204 points from this camera.",
+    "Its latest picture isn't in the map: the map holds as many points as it keeps, so newer pictures add nothing for now. The map holds 18,204 points from this camera.",
   ],
 ])("says what the place's map took of a camera's latest picture", (map, text) => {
   expect(mapLine(placedAs('spot', { map }))).toBe(text);
 });
 
 it.each([
-  [{ floor_m2: 33.5, plan_m2: 88.5 }, "It covers about 38 percent of your plan's floor so far (34 of 89 m²)."],
-  [{ floor_m2: 0, plan_m2: 88.5 }, "It covers about 0 percent of your plan's floor so far (0 of 89 m²)."],
-  [{ floor_m2: 90, plan_m2: 88.5 }, "It covers about 100 percent of your plan's floor so far (90 of 89 m²)."],
+  [
+    { floor_m2: 33.5, plan_m2: 88.5 },
+    "The map covers about 38\u00a0percent of your plan's floor so far (34\u00a0of\u00a089\u00a0m²).",
+  ],
+  [
+    { floor_m2: 0, plan_m2: 88.5 },
+    "The map covers about 0\u00a0percent of your plan's floor so far (0\u00a0of\u00a089\u00a0m²).",
+  ],
+  [
+    { floor_m2: 90, plan_m2: 88.5 },
+    "The map covers about 100\u00a0percent of your plan's floor so far (90\u00a0of\u00a089\u00a0m²).",
+  ],
   [{ floor_m2: 3, plan_m2: 0 }, null],
   [null, null],
   [undefined, null],
