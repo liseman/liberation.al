@@ -448,6 +448,7 @@ function CloudMap({
       place={place}
       cameras={combined.cameras}
       pairs={combined.pairs}
+      covered={combined.covered}
       hidden={hiddenCameras}
       onToggle={(name, on) =>
         setHiddenCameras(was => {

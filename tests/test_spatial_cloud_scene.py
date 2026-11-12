@@ -561,6 +561,9 @@ def test_a_camera_turned_ninety_degrees_is_placed_again_by_its_walls_without_bei
     found = scenes.scene(store, PLACE, spots, ROOMS)
     hall = placed(found, "hall")
     assert (hall.how, hall.fitted, (hall.follow or {})["by"]) == ("following", True, "turned")
+    # the scene says how much of the plan's floor the place's map covers: some of the hall, none of the den
+    assert found.covered is not None and found.covered["plan_m2"] == pytest.approx(20.0 + 21.0 + 7.5)
+    assert 3.0 < found.covered["floor_m2"] < 20.0
     assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
     assert (hall.shift_m, hall.turn_deg) == (pytest.approx(0.0, abs=0.03), pytest.approx(90.0, abs=0.5))
     # the wall it now faces is drawn on the plan's wall between the two rooms, and what it saw before it was

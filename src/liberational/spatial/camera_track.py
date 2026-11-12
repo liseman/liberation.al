@@ -297,7 +297,7 @@ class Track:
             )  # fmt: skip
             try:
                 where = cloud_map.folder(self.store.folder, self.place)
-                added = cloud_map.offer(where, cloud_align.plan_key(self.rooms), shot).points
+                added = cloud_map.offer(where, self.rooms, shot).points
             except (OSError, ValueError) as e:
                 LOG.warning("%s: a keyframe wasn't offered to the map: %s", self.camera, e)
         row = {"n": self._count, "at": now, "held": found.state == "placed", "added": added}
