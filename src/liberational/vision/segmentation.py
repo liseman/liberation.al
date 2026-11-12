@@ -65,9 +65,11 @@ CONCEPT = "object_segmentation_concept"  # SAM 3: one concept prompt, the name o
 GRID = "object_segmentation_points"  # SAM 2: the same grid on a larger backbone
 TODAY = "object_segmentation"  # EdgeTAM: the grid as it has always run
 KINDS = {CONCEPT: "sam3", GRID: "sam2", TODAY: "edgetam"}
+NAMES = {CONCEPT: "SAM 3", GRID: "SAM 2", TODAY: "EdgeTAM"}  # each model's name in the owner's words
 CONCEPT_MIN_SCORE = 0.5  # a concept mask's own score must reach this (the measurement's operating point)
 CONCEPT_BYTES = 5 * 2**30  # free GPU memory the concept model needs: 4.6 GB measured, plus the decoder's room
-NO_ROOM = "SAM 3 needs an NVIDIA GPU with about 5 GB free, and no GPU here has that now; the point grid ran instead."
+# The reason a concept run fell back, said with the name of the model that ran instead (`find_all` joins the two).
+NO_ROOM = "SAM 3 had no room on the GPU (it needs about 5 GB free)"
 BACKENDS = ("auto", "sam3", "sam2", "edgetam")
 
 
@@ -621,7 +623,8 @@ def find_backend(concept: str = "") -> tuple[Backend, str]:
             if concept:
                 return _model(CONCEPT), ""
             return points_backend(want), (
-                "SAM 3 looks for the name you give it, so name the object first; this run used the point grid."
+                "SAM 3 looks for the name you give it, so name the object first; this run found everything in view "
+                "instead."
             )
         if want == "sam3":
             raise Unavailable(
@@ -632,48 +635,47 @@ def find_backend(concept: str = "") -> tuple[Backend, str]:
 
 
 def describe() -> dict[str, str]:
-    """Which model Find objects uses and why, in plain words: the models status and the Objects page show it."""
+    """Which model Find objects uses and why, in plain words: the models status and the Objects page show it. The
+    words say what each model does for the owner, never our internals or a command (the docs carry those)."""
     try:
         want = forced()
         if installed(CONCEPT) and want in ("auto", "sam3"):
             return {
                 "backend": KINDS[CONCEPT],
                 "model": _model(CONCEPT).repo,
-                "why": "SAM 3 is installed, so Find objects looks for the name you give it, which finds far more of "
-                "what you ask for than the point grid. It loads when you ask, and stops when it has been idle.",
+                "why": "SAM 3 is installed, so Find objects looks for the name you type, and finds far more of what "
+                "you ask for. It loads when you ask, and stops when it has been idle.",
             }
         if want == "sam3":
             return {
                 "backend": KINDS[CONCEPT],
                 "model": _model(CONCEPT).repo,
-                "why": "SAM 3 is set in Settings and its weights are not installed. Fetch them with `mise run models`, "
-                "after giving this machine's Hugging Face login access to it.",
+                "why": "SAM 3 is chosen in Settings and isn't installed, so Find objects can't run until it is.",
             }
         if want == "sam2" or installed(GRID):
             return {
                 "backend": KINDS[GRID],
                 "model": _model(GRID).repo,
-                "why": "SAM 3 is not installed (its download is gated on Hugging Face), so Find objects looks for "
-                "objects with the point grid on SAM 2.",
+                "why": "SAM 3, which finds objects by name, isn't installed. SAM 2 finds everything in view instead.",
             }
         return {
             "backend": KINDS[TODAY],
             "model": _model(TODAY).repo,
-            "why": "Only EdgeTAM is installed, so Find objects looks for objects with its point grid. SAM 3, which "
-            "finds objects by name, is an optional download (`mise run models`).",
+            "why": "SAM 3, which finds objects by name, isn't installed. EdgeTAM finds everything in view instead.",
         }
     except Unavailable as exc:  # a bad setting must not take the Objects page or the machine's status down
         return {"backend": "unavailable", "model": "", "why": str(exc)}
 
 
 def mask_backend_row() -> dict[str, str]:
-    """The mask backend as one row of the models status (`model_runtime.configured`): its model and, in plain words,
-    why that one is in use."""
+    """The mask backend as one row of the models status (`model_runtime.configured`): its purpose in the list's two
+    or three words, its model, and, in plain words, why that one is in use."""
     seen = describe()
     return {
         "key": "objects.mask_backend",
         "name": seen["model"] or "no object model",
-        "purpose": f"find objects: {seen['why']}",
+        "purpose": "find objects",
+        "why": seen["why"],
         "device": "unknown",
     }
 
@@ -688,7 +690,8 @@ def find_all(image: bytes, *, concept: str = "", job: str | None = None) -> Foun
             try:
                 (found,) = _run(_find_concept, (image, concept, chosen.model_ref, device), _timeout())
             except _NoRoom as exc:
-                chosen, note = points_backend(forced()), str(exc)
+                chosen = points_backend(forced())
+                note = f"{exc}, so {NAMES[chosen.key]} looked instead."
                 (found,) = _run(_find, (image, chosen.key, chosen.model_ref, device), _timeout())
         else:
             (found,) = _run(_find, (image, chosen.key, chosen.model_ref, device), _timeout())
