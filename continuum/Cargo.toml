@@ -20,7 +20,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 publish = false
 # redb 4.4 and later require Rust 1.90; continuum-vector declares its higher floor separately.

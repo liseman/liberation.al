@@ -139,7 +139,7 @@ pack](docs/TUTORIAL.md).
 
 ## Status and limits
 
-This is version 0.1.0 of a research project. It runs every day in its developers' homes, and it changes fast.
+This is version 0.1.1 of a research project. It runs every day in its developers' homes, and it changes fast.
 
 - An upgrade can reset recorded history. What you taught it (names, faces, voices, pets, and plans) is kept, and
   each version's [release notes](docs/RELEASES.md#notes) say what it resets.

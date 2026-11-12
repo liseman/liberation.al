@@ -270,3 +270,61 @@ An unnamed voice now opens only when a line recurs, so a one-off line (a show pl
 unattributed. A pet's card says how many of its taught sightings keep no saved picture, and a picture saved after the
 first naming is kept by naming the sighting again. A camera's tilt can now be confirmed by the straight edges in its
 picture, and an animal whose floor point a solid wall hides is placed at the furniture, marked approximate.
+
+## 0.1.1
+
+A release of fixes and additions on top of 0.1.0. No setting has to be removed, and nothing taught is touched.
+
+An upgrade resets one thing, and it is machine-made: stored positions. The position layer's records gained an
+`approximate` column that a part written before this version does not have, so run `pack-positions --reset` after
+upgrading and restart the application. It places the last 30 days again from the raw samples. A place's 3D map is
+also machine-made and builds up again by itself. The knowledge store, the face gallery, voice references, pets, plans,
+and recordings stay as they are.
+
+After upgrading, run `pack-setup` (or `pack-models`) once: the person and animal detector is now RF-DETR Medium, a new
+model file, and vision does not start without it.
+
+The 3D view:
+
+- A place has one map that builds up. Each camera's shot is lined up with the plan and with what the map already
+  holds, then added up to a set density, so the map fills in as cameras see more and does not grow without limit. A
+  shot that cannot be brought into agreement is left out and its row says so. What a newer shot looks straight through
+  leaves the map, so furniture that moves is updated. The view says how much of the plan's floor the map covers.
+- A camera that is turned or carried is followed without a button. While it moves it is tracked from its live
+  frames, its keyframes join the map as they are made, and its row counts the points the move has added. Your plan and
+  the spots on it are never written.
+- The view opens on All cameras, updates in place without reloading, and fills the window with the page's usual
+  margin under it, as do the drawn plan and the plan editor.
+
+Live:
+
+- Enhance steadies the picture of the large camera and highlights small changes, in three looks: Subtle, Contrast,
+  and Colour. It is off until you turn it on, and it keeps a 1920x1080 stream at 60 frames a second in Firefox and
+  Chromium. The Colour look uses Eulerian video magnification, a technique whose patents (held by MIT) permit
+  non-commercial use.
+- A heart rate can be read from the colour of skin in the picture of a close camera that delivers about 30 frames a
+  second in colour, and is shown beside a person's name only while the reading can be trusted. It is approximate and
+  not a medical device. It needs that camera recorded at a higher quality (`encoding = {enabled = true, cq = 20}` in
+  its device entry), and `vision.heart_rate = false` turns it off.
+- The conversation keeps its place when a name is saved, and a camera option shows its saved state as a small mark
+  beside the control, so nothing shifts.
+
+Recognition and memory:
+
+- Find objects looks for an object by the name you type when SAM 3 is installed. SAM 3 is an optional, gated download
+  with its own licence that is not open source, and it is never bundled; without it Find objects falls back to SAM 2.1,
+  and then to the model it used before. Settings says which is in use and why.
+- A remembered object can be renamed and removed from the Objects tab, and the plan editor adds, moves, reshapes, and
+  removes objects and unexplored areas.
+- An unnamed voice opens only when a line recurs, so playback near a microphone no longer fills the unnamed list.
+  Naming a pet always keeps its recovery picture. An animal up on furniture is placed at the furniture, marked
+  approximate, where it used to get no place.
+
+Installing and running:
+
+- `pack-setup --check` fails and names what is missing when extras or models are absent. A Linux machine with no
+  NVIDIA GPU no longer downloads the GPU extras it cannot use, and setup says what will not work there. The package no
+  longer recommends `ollama`, which has no apt package: install it from its own site.
+- `pack-services` is only the open application's client. It no longer renders, installs, or uninstalls a unit per
+  service; `python -m liberational.services migrate` still removes units an older install left behind.
+- A whole-codebase audit removed dead code and fixed a number of small defects and slow paths.

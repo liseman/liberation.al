@@ -1197,7 +1197,7 @@ wheels = [
 
 [[package]]
 name = "liberational-pack"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "continuum-py", extra = ["numpy"] },
