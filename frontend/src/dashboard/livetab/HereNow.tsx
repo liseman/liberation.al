@@ -1,6 +1,7 @@
 // Live's "Here now", under the cameras: who the cameras see (where, and since when), the named pets
 // they see, and who was heard in the last minute, side by side in a row that wraps, each linking to their card.
-import { Anchor, Group, Text, Title } from '@mantine/core';
+import { Anchor, Group, Text, Title, Tooltip, VisuallyHidden } from '@mantine/core';
+import { IconHeart } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import type { MouseEventHandler } from 'react';
 import { hm } from '../lib/format';
@@ -8,6 +9,7 @@ import { PageEmpty } from '../lib/page';
 import { useLive } from '../live/hooks';
 import { useLiveStatus } from '../live/status';
 import type { TranscriptEntry } from '../live/types';
+import { getVitals, normName, VITALS_KEY, VITALS_MS, type Vitals } from '../live/vitals';
 import { getPeople, PEOPLE_KEY, type Person } from '../people/api';
 import { EntityAvatar } from '../people/entity';
 import { getPets, PETS_KEY, type PetsView } from '../people/petLinks';
@@ -24,7 +26,12 @@ export interface Here {
   where: string; // "Front camera, since 18:20", or "Heard just now"
   href: string; // their contact card, or the pet's card
   seen: boolean; // a camera sees them (the green dot), not only heard
+  heart?: number; // beats a minute, only when a close camera has a confident reading from the last 20 s
 }
+
+/** What the heart's tooltip says: plain words, and what the number is not. */
+const HEART_TOOLTIP =
+  "Measured from the camera's picture, so it's approximate; it isn't a medical device. It shows only while a close camera has a confident reading.";
 
 const capital = (s: string) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
 const whereSeen = (
@@ -47,7 +54,9 @@ export function hereNow(
   lines: readonly TranscriptEntry[],
   now: number,
   pets?: PetsView,
+  vitals?: Vitals,
 ): Here[] {
+  const heart = (name: string): number | undefined => vitals?.people[normName(name)]?.bpm;
   const seen = people
     .filter(p => p.here_now)
     .sort((a, b) => (a.here_now?.since ?? now) - (b.here_now?.since ?? now))
@@ -58,6 +67,7 @@ export function hereNow(
       where: whereSeen(p.here_now?.camera_name, p.here_now?.cam, p.here_now?.since),
       href: cardHref(p.name),
       seen: true,
+      heart: heart(p.name),
     }));
   const animals = (pets?.pets ?? [])
     .flatMap(p => {
@@ -89,6 +99,7 @@ export function hereNow(
       where: 'Heard just now',
       href: cardHref(p.name),
       seen: false,
+      heart: heart(p.name),
     });
   }
   return [...seen, ...animals, ...heard];
@@ -98,9 +109,16 @@ export function HereNow({ onNameFace }: { onNameFace?: MouseEventHandler<HTMLAnc
   const people = useQuery({ queryKey: PEOPLE_KEY, queryFn: getPeople, refetchInterval: PEOPLE_MS });
   // The Pets list Live already reads for its boxes' links, with which pets are in view now
   const pets = useQuery({ queryKey: PETS_KEY, queryFn: ({ signal }) => getPets(signal), refetchInterval: PEOPLE_MS });
+  // A heart rate beside whoever a close camera has a confident reading for; a failed read shows none, not an error
+  const vitals = useQuery({
+    queryKey: VITALS_KEY,
+    queryFn: ({ signal }) => getVitals(signal),
+    refetchInterval: VITALS_MS,
+    retry: false,
+  });
   const lines = useLive('transcript')?.entries ?? [];
   const now = useLiveStatus(s => s.now);
-  const here = hereNow(people.data?.people ?? [], lines, now, pets.data);
+  const here = hereNow(people.data?.people ?? [], lines, now, pets.data, vitals.data);
   return (
     <section className="rail-card here-card" aria-labelledby="here-now-h">
       <Group justify="space-between" gap="xs">
@@ -120,7 +138,20 @@ export function HereNow({ onNameFace }: { onNameFace?: MouseEventHandler<HTMLAnc
                 <EntityAvatar name={h.name} photo={h.photo} here={h.seen} size={40} />
                 <span className="here-who">
                   <span className="here-name">{h.name}</span>
-                  <span className="here-where">{h.where}</span>
+                  <span className="here-where">
+                    {h.where}
+                    {h.heart !== undefined && (
+                      <Tooltip label={`About ${h.heart} beats a minute. ${HEART_TOOLTIP}`} withArrow multiline w={260}>
+                        <span className="here-heart">
+                          <IconHeart size={11} stroke={2} aria-hidden />
+                          <span aria-hidden>{h.heart}</span>
+                          <VisuallyHidden>
+                            Heart rate about {h.heart} beats a minute. {HEART_TOOLTIP}
+                          </VisuallyHidden>
+                        </span>
+                      </Tooltip>
+                    )}
+                  </span>
                 </span>
               </a>
             </li>

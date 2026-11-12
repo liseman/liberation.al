@@ -103,6 +103,18 @@
   font-size: 12px;
   color: var(--mantine-color-dimmed);
 }
+/* A measured heart rate, only while one can be trusted: nothing at all when there is none, so nothing shifts */
+.here-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.here-heart svg {
+  flex-shrink: 0;
+}
 .rail-all {
   padding: 0 4px;
 }

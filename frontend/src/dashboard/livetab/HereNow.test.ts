@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TranscriptEntry } from '../live/types';
+import type { Vitals } from '../live/vitals';
 import type { Person } from '../people/api';
 import type { PetsView } from '../people/petLinks';
 import { HEARD_S, hereNow } from './HereNow';
@@ -64,5 +65,24 @@ describe('who is here now', () => {
     expect(here[2]?.photo).toContain('track=run%3Adog%3A2');
     expect(here[1]?.href).toBe('/pets#pet=Mia');
     expect(here[0]?.href).toBe('/people#card=Kara');
+  });
+
+  it('shows a heart rate only for the people a close camera has a confident recent reading for', () => {
+    const people: Person[] = [
+      person({ name: 'Kara', here_now: { cam: 'cam0', since: NOW - 30 } }),
+      person({ name: 'Luca', here_now: { cam: 'cam0', since: NOW - 30 } }),
+      person({ name: 'Dana' }),
+    ];
+    const vitals: Vitals = {
+      at: NOW,
+      // The server only sends readings it trusts and that are recent; the name is the one it keys by, case folded.
+      people: { kara: { bpm: 72, confidence: 0.81, face_px: 160, at: NOW - 2 } },
+    };
+    const here = hereNow(people, [line('Dana', 5)], NOW, undefined, vitals);
+    expect(here.map(h => [h.name, h.heart])).toEqual([
+      ['Kara', 72],
+      ['Luca', undefined],
+      ['Dana', undefined],
+    ]);
   });
 });
