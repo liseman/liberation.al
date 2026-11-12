@@ -28,6 +28,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   type ChangeEvent,
   Component,
+  type CSSProperties,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -364,18 +365,20 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
   }, [draw, splatReady, size, colour, show, ready, combined, hiddenCameras, inside]);
 
   // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
-  // header, the tabs) is the page's to decide, and measured again when the window changes.
+  // header, the tabs, the known row) is the page's to decide, and measured again after each render and when the window
+  // changes. Its frame reaches the window's bottom edge, so the page gives up the room it kept under it there
+  // (data-fills-page, places.module.css and page.module.css).
   const frame = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(0);
   useLayoutEffect(() => {
     const measure = () => {
       const el = frame.current;
-      if (el) setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+      if (el) setTop(Math.ceil(el.getBoundingClientRect().top + window.scrollY));
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
+  });
 
   if (!webgl)
     return (
@@ -495,7 +498,8 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
       <div
         ref={frame}
         className={classes.cloudFrame}
-        style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
+        data-fills-page
+        style={{ '--cloud-top': `${top}px` } as CSSProperties}
       >
         {views.length > 0 && (
           <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
