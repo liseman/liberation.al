@@ -29,6 +29,8 @@ export interface LivePrefs extends Prefs {
   usagePanel?: UsagePanelPref; // the Resource monitor, closed when unset
   skeletons?: boolean; // Live and Review draw body skeletons over the camera (default on)
   liveTiles?: boolean; // Live's camera overview plays every camera live, not a picture every few seconds (default on)
+  enhance?: boolean; // Live's large camera shows the Enhance view, stabilised with change highlighted (default off)
+  enhanceLook?: 'subtle' | 'contrast' | 'colour'; // the Enhance view's look (subtle when unset)
 }
 
 export const usePrefs = create<LivePrefs>(() => readPrefs());

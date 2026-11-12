@@ -1050,12 +1050,14 @@ def test_find_objects_without_a_crop_looks_at_the_whole_frame(monkeypatch):
         assert decoded is not None
         shapes.append((decoded.shape[:2], concept))
         backend = segmentation.Backend("edgetam", segmentation.TODAY, "fixture/edgetam", "/models/edgetam")
-        return segmentation.Found([], backend, "SAM 3 needs an NVIDIA GPU with about 5 GB free; the point grid ran.")
+        return segmentation.Found(
+            [], backend, "SAM 3 had no room on the GPU (it needs about 5 GB free), so EdgeTAM looked instead."
+        )
 
     monkeypatch.setattr(segmentation, "find_all", find_all)
     found = page.find({"snapshot": snap.token})
     assert found["objects"] == [] and found["backend"] == "edgetam"
-    assert found["note"].startswith("SAM 3 needs an NVIDIA GPU"), "a fallback says why it ran"
+    assert found["note"].startswith("SAM 3 had no room on the GPU"), "a fallback says why it ran"
     assert shapes == [((80, 100), "")], "no name typed is a grid run, not an error"
     with pytest.raises(FileNotFoundError):
         page.find({"snapshot": "gone"})

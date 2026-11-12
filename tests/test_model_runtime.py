@@ -497,11 +497,13 @@ def test_a_callers_own_row_is_listed_with_the_configured_models(state):
     row = {
         "key": "objects.mask_backend",
         "name": "example/sam3",
-        "purpose": "find objects: SAM 3 is installed, so Find objects looks for the name you give it.",
+        "purpose": "find objects",
+        "why": "SAM 3 is installed, so Find objects looks for the name you type.",
         "device": "unknown",
     }
     view = runtime.snapshot({}, None, [row])
     assert {r["key"] for r in view["configured"]} >= {"objects.mask_backend"}
     listed = next(r for r in view["configured"] if r["key"] == "objects.mask_backend")
     assert (listed["name"], listed["purpose"], listed["state"]) == (row["name"], row["purpose"], "unloaded")
+    assert listed["why"] == row["why"], "the row's reason reaches Settings, which shows it under the purpose"
     assert row["key"] not in {p["service"] for p in view["processes"]}, "it is not a process or a load report"

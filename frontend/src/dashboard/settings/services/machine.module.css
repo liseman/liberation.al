@@ -191,6 +191,10 @@
   color: var(--mantine-color-dimmed);
   font-size: 13px;
 }
+.modelWhy {
+  color: var(--mantine-color-dimmed);
+  font-size: 12px;
+}
 .modelState {
   color: var(--mantine-color-dimmed);
   font-size: 12.5px;

@@ -1,0 +1,22 @@
+/* The Enhance view sits exactly over the plain picture (same box, same fit), under the boxes layer. It shows only
+   once it has drawn a frame, and steps aside while frames have stopped, so the plain picture's dimmed last frame
+   shows as it does without Enhance. */
+.enhance-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+.enhance-canvas.drawn {
+  visibility: visible;
+}
+.enhance-canvas.paused {
+  visibility: hidden;
+}
+.mirror .enhance-canvas {
+  transform: scaleX(-1);
+}

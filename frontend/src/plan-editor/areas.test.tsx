@@ -294,3 +294,65 @@ it('leaves the marks alone while a camera is being added, and draws a locked sce
   expect(container.querySelector('[data-plan-marks]')?.getAttribute('pointer-events')).toBe('none');
   expect(screen.getByRole('button', { name: 'Sofa: move' }).getAttribute('tabindex')).toBe('-1');
 });
+
+it('draws a fresh object with an accent fill and its kind as the label, and a picked one stronger', () => {
+  open(
+    plan({
+      objects: {
+        bare: {
+          poly: [
+            [4, 1],
+            [6, 1],
+            [6, 3],
+            [4, 3],
+          ],
+        },
+      },
+    }),
+  );
+  render(
+    <svg>
+      <title>plan</title>
+      <Marks />
+    </svg>,
+  );
+  const drawn = document.querySelector('[data-area="object:bare"] polygon');
+  expect(drawn?.getAttribute('fill-opacity')).toBe('0.12');
+  // an object with no label of its own says what it is, rather than showing only its corner handles
+  expect(screen.getByText('Object', { selector: 'text' })).toBeTruthy();
+  fireEvent.focus(screen.getByRole('button', { name: 'Unnamed object: move' }));
+  expect(drawn?.getAttribute('fill-opacity')).toBe('0.2');
+});
+
+it('names an unlabelled object in the panel, and says what it is once picked', () => {
+  open(
+    plan({
+      objects: {
+        bare: {
+          poly: [
+            [4, 1],
+            [6, 1],
+            [6, 3],
+            [4, 3],
+          ],
+        },
+      },
+    }),
+  );
+  render(<MarksTab />);
+  fireEvent.click(screen.getByRole('button', { name: 'Unnamed object' }));
+  expect(screen.getByRole('heading', { name: 'Object' })).toBeTruthy();
+  expect((screen.getByLabelText('Label') as HTMLInputElement).placeholder).toBe('What is it? (sofa, bookcase)');
+  expect(screen.getByRole('button', { name: 'Remove this object' }).className).toContain('text-destructive');
+});
+
+it('gives one hint while adding, and an unexplored empty state that is not a double negative', () => {
+  open(plan());
+  render(<MarksTab />);
+  expect(screen.getByText("No unexplored areas yet. Mark a part of the house the cameras haven't seen.")).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Add an object' }));
+  expect(
+    screen.getByText('Click the plan where it goes (2D view, select tool), or put it in the middle.'),
+  ).toBeTruthy();
+  expect(screen.queryByText(/the plan's click places it/)).toBeNull();
+});
