@@ -35,6 +35,19 @@ def install(monkeypatch, *keys):
     monkeypatch.setattr(segmentation, "_model", lambda key: BY_KEY[key])
 
 
+@pytest.fixture(autouse=True)
+def no_real_models(tmp_path):
+    """Every object model's weights are somewhere else, so no test's answer depends on this machine's data/models.
+
+    Which optional models are on disk decides Find objects' backend, so a test that left it to the config passed only
+    where the weights happened to be missing. `install` says what is present; a test of the real check overrides the
+    paths again, and a later override wins.
+    """
+    absent = {key: {"path": str(tmp_path / "no-models" / key)} for key in BY_KEY}
+    with cfg.override({"models": {"hf": absent}}):
+        yield
+
+
 def image_bytes():
     out = io.BytesIO()
     Image.new("RGB", (80, 60), "blue").save(out, format="JPEG")
@@ -560,6 +573,23 @@ def test_pinning_edgetam_keeps_todays_model_and_pinning_sam3_still_points_with_t
     with cfg.override({"objects": {"mask_backend": "sam3"}}):
         assert segmentation.find_backend("wallet")[0].kind == "sam3"
         assert segmentation.points_backend(segmentation.forced()).kind == "sam2", "a box or point is not a concept"
+
+
+def test_installed_reads_the_configured_local_copy_and_nothing_else(tmp_path):
+    """The real check, without a stub: it reads models.hf.<key>.path, and only a config.json there counts."""
+    there = tmp_path / "models" / "there"
+    there.mkdir(parents=True)
+    (there / "config.json").write_text("{}")
+    entries = {key: {"path": str(tmp_path / "models" / key), "repo": f"fixture/{key}"} for key in BY_KEY}
+    entries[segmentation.CONCEPT]["path"] = str(there)
+    with cfg.override({"models": {"hf": entries}}):
+        assert segmentation.installed(segmentation.CONCEPT) is True
+        assert segmentation.installed(segmentation.TODAY) is False, "a declared path with nothing under it is absent"
+        assert segmentation.installed("object_segmentation_nonexistent") is False, "an undeclared key has no path"
+        assert segmentation._model(segmentation.CONCEPT).model_ref == str(there), "it loads from the installed copy"
+        assert segmentation._model(segmentation.TODAY).model_ref == f"fixture/{segmentation.TODAY}", (
+            "an absent model names its repo, and fails cleanly if it cannot load"
+        )
 
 
 @pytest.mark.parametrize(
