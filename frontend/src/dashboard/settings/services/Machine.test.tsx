@@ -311,6 +311,38 @@ describe('all model sources', () => {
     expect(tile('Models')).toHaveTextContent('0 loaded');
   });
 
+  it("puts a configured model's reason for being used on a second line under its purpose", async () => {
+    serve(
+      stats({
+        ollama: { up: true, models: [] },
+        model_runtime: {
+          processes: [],
+          configured: [
+            {
+              key: 'objects.mask_backend',
+              name: 'EdgeTAM',
+              purpose: 'find objects',
+              why: "SAM 3, which finds objects by name, isn't installed. EdgeTAM finds everything in view instead.",
+              device: 'unknown',
+              state: 'unloaded',
+            },
+          ],
+          errors: [],
+        },
+      }),
+    );
+    renderPage(<Machine />);
+    await openModels();
+    const list = await screen.findByRole('list', { name: 'Configured models' });
+    // The purpose reads like every other row's; the reason it is this model sits dimmed under it.
+    expect(within(list).getByText('find objects')).toBeInTheDocument();
+    expect(
+      within(list).getByText(
+        "SAM 3, which finds objects by name, isn't installed. EdgeTAM finds everything in view instead.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('keeps a configured replacement visible while the old model is still loaded under the same key', async () => {
     serve(
       stats({
