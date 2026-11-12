@@ -427,6 +427,7 @@ def _delete_person_locked(name: object, control: bool) -> Reply:
     # they're all still here (the voiceprints still theirs, say), and deleting them again finds everything.
     removed["continuum"], failed = _purge_continuum(subjects)
     failed += _forget_voice_embeddings(subjects)
+    failed += _forget_vitals(subjects)
     if failed:
         return 500, {
             "ok": False,
@@ -584,6 +585,27 @@ def _forget_voice_embeddings(subjects: set[str]) -> int:
                 forget_segments_where(segment_log.root(context.STATE), column, s, streams=[voices.EMBEDDINGS])
         except Exception as e:
             LOG.error("people: forgetting voice embeddings failed: %s", e)
+            failed += 1
+    return failed
+
+
+def _forget_vitals(subjects: set[str]) -> int:
+    """Forgets, in the segment store, every heart-rate reading ("vitals.heart_rate", see/hearts.py) filed under one
+    of `subjects` (a person's ids and prints). A reading of someone nobody named carries no person, so nothing links
+    it to a name; those go with the rest of the machine-made rows at the retention window. Returns how many subjects
+    couldn't be forgotten."""
+    from continuum_py import forget_segments_where
+
+    from liberational import segment_log
+
+    failed = 0
+    for s in sorted(subjects):
+        try:
+            forget_segments_where(
+                segment_log.root(context.STATE), "person", s, streams=[segment_log.VITALS_HEART_RATES]
+            )
+        except Exception as e:
+            LOG.error("people: forgetting vitals readings failed: %s", e)
             failed += 1
     return failed
 
