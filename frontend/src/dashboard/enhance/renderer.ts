@@ -93,6 +93,7 @@ const vec3 LUMA = vec3(${LUMA.join(', ')});
 uniform sampler2D small;
 uniform vec2 shift;
 uniform vec2 size;
+uniform float lod; // the small copy's mip level that matches the state's size
 // maths.ts edgeMask: no highlight where a wobble brings in pixels from beyond the frame's edge
 float edgeMask(vec2 p) {
   vec2 m = abs(shift) + ${EDGE_MARGIN.toFixed(3)};
@@ -110,7 +111,7 @@ layout(location = 0) out vec4 fastOut;
 layout(location = 1) out vec4 slowOut;
 void main() {
   vec2 p = vec2(gl_FragCoord.x, size.y - gl_FragCoord.y) / size;
-  vec3 c = texture(small, p + shift).rgb;
+  vec3 c = textureLod(small, p + shift, lod).rgb;
   ivec2 t = ivec2(gl_FragCoord.xy);
   fastOut = vec4(mix(texelFetch(fastIn, t, 0).rgb, c, af), 1.0);
   slowOut = vec4(mix(texelFetch(slowIn, t, 0).rgb, c, as), 1.0);
@@ -161,7 +162,7 @@ void main() {
     vec3 band = texture(fastIn, t).rgb - texture(slowIn, t).rgb;
     float bl = dot(band, LUMA);
     vec3 d = inside * ${COLOUR_GAIN.toFixed(1)} * (band - bl + 0.2 * bl);
-    vec3 v = max(texture(small, p + shift).rgb, 1.0 / 255.0);
+    vec3 v = max(textureLod(small, p + shift, lod).rgb, 1.0 / 255.0);
     vec3 share = -d / v;
     float a = clamp(max(max(share.r, share.g), share.b), 0.0, 1.0);
     o = vec4(max(d + a * v, 0.0), a);
@@ -182,7 +183,7 @@ void main() {
     // plain picture (CONTRAST_SATURATION); where it is lit, the colour the filter took is put back from the small
     // copy.
     float h = clamp(max(s0, 3.0 * s2), 0.0, 1.0) * inside;
-    vec3 v = texture(small, p + shift).rgb;
+    vec3 v = textureLod(small, p + shift, lod).rgb;
     vec3 colour = (1.0 - ${CONTRAST_SATURATION.toFixed(2)}) * (v - dot(v, LUMA));
     vec3 lit = 1.25 * (0.35 * GLOW + 0.65 * colour);
     o = vec4(max(mix(vec3(0.02), lit, h), 0.0), 1.0 - mix(0.35, 1.25 * 0.65, h));
@@ -211,7 +212,19 @@ function compile(gl: WebGL2RenderingContext, fragment: string): WebGLProgram {
   return program;
 }
 
-const UNIFORMS = ['small', 'fastIn', 'slowIn', 'strengthIn', 'shift', 'size', 'af', 'as', 'look', 'gain'] as const;
+const UNIFORMS = [
+  'small',
+  'fastIn',
+  'slowIn',
+  'strengthIn',
+  'shift',
+  'size',
+  'lod',
+  'af',
+  'as',
+  'look',
+  'gain',
+] as const;
 type Uniforms = Record<(typeof UNIFORMS)[number], WebGLUniformLocation | null>;
 
 /** A pass: its program, its uniforms (looked up once), and its samplers pointed at their texture units. */
@@ -243,20 +256,15 @@ function step(width: number, height: number, read = false): Step {
   return { canvas, context };
 }
 
-/** How the small copy is made: 'halves' (each copy half the one before, a true 2 by 2 average) or 'direct' (one
- *  copy straight to SMALL_MAX). */
-export const smallCopy = { mode: 'halves' as 'halves' | 'direct' };
-
 /** The sizes of the small-copy chain for a frame: each half the one before, until the long side is SMALL_MAX or
- *  less. A frame already that small gets one copy at its own size. */
+ *  less. A frame already that small gets one copy at its own size. Halving is the point: a 2D canvas scales with
+ *  plain bilinear sampling, which at exactly half size is the 2 by 2 average, and at any smaller size skips pixels.
+ *  One copy straight to the small size was measured: fine detail then flickers with every wobble, the motion
+ *  estimate loses its place many times a second, and up to 40 % of the picture lights. */
 export function smallSizes(width: number, height: number): { width: number; height: number }[] {
   const sizes: { width: number; height: number }[] = [];
   let w = width;
   let h = height;
-  if (smallCopy.mode === 'direct') {
-    const k = Math.min(1, SMALL_MAX / Math.max(w, h));
-    return [{ width: Math.round(w * k), height: Math.round(h * k) }];
-  }
   while (Math.max(w, h) > SMALL_MAX) {
     w = Math.ceil(w / 2);
     h = Math.ceil(h / 2);
@@ -288,7 +296,7 @@ export class Enhancer {
   private lumaStep: Step | null = null;
   private luma = { data: new Float32Array(0), width: 0, height: 0 };
   private smallTexture: WebGLTexture | null = null;
-  private smallMips = false;
+  private smallLod = 0;
   private targets: [Target, Target] | null = null;
   /** Each state sample's highlight strength, with four mip levels for the glow. */
   private strength: { texture: WebGLTexture; fbo: WebGLFramebuffer } | null = null;
@@ -326,7 +334,11 @@ export class Enhancer {
     if (!gl.getExtension('EXT_color_buffer_float') && !gl.getExtension('EXT_color_buffer_half_float'))
       throw new Error('This browser cannot render to half-float textures.');
     this.gl = gl;
-    this.passes = { state: this.pass(STATE_PASS), strength: this.pass(STRENGTH_PASS), overlay: this.pass(OVERLAY_PASS) };
+    this.passes = {
+      state: this.pass(STATE_PASS),
+      strength: this.pass(STRENGTH_PASS),
+      overlay: this.pass(OVERLAY_PASS),
+    };
     this.corners = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.corners);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -409,7 +421,7 @@ export class Enhancer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.smallTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, small);
-    if (this.smallMips) gl.generateMipmap(gl.TEXTURE_2D);
+    gl.generateMipmap(gl.TEXTURE_2D);
     this.mark?.('upload');
 
     const reset = this.needsReset;
@@ -435,6 +447,7 @@ export class Enhancer {
     gl.bindTexture(gl.TEXTURE_2D, from.slow);
     gl.uniform2f(state.shift, x, y);
     gl.uniform2f(state.size, width, height);
+    gl.uniform1f(state.lod, this.smallLod);
     gl.uniform1f(state.af, reset ? 1 : emaAlpha(dt, fastTau));
     gl.uniform1f(state.as, reset ? 1 : emaAlpha(dt, taus.slow));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -465,6 +478,7 @@ export class Enhancer {
     const overlay = this.select(this.passes.overlay);
     gl.uniform2f(overlay.shift, x, y);
     gl.uniform2f(overlay.size, this.canvas.width, this.canvas.height);
+    gl.uniform1f(overlay.lod, this.smallLod);
     gl.uniform1i(overlay.look, this.look === 'subtle' ? 0 : this.look === 'contrast' ? 1 : 2);
     gl.uniform1f(overlay.gain, this.gain);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -521,19 +535,19 @@ export class Enhancer {
       this.stabiliser.reset();
     }
 
-    // The small copy on the graphics card. The state pass samples it at less than half size only for the colour
-    // look's heavy blur: mipmaps then, plain bilinear otherwise.
+    // The small copy on the graphics card, with mipmaps: the state samples it at its own size, between two levels,
+    // so what it averages is already blurred to that size. Sampled sharp, fine detail flickers with every sub-pixel
+    // wobble and lights (measured: up to 3.5 % of the picture, against 0.15 %).
     const small = this.steps[this.steps.length - 1]?.canvas;
     if (!small) return;
-    const mips = Math.max(small.width, small.height) > 2 * band.size;
     if (this.smallTexture) gl.deleteTexture(this.smallTexture);
     this.smallTexture = gl.createTexture();
-    this.smallMips = mips;
+    this.smallLod = Math.max(0, Math.log2(Math.max(small.width, small.height) / band.size));
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.smallTexture);
-    const levels = mips ? Math.floor(Math.log2(Math.max(small.width, small.height))) + 1 : 1;
+    const levels = Math.floor(Math.log2(Math.max(small.width, small.height))) + 1;
     gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, small.width, small.height);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);

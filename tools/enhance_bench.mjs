@@ -18,8 +18,9 @@
 //              again with a wait after each stage, for the split (upload, analysis, filter, composite).
 //   paced      frames at the stream's own rate for a few seconds, as Live delivers them: how long the page's thread
 //              is held per frame, how late frames arrive, and how many frames' graphics work finished in its slot.
-//   behaviour  what the view shows at 960x540: a still picture, wobble alone, wobble with a small real motion, a
-//              knock, and a pan (how much of the picture is lit, and how far the picture sits from the scene).
+//   behaviour  what the view shows at 960x540 (or the one size given): a still picture, wobble alone, wobble with a
+//              small real motion, a knock, and a pan: how much of the picture is lit, in how many frames the moving
+//              patch's ground is lit, and how many pixels the steadied picture sits from where the scene is.
 //
 // Each run prints one JSON line. The graphics cards' utilisation during each run is sampled with nvidia-smi when it
 // is installed, because a card that is also running models answers more slowly.
@@ -66,7 +67,7 @@ function runsFor() {
     for (const size of sizes)
       for (const look of looks) runs.push({ mode: 'paced', ...size, look, frames: size.fps * seconds, scene: 'busy' });
   else if (preset === 'behaviour') {
-    const at = { mode: 'behaviour', width: 960, height: 540, fps: 30, look: 'subtle' };
+    const at = { mode: 'behaviour', ...(sizes.length === 1 ? sizes[0] : { width: 960, height: 540, fps: 30 }), look: 'subtle' };
     runs.push({ ...at, scene: 'still', frames: 240 });
     for (const amplitude of [0.5, 2, 4, 8, 16]) runs.push({ ...at, scene: 'wobble', amplitude, frames: 300 });
     for (const travel of [1, 2, 3])
@@ -130,6 +131,19 @@ function frameWorker() {
       c.lineTo(random() * w, random() * h);
       c.stroke();
     }
+    // Fine detail, which a careless small copy turns into flicker when the camera wobbles: hairlines and stripes
+    c.lineWidth = 1;
+    for (let i = 0; i < 300; i++) {
+      c.strokeStyle = grey(Math.round(20 + 220 * random()));
+      c.beginPath();
+      c.moveTo(random() * w, random() * h);
+      c.lineTo(random() * w, random() * h);
+      c.stroke();
+    }
+    for (let x = 0; x < Math.round(w * 0.12); x += 2) {
+      c.fillStyle = grey(x % 4 ? 60 : 190);
+      c.fillRect(Math.round(w * 0.3) + x, Math.round(h * 0.55), 1, Math.round(h * 0.15));
+    }
     const g = ground();
     c.fillStyle = grey(110);
     c.fillRect(MARGIN + g.x, MARGIN + g.y, g.side, g.side);
@@ -168,7 +182,7 @@ function frameWorker() {
       context.drawImage(patch, g.x + (g.side - patch.width) / 2 + dx - ox, g.y + (g.side - patch.height) / 2 - oy);
     }
     const bitmap = canvas.transferToImageBitmap();
-    self.postMessage({ type: 'frame', bitmap, i, t, sent: performance.timeOrigin + performance.now() }, [bitmap]);
+    self.postMessage({ type: 'frame', bitmap, i, t, ox, oy, sent: performance.timeOrigin + performance.now() }, [bitmap]);
   }
 
   self.onmessage = e => {
@@ -257,22 +271,23 @@ async function benchPage() {
     const started = Date.now();
     const out = { ...run };
 
-    // The scene with nothing moved, to compare the stabilised picture against
-    let scene = null;
+    // What is lit is read off a copy of the highlight no more than 960 wide: it is a blurred field
     let probe = null;
+    const probeScale = Math.min(1, 960 / run.width);
+    const pw = Math.round(run.width * probeScale);
+    const ph = Math.round(run.height * probeScale);
     if (run.mode === 'behaviour') {
       const c = document.createElement('canvas');
-      c.width = run.width;
-      c.height = run.height;
+      c.width = pw;
+      c.height = ph;
       probe = c.getContext('2d', { willReadFrequently: true });
-      probe.drawImage(ready.still, 0, 0);
-      scene = probe.getImageData(0, 0, run.width, run.height).data.slice();
     }
     ready.still.close();
 
     const stages = {};
     let waits = 0;
     let last = 0;
+    if (run.stages) enhancer.adapt = false; // the waits would read as load
     if (run.stages)
       enhancer.mark = name => {
         wait(gl);
@@ -291,7 +306,7 @@ async function benchPage() {
     const late = [];
     const lit = [];
     const litGround = [];
-    const apart = [];
+    const off = [];
     const fences = [];
     const gpuMs = [];
     let frames = 0;
@@ -347,45 +362,34 @@ async function benchPage() {
           held.push(t2 - t1);
           total.push(t3 - t1);
         }
-        if (run.mode === 'behaviour' && probe && scene) {
-          // The highlight alone (over black), and the picture where it is shown. A renderer that says where the
-          // plain picture belongs (shift) draws only the highlight; one that doesn't draws both on its canvas.
-          let data;
-          let picture;
-          if (enhancer.shift) {
-            probe.fillStyle = '#000';
-            probe.fillRect(0, 0, run.width, run.height);
-            probe.drawImage(canvas, 0, 0, run.width, run.height);
-            data = probe.getImageData(0, 0, run.width, run.height).data;
-            probe.drawImage(plain, -enhancer.shift.x * run.width, -enhancer.shift.y * run.height);
-            picture = probe.getImageData(0, 0, run.width, run.height).data;
-          } else {
-            probe.drawImage(canvas, 0, 0);
-            data = probe.getImageData(0, 0, run.width, run.height).data;
-            picture = data;
-          }
+        // How far the steadied picture sits from where the scene is, in frame pixels: the camera's true offset
+        // plus the shift the renderer applied
+        const applied = enhancer.shift ?? enhancer.lastShift;
+        if (applied) off.push([m.ox + applied.x * run.width, m.oy + applied.y * run.height]);
+        if (run.mode === 'behaviour' && probe) {
+          // The highlight alone, over black: a renderer that draws the picture too draws a grey scene, and a pixel
+          // with colour in it is the highlight either way
+          probe.fillStyle = '#000';
+          probe.fillRect(0, 0, pw, ph);
+          probe.drawImage(canvas, 0, 0, pw, ph);
+          const data = probe.getImageData(0, 0, pw, ph).data;
           const g = ready.ground;
+          const gx0 = g.x * probeScale;
+          const gx1 = (g.x + g.side) * probeScale;
+          const gy0 = g.y * probeScale;
+          const gy1 = (g.y + g.side) * probeScale;
           let count = 0;
           let inGround = 0;
-          let sum = 0;
-          let counted = 0;
-          const x0 = Math.round(run.width * 0.12);
-          const y0 = Math.round(run.height * 0.12);
-          for (let y = 0; y < run.height; y++)
-            for (let x = 0; x < run.width; x++) {
-              const i = 4 * (y * run.width + x);
-              // The scene is grey, so a pixel with colour in it is the highlight
+          for (let y = 0; y < ph; y++)
+            for (let x = 0; x < pw; x++) {
+              const i = 4 * (y * pw + x);
               if (data[i] - data[i + 2] > 40) {
                 count += 1;
-                if (x >= g.x && x < g.x + g.side && y >= g.y && y < g.y + g.side) inGround += 1;
-              } else if (x >= x0 && x < run.width - x0 && y >= y0 && y < run.height - y0) {
-                sum += Math.abs(picture[i + 1] - scene[i + 1]);
-                counted += 1;
+                if (x >= gx0 && x < gx1 && y >= gy0 && y < gy1) inGround += 1;
               }
             }
-          lit.push(count / (run.width * run.height));
-          litGround.push(inGround);
-          apart.push(counted ? sum / counted : 0);
+          lit.push(count / (pw * ph));
+          litGround.push(inGround / ((gx1 - gx0) * (gy1 - gy0)));
         }
         if (frames >= run.frames) resolve();
         else if (run.mode !== 'paced') worker.postMessage({ type: 'frame', i: frames });
@@ -417,8 +421,9 @@ async function benchPage() {
     if (run.stages) {
       // Each stage net of the bare wait; "wait" is one bare wait
       const bare = (stages.wait ?? 0) / Math.max(1, waits);
+      const worked = enhancer.stats.frames || frames;
       out.stages = Object.fromEntries(
-        Object.entries(stages).map(([k, v]) => [k, round(k === 'wait' ? bare : Math.max(0, v / frames - bare))]),
+        Object.entries(stages).map(([k, v]) => [k, round(k === 'wait' ? bare : Math.max(0, v / worked - bare))]),
       );
     }
     if (run.mode === 'behaviour') {
@@ -426,13 +431,17 @@ async function benchPage() {
       const after = values => values.slice(from);
       out.litMost = round(100 * Math.max(...after(lit)));
       out.litMean = round((100 * after(lit).reduce((s, v) => s + v, 0)) / Math.max(1, after(lit).length));
-      out.groundLitFrames = round(after(litGround).filter(v => v >= 20).length / Math.max(1, after(litGround).length));
-      out.apartMean = round(after(apart).reduce((s, v) => s + v, 0) / Math.max(1, after(apart).length));
-      out.apartMost = round(Math.max(...after(apart)));
-      // A knock or a pan: how far the picture sits from the scene each half second, and the most lit at any time
-      out.apartEachHalfSecond = [];
-      for (let i = 0; i < apart.length; i += run.fps / 2)
-        out.apartEachHalfSecond.push(round(median(apart.slice(i, i + run.fps / 2))));
+      out.groundLitFrames = round(after(litGround).filter(v => v >= 0.002).length / Math.max(1, after(litGround).length));
+      // A steadied picture sits at one place (where the camera was when the reference was taken) however the
+      // camera wobbles: how far it strays from that place, in frame pixels
+      const rest = [median(after(off).map(v => v[0])), median(after(off).map(v => v[1]))];
+      const stray = after(off).map(v => Math.hypot(v[0] - rest[0], v[1] - rest[1]));
+      out.strayMean = round(stray.reduce((s, v) => s + v, 0) / Math.max(1, stray.length));
+      out.strayMost = round(Math.max(0, ...stray));
+      // A knock or a pan: where the picture sits against the scene each half second
+      out.placeEachHalfSecond = [];
+      for (let i = 0; i < off.length; i += run.fps / 2)
+        out.placeEachHalfSecond.push(round(median(off.slice(i, i + run.fps / 2).map(v => Math.hypot(v[0], v[1])))));
       out.litEachHalfSecond = [];
       for (let i = 0; i < lit.length; i += run.fps / 2)
         out.litEachHalfSecond.push(round(100 * Math.max(...lit.slice(i, i + run.fps / 2))));
@@ -533,6 +542,7 @@ const finished = new Promise(resolve => {
       const profile = mkdtempSync(path.join(tmpdir(), 'enhance-bench-'));
       const prefs = {
         'webgl.sanitize-unmasked-renderer': false, // so the run can say which graphics card it drew on
+        'privacy.reduceTimerPrecision': false, // times to better than a millisecond
         'browser.shell.checkDefaultBrowser': false,
         'browser.aboutwelcome.enabled': false,
         'datareporting.policy.dataSubmissionEnabled': false,

@@ -32,6 +32,6 @@
 }
 /* The Contrast look greys what is still; the highlight layer dims it and puts the colour back where it is lit
    (renderer.ts, CONTRAST_SATURATION: keep the two the same). */
-.live-canvas[data-enhance='contrast'] {
+.live-canvas[data-enhance="contrast"] {
   filter: saturate(0.5);
 }

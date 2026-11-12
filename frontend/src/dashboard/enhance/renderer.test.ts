@@ -23,7 +23,8 @@ function fakeGl() {
     {
       get(_, name) {
         if (typeof name !== 'string') return undefined;
-        if (name === name.toUpperCase()) return name === 'FRAMEBUFFER_COMPLETE' ? 1 : name === 'TIMEOUT_EXPIRED' ? 3 : 2;
+        if (name === name.toUpperCase())
+          return name === 'FRAMEBUFFER_COMPLETE' ? 1 : name === 'TIMEOUT_EXPIRED' ? 3 : 2;
         const create = /^create(\w+)$/.exec(name);
         const remove = /^delete(\w+)$/.exec(name);
         return (...args: unknown[]) => {
@@ -73,10 +74,9 @@ function canvases(gl: unknown) {
     kind: string,
   ) {
     if (kind === 'webgl2') return gl as RenderingContext;
-    const canvas = this;
     return {
       drawImage: () => {
-        copies.push(Math.max(canvas.width, canvas.height));
+        copies.push(Math.max(this.width, this.height));
       },
       getImageData: (_x: number, _y: number, w: number, h: number) => ({ data: new Uint8ClampedArray(4 * w * h) }),
       setTransform: () => {},
