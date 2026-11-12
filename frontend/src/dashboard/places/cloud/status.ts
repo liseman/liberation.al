@@ -336,6 +336,13 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
 }
 
 /** What the scene is, and isn't, said once over its cameras. */
+/** How much of the plan's floor the map covers so far, as a line; null while the place has no map or no floor. */
+export function coveredLine(covered: { floor_m2: number; plan_m2: number } | null | undefined): string | null {
+  if (!covered || !(covered.plan_m2 > 0)) return null;
+  const share = Math.min(100, Math.round((100 * covered.floor_m2) / covered.plan_m2));
+  return `It covers about ${share} percent of your plan's floor so far (${Math.round(covered.floor_m2)} of ${Math.round(covered.plan_m2)} m²).`;
+}
+
 export const SCENE_LIMITS =
   'One map of what the cameras have seen, each surface once. It fills in as they look around, so expect gaps.';
 

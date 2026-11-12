@@ -18,6 +18,7 @@ import { tintCss } from './layers';
 import {
   APPROXIMATE,
   bendLine,
+  coveredLine,
   fitLine,
   levelLine,
   mapLine,
@@ -41,6 +42,7 @@ export function SceneLayers({
   place,
   cameras,
   pairs,
+  covered,
   hidden,
   onToggle,
   outside,
@@ -51,6 +53,8 @@ export function SceneLayers({
   place: string;
   cameras: readonly ScenePlaced[];
   pairs: readonly ScenePair[];
+  /** How much of the plan's floor the place's map covers so far. */
+  covered?: { floor_m2: number; plan_m2: number } | null;
   /** The cameras whose points are hidden. */
   hidden: ReadonlySet<string>;
   onToggle: (camera: string, show: boolean) => void;
@@ -90,7 +94,7 @@ export function SceneLayers({
   return (
     <Stack gap="xs" mt="sm">
       <Text size="xs" c="dimmed">
-        {SCENE_LIMITS}
+        {[SCENE_LIMITS, coveredLine(covered)].filter(Boolean).join(' ')}
       </Text>
       <Stack gap={4} component="ul" m={0} p={0} style={{ listStyle: 'none' }} aria-label="Cameras in the scene">
         {cameras.map((camera, index) => {

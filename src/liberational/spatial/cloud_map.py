@@ -49,6 +49,10 @@ surroundings service and the dashboard can both offer a shot. It survives restar
 it is built again from the cameras' clouds, `pack-reset-places` removes it with them, and a plan whose walls changed
 drops it (the frame it was fitted to is gone).
 
+**How much of the place it covers** (`_floor`) is kept with it: the share of the plan's floor, in cells of
+`FLOOR_CELL_M`, that holds a point of the map lying on the floor. It is the floor that was seen, not the walls or
+what stands in the rooms, and a cell counts whole, so it reads a little generous far from a camera.
+
 **What it costs**, measured on the Linux machine beside the other services: offering a shot of 100,000 to 120,000
 points to a map of 150,000 took 0.2 to 0.3 s of one CPU core and no GPU; a shot the map has already answered,
 about 10 ms. Building the map from four cameras' clouds took 1.6 s with their squaring and fit.
@@ -82,6 +86,8 @@ SMALL = 0.05  # of what two shots have in common: with less than this looked thr
 WHOLE = 0.3  # and with more than this, it is the shot as a whole that is out, not something in the room that moved
 BETTER = 0.1  # a newer shot gives way to the ones it conflicts with only when the plan explains it this much worse
 MIN_SEEN = 50  # points of an earlier shot a new one must look at before the two are compared
+FLOOR_CELL_M = 0.25  # the cells the plan's floor is counted in, for how much of it the map covers
+FLOOR_BAND_M = 0.05  # a point this near z = 0 where it is drawn flat lies on the floor
 REFUSED = 50  # refused shots that are remembered, so each is tried once and its camera can say why
 
 
@@ -181,7 +187,23 @@ def read(where: Path) -> Held | None:
         return None
 
 
-def _write(where: Path, held: Held) -> None:
+def _floor(flat: np.ndarray, rooms: Sequence[Sequence[tuple[float, float]]]) -> tuple[float, float]:
+    """How much of the plan's floor a map covers, and how much floor the plan has, in square metres: the cells of
+    `FLOOR_CELL_M` inside the plan's rooms that hold a point of the map lying on the floor, against the rooms' own
+    areas. A cell counts whole, so a floor seen sparsely far off counts as seen."""
+    area = 0.0
+    for ring in rooms:
+        corners = np.asarray(ring, dtype=np.float64)
+        x, y = corners[:, 0], corners[:, 1]
+        area += abs(float(x @ np.roll(y, -1) - y @ np.roll(x, -1))) / 2
+    on_floor = flat[np.abs(flat[:, 2]) <= FLOOR_BAND_M][:, :2] if len(flat) else np.zeros((0, 2))
+    cells = np.unique(np.floor(on_floor.astype(np.float64) / FLOOR_CELL_M).astype(np.int64), axis=0)
+    centres = (cells + 0.5) * FLOOR_CELL_M
+    inside = int((~cloud_align.outside(centres, rooms, 0.0)).sum()) if len(cells) and len(rooms) else 0
+    return min(inside * FLOOR_CELL_M**2, area), area
+
+
+def _write(where: Path, held: Held, rooms: Sequence[Sequence[tuple[float, float]]]) -> None:
     # Shots with no point left go, and the points are told their shots' new places.
     left = np.bincount(held.shot, minlength=len(held.meta["shots"])) if len(held.shot) else np.zeros(0, dtype=int)
     keep = [i for i in range(len(held.meta["shots"])) if i < len(left) and left[i] > 0]
@@ -195,6 +217,8 @@ def _write(where: Path, held: Held) -> None:
         shot["points"] = int((held.shot == i).sum())
     held.meta["refused"] = held.meta["refused"][-REFUSED:]
     held.meta["rev"] = int(held.meta.get("rev", 0)) + 1
+    covered, floor = _floor(held.flat, rooms)
+    held.meta["floor_m2"], held.meta["plan_m2"] = round(covered, 2), round(floor, 2)
     out = io.BytesIO()
     np.savez(out, xyz=held.xyz, flat=held.flat, rgb=held.rgb, shot=held.shot, eyes=held.eyes, fars=held.fars)
     places.write_whole(where / "points.npz", out.getvalue())
@@ -288,10 +312,11 @@ def _without(held: Held, gone: np.ndarray) -> None:
     held.xyz, held.flat, held.rgb, held.shot = (a[~gone] for a in (held.xyz, held.flat, held.rgb, held.shot))
 
 
-def offer(where: Path, plan: str, shot: Offer) -> Outcome:
-    """Offer `shot` to the map kept in `where`, which is of the plan `plan` (spatial/cloud_align.py `plan_key`):
-    the module docstring's Adding a shot. A shot offered before gets the answer it got then. A map of another plan
-    is dropped first."""
+def offer(where: Path, rooms: Sequence[Sequence[tuple[float, float]]], shot: Offer) -> Outcome:
+    """Offer `shot` to the map kept in `where`, which is of the plan whose rooms are `rooms` (in the scene's frame):
+    the module docstring's Adding a shot. A shot offered before gets the answer it got then. A map of a plan with
+    other walls (spatial/cloud_align.py `plan_key`) is dropped first."""
+    plan = cloud_align.plan_key(rooms)
     with _locked(where):
         kept = read(where)
         held = _empty(plan) if kept is None or kept.meta.get("plan") != plan else kept
@@ -304,7 +329,7 @@ def offer(where: Path, plan: str, shot: Offer) -> Outcome:
         def refuse(why: str, conflict: float = 0.0) -> Outcome:
             row = {**about, "conflict": conflict, "state": "refused", "why": why, "points": 0}
             held.meta["refused"] = [*held.meta["refused"], row]
-            _write(where, held)
+            _write(where, held, rooms)
             return _outcome(row)
 
         # The same picture, placed again: its earlier self goes.
@@ -387,10 +412,25 @@ def offer(where: Path, plan: str, shot: Offer) -> Outcome:
             eye = np.r_[view.eye.ravel(), view.focal, view.width, view.height, 0.0]
             held.eyes = np.concatenate([held.eyes, eye[None]])
             held.fars = np.concatenate([held.fars, view.far.astype(np.float32)[None]])
-        _write(where, held)
+        _write(where, held, rooms)
         LOG.info("%s: %d of its shot's %d points added to the map (%d in all)%s", shot.camera, len(room),
                  len(xyz), len(held.xyz), f"; {replaced} points it looked through gave way" if replaced else "")  # fmt: skip
         return _outcome(added)
+
+
+def count_floor(where: Path, rooms: Sequence[Sequence[tuple[float, float]]]) -> bool:
+    """Count the floor a map covers (`_floor`) when the map kept in `where` is of the plan with these rooms and
+    hasn't said yet: one kept before this was counted. Whether it was counted now."""
+    meta = record(where)
+    if meta is None or "plan_m2" in meta or meta.get("plan") != cloud_align.plan_key(rooms):
+        return False
+    with _locked(where):
+        held = read(where)
+        if held is None or "plan_m2" in held.meta:
+            return False
+        held.meta["rev"] = int(held.meta.get("rev", 0)) - 1  # nothing drawn changes
+        _write(where, held, rooms)
+        return True
 
 
 def drop(where: Path) -> None:
