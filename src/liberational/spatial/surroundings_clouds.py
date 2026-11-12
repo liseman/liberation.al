@@ -91,6 +91,7 @@ class Clouds:
         self._checked: dict[str, float] = {}  # when a camera's view was last found unchanged
         self._wait: dict[str, float] = {}  # no try for a camera before this
         self._making: set[str] = set()
+        self._asked: set[str] = set()  # cameras asked for a new cloud whether or not their view looks changed
 
     def look(self, camera: str, pixels: np.ndarray, now: float) -> str:
         """Take one sampled picture of `camera`. What came of it: "off" (no runtime configured), "making" (its cloud
@@ -123,9 +124,13 @@ class Clouds:
                 self.store.note(camera, "dark", now)
             return "dark"
         thumb = self.thumbnail(pixels)
-        if have is not None and any(
-            len(known) == len(thumb) and float(np.asarray(known) @ thumb) >= CHANGED
-            for known in (have.thumb, have.also)
+        if (
+            camera not in self._asked
+            and have is not None
+            and any(
+                len(known) == len(thumb) and float(np.asarray(known) @ thumb) >= CHANGED
+                for known in (have.thumb, have.also)
+            )
         ):
             self._drop(camera)
             self._checked[camera] = now
@@ -164,6 +169,8 @@ class Clouds:
             self._making.discard(camera)
         self._wait[camera] = now + (REFRESH_MIN_S if made is not None else RETRY_S)
         self._checked[camera] = now
+        if made is not None:
+            self._asked.discard(camera)
         self._squared.pop(camera, None)  # a new cloud is squared at the next look
 
     def _square(self, camera: str) -> None:
@@ -176,6 +183,14 @@ class Clouds:
     def _drop(self, camera: str) -> None:
         self._clean.pop(camera, None)
         self._first.pop(camera, None)
+
+    def remake(self, camera: str) -> None:
+        """Ask for a new cloud of `camera` from its next clean pictures, whether or not its view looks changed: it
+        was tracked as it moved and came to rest somewhere else (spatial/camera_track.py), and a turn of a few
+        degrees leaves its thumbnail much as it was."""
+        self._asked.add(camera)
+        self._checked.pop(camera, None)
+        self._wait.pop(camera, None)
 
     def forget(self, camera: str) -> None:
         """Start a camera's count afresh (it's being followed again after a break)."""
