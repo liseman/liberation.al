@@ -23,6 +23,7 @@ import { outsideCounts, pointIndices, TINT_SHARE, tinted, tintOf } from './layer
 import { canDraw, canDrawSplat, openingCamera, parseCloud, readBytes, splatFault } from './load';
 import {
   bendLine,
+  coveredLine,
   fitLine,
   learningNote,
   levelLine,
@@ -627,6 +628,17 @@ it.each([
   ],
 ])("says what the place's map took of a camera's latest picture", (map, text) => {
   expect(mapLine(placedAs('spot', { map }))).toBe(text);
+});
+
+it.each([
+  [{ floor_m2: 33.5, plan_m2: 88.5 }, "It covers about 38 percent of your plan's floor so far (34 of 89 m²)."],
+  [{ floor_m2: 0, plan_m2: 88.5 }, "It covers about 0 percent of your plan's floor so far (0 of 89 m²)."],
+  [{ floor_m2: 90, plan_m2: 88.5 }, "It covers about 100 percent of your plan's floor so far (90 of 89 m²)."],
+  [{ floor_m2: 3, plan_m2: 0 }, null],
+  [null, null],
+  [undefined, null],
+])("says how much of the plan's floor the map covers so far", (covered, text) => {
+  expect(coveredLine(covered)).toBe(text);
 });
 
 it("says nothing of the map before a camera's cloud was offered to it, and marks one that was left out", () => {

@@ -542,7 +542,7 @@ def shot_of(
 
 def _offer(
     charted: Path,
-    plan: str,
+    ring: Sequence[Ring],
     cloud: camera_clouds.Cloud,
     basis: str,
     base: At,
@@ -565,7 +565,7 @@ def _offer(
         shot = shot_of(f"{cloud.id}@{basis}", cloud, cloud_merge.Stand(at.x, at.y, at.bearing), 1.0, False, 0.0,
                        points, colours, planes, None)  # fmt: skip
     try:
-        cloud_map.offer(charted, plan, shot)
+        cloud_map.offer(charted, ring, shot)
     except (OSError, ValueError) as e:  # the camera is placed; only the map misses its shot
         LOG.warning("%s: its shot wasn't offered to the map: %s", cloud.camera, e)
 
@@ -602,7 +602,7 @@ def align(
         if lost or cloud_map.answered(cloud_map.record(charted), f"{cloud.id}@{basis}") is not None:
             return False
         points, colours, _ = ply.read(store.file(cloud))  # placed before the place had a map: it is offered now
-        _offer(charted, plan, cloud, basis, base, have, points, colours, cloud_align.planes(points))
+        _offer(charted, ring, cloud, basis, base, have, points, colours, cloud_align.planes(points))
         return True
     points, colours, _ = ply.read(store.file(cloud))
     flat_surfaces = cloud_align.planes(points)
@@ -633,7 +633,7 @@ def align(
                      moved_by(base, spot.at)[1])  # fmt: skip
     cloud_align.keep(folder, found)
     if not (told is not None and told.lost and told.cloud == cloud.id):  # a view that isn't placed isn't mapped
-        _offer(charted, plan, cloud, basis, base, found, points, colours, flat_surfaces)
+        _offer(charted, ring, cloud, basis, base, found, points, colours, flat_surfaces)
     fitted = found.fit or cloud_align.Fit("no_walls")
     LOG.info("%s: squared to the plan: %s, turned %.1f degrees; fitted to its rooms: %s, resized %.3f, slid %.2f m "
              "(%d of %d walls matched)", camera, found.square.state, found.square.turn_deg, fitted.state, fitted.scale,
@@ -672,6 +672,11 @@ def update(state: Path, store: camera_clouds.Store, place: str | None = None) ->
                 changed += align(store, camera, spots, rooms, heights)
             except (OSError, ValueError, KeyError, TypeError) as e:  # one camera's cloud must not stop the others
                 LOG.warning("%s: its cloud wasn't brought up to date: %s", camera, e)
+        for where, mirrored in {(s.place, s.mirrored) for s in spots.values() if place in (None, s.place)}:
+            try:  # a map kept before its floor was counted is counted once
+                cloud_map.count_floor(cloud_map.folder(store.folder, where), rooms(where, mirrored))
+            except (OSError, ValueError) as e:
+                LOG.warning("the map's floor wasn't counted: %s", e)
         return changed
 
 
@@ -879,6 +884,9 @@ class Scene:
     mirrored: bool = False
     rooms: tuple[tuple[tuple[float, float], ...], ...] = ()  # the plan's rooms, in the scene's frame
     id: str = field(default="", compare=False)  # changes when what is drawn does
+    #: How much of the plan's floor the place's map covers (spatial/cloud_map.py): `floor_m2` of `plan_m2`. None
+    #: while the place has no map of this plan.
+    covered: Mapping[str, float] | None = None
 
 
 def _transform(at: At) -> np.ndarray:
@@ -1104,7 +1112,12 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
     kept = tuple(tuple((float(x), float(y)) for x, y in ring) for ring in rooms)
     revision = None if charted is None else charted.get("rev")
     drawn = json.dumps([[[p.camera, p.cloud, p.transform] for p in out if p.placed], kept, revision])
-    return Scene(place, tuple(out), tuple(told), mirrored, kept, hashlib.sha256(drawn.encode()).hexdigest()[:32])
+    covered = None
+    if charted is not None and charted.get("plan_m2"):
+        covered = {"floor_m2": float(charted.get("floor_m2", 0.0)), "plan_m2": float(charted["plan_m2"])}
+    return Scene(
+        place, tuple(out), tuple(told), mirrored, kept, hashlib.sha256(drawn.encode()).hexdigest()[:32], covered
+    )
 
 
 def _fit_of(placed: Placed) -> cloud_align.Fit | None:
@@ -1206,7 +1219,7 @@ def drawn_own(store: camera_clouds.Store, placed: Placed, cloud: camera_clouds.C
 
 def as_dict(found: Scene) -> dict[str, Any]:
     return {"place": found.place, "id": found.id, "cameras": [asdict(p) | {"placed": p.placed} for p in found.cameras],
-            "pairs": [asdict(p) for p in found.pairs]}  # fmt: skip
+            "pairs": [asdict(p) for p in found.pairs], "covered": found.covered}  # fmt: skip
 
 
 Spots = Callable[[], Mapping[str, SpotAt]]
