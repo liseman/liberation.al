@@ -12,6 +12,7 @@ import pytest
 
 from liberational import config
 from liberational.see import actions, actions_worker
+from liberational.see import hearts as hearts_module
 from liberational.see.vision_backend import People
 from test_see_actions import STEP, Decoded, Rows, T, frame_id, person
 
@@ -422,3 +423,28 @@ def test_a_frame_whose_work_captures_a_graph_runs_alone_and_the_rest_inside_the_
     p.feed = feed
     asyncio.run(actions_worker.follow(frames(3), p, asyncio.Event(), gate=gate_of("shared"), alone=gate_of("alone")))
     assert held == ["alone", "shared", "shared"]
+
+
+class Appended:
+    """A `segment_log.Writers` that keeps what was appended."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, list[dict[str, Any]]] = {}
+
+    def append(self, stream: str, cam: str, records: list[dict[str, Any]]) -> None:
+        self.rows.setdefault(stream, []).extend(records)
+
+
+def test_the_heart_rate_switch_builds_one_or_none():
+    with config.override({"vision": {"heart_rate": False}}):
+        assert actions_worker.hearts_for("cam0", 30.0, Appended(), None) is None
+    with config.override({"vision": {"heart_rate": True}}):
+        built = actions_worker.hearts_for("cam0", 30.0, Appended(), None)
+        assert isinstance(built, hearts_module.Hearts)
+        assert built.measuring, "a 30 fps camera is measured"
+
+
+def test_a_camera_at_ten_frames_a_second_gets_a_heart_rate_that_measures_nothing():
+    with config.override({"vision": {"heart_rate": True}}):
+        built = actions_worker.hearts_for("patio", 10.0, Appended(), None)
+        assert built is not None and not built.measuring

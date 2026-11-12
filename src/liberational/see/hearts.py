@@ -14,6 +14,11 @@ coverage and face size report.
 Only a camera see-actions analyzes at `vitals.MIN_FPS` or faster is measured; on the others `feed` does nothing, so
 a room camera at 10 frames a second costs nothing at all. What the owner is shown comes only from rows whose bpm is
 a number; the rest say why in their confidence.
+
+A heart rate matters far less than the vision it is measured beside, so no call here may take a camera down: every
+public method catches its own error, logs it once with its traceback, and switches the measurement off for that
+camera for the rest of the run (`off` says why). The owner can also switch it off entirely with
+`vision.heart_rate = false`.
 """
 
 from __future__ import annotations
@@ -60,6 +65,9 @@ class Hearts:
         self.camera, self.fps, self.writers, self.who = camera, fps, writers, who
         self.every_ns, self.window_s, self.min_face_px = every_ns, window_s, min_face_px
         self.measuring = fps >= vitals.MIN_FPS
+        # Why the measurement is off for the rest of the run, or None while it goes on: an error that got this far,
+        # or the owner's switch (never here: then there is no Hearts at all).
+        self.off: str | None = None
         self.traces: dict[int, vitals.Trace] = {}
         self._centres: dict[int, deque[tuple[int, tuple[float, float]]]] = {}
         self._read_ns: dict[int, int] = {}
@@ -75,24 +83,27 @@ class Hearts:
     ) -> None:
         """One analyzed frame: `people` is (track_id, joints in the frame's pixels) per confirmed track, and
         `crop(box)` cuts that patch of the frame out, BGR, as `vision_backend.Backend.crop` does."""
-        if not self.measuring:
+        if not self.measuring or self.off:
             return
-        for track_id, joints in people:
-            regions = vitals.face_regions(joints, width, height)
-            if regions is None:
-                continue
-            patch = crop(regions.box)
-            if patch.ndim != 3 or patch.shape[0] < 1 or patch.shape[1] < 1:
-                continue
-            trace = self.traces.get(track_id)
-            if trace is None:
-                trace = self.traces[track_id] = vitals.Trace(self.window_s, self.min_face_px)
-            trace.add(
-                capture_ns,
-                vitals.region_means(patch, regions.patches),
-                regions.side,
-                self._motion(track_id, capture_ns, regions.side, regions.centre),
-            )
+        try:
+            for track_id, joints in people:
+                regions = vitals.face_regions(joints, width, height)
+                if regions is None:
+                    continue
+                patch = crop(regions.box)
+                if patch.ndim != 3 or patch.shape[0] < 1 or patch.shape[1] < 1:
+                    continue
+                trace = self.traces.get(track_id)
+                if trace is None:
+                    trace = self.traces[track_id] = vitals.Trace(self.window_s, self.min_face_px)
+                trace.add(
+                    capture_ns,
+                    vitals.region_means(patch, regions.patches),
+                    regions.side,
+                    self._motion(track_id, capture_ns, regions.side, regions.centre),
+                )
+        except Exception:
+            self._failed("sampling a face")
 
     def _motion(self, track_id: int, capture_ns: int, side: float, centre: tuple[float, float]) -> float:
         """How fast the face moved, in face widths a second, over about the last `MOTION_STEP_NS`."""
@@ -116,6 +127,15 @@ class Hearts:
         The wait is marked whether or not a reading came out: a track whose window can't be read yet (too short, or
         a face that turned away and left the trace going stale) would otherwise measure its spectrum on every frame,
         which is milliseconds a frame for nothing."""
+        if self.off:
+            return
+        try:
+            self._read_due(capture_ns)
+        except Exception:
+            self._failed("reading a window")
+
+    def _read_due(self, capture_ns: int) -> None:
+        """Every track's reading that is due at `capture_ns`, kept for the next flush."""
         for track_id in list(self.traces):
             if capture_ns - self._read_ns.get(track_id, -(1 << 62)) < self.every_ns:
                 continue
@@ -146,19 +166,44 @@ class Hearts:
 
     def end(self, track_id: int) -> None:
         """The track ended: forget its trace, its face's path, and when it was last read."""
-        self.traces.pop(track_id, None)
-        self._centres.pop(track_id, None)
-        self._read_ns.pop(track_id, None)
+        if self.off:
+            return
+        try:
+            self.traces.pop(track_id, None)
+            self._centres.pop(track_id, None)
+            self._read_ns.pop(track_id, None)
+        except Exception:
+            self._failed("ending a track")
 
     def gap(self) -> None:
         """Frames are missing, so every track is about to end: start the traces again."""
-        for track_id in list(self.traces):
-            self.traces[track_id].reset()
-        self._centres.clear()
-        self._read_ns.clear()
+        if self.off:
+            return
+        try:
+            for track_id in list(self.traces):
+                self.traces[track_id].reset()
+            self._centres.clear()
+            self._read_ns.clear()
+        except Exception:
+            self._failed("starting again after a gap")
 
     def flush(self) -> None:
         """Append the readings since the last flush."""
-        if self.rows:
+        if self.off or not self.rows:
+            return
+        try:
             self.writers.append(segment_log.VITALS_HEART_RATES, self.camera, self.rows)
             self.rows = []
+        except Exception:
+            self._failed("writing the readings")
+
+    def _failed(self, doing: str) -> None:
+        """An error this camera's heart rate can't carry on after: say so once, with the traceback, and stop. The
+        camera's vision carries on without it, which is the point: a heart rate is an extra, and a camera's people,
+        skeletons, faces, and actions are not."""
+        self.off = f"an error while {doing}"
+        self.traces.clear()
+        self._centres.clear()
+        self._read_ns.clear()
+        self.rows = []
+        LOG.exception("heart rate is off for %s for the rest of this run: %s", self.camera, self.off)

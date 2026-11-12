@@ -139,3 +139,51 @@ def test_a_gap_starts_the_window_again():
     rows = [row for _s, _c, batch in writers.appends for row in batch]
     assert rows, "the first window's readings are written"
     assert all(row["ts_end"] <= last / 1e9 for row in rows), "the two seconds after the gap are not a reading yet"
+
+
+class Logs:
+    """The module's log, kept: the log itself doesn't propagate to pytest's capture (logs.py turns that off)."""
+
+    def __init__(self) -> None:
+        self.errors: list[tuple[tuple, dict]] = []
+
+    def exception(self, *args: Any, **kwargs: Any) -> None:
+        self.errors.append((args, kwargs))
+
+
+def test_a_failing_crop_switches_the_heart_rate_off_and_says_so_once(monkeypatch):
+    logs = Logs()
+    monkeypatch.setattr(hearts, "LOG", logs)
+    writers = Writers()
+    subject = hearts.Hearts("cam0", FPS, writers)
+
+    def blind(_box: hearts.Box) -> np.ndarray:
+        raise RuntimeError("this frame's pixels can't be read")
+
+    subject.feed(1_700_000_000_000_000_000, *FRAME, [(7, face_joints())], blind)
+    assert subject.off == "an error while sampling a face"
+    assert len(logs.errors) == 1, "said once, with the traceback"
+    assert "cam0" in logs.errors[0][0]
+    # Switched off, so the next frame, the next reading, and the flush are no-ops rather than more errors.
+    subject.feed(1_700_000_000_100_000_000, *FRAME, [(7, face_joints())], blind)
+    subject.due(1_700_000_000_200_000_000)
+    subject.flush()
+    assert len(logs.errors) == 1
+    assert writers.appends == []
+
+
+def test_a_failing_writer_switches_the_heart_rate_off_and_keeps_no_rows(monkeypatch):
+    logs = Logs()
+    monkeypatch.setattr(hearts, "LOG", logs)
+
+    class Broken(Writers):
+        def append(self, stream: str, cam: str, records: list[dict[str, Any]]) -> None:
+            raise OSError("the store went away")
+
+    subject = hearts.Hearts("cam0", FPS, Broken())
+    feed(subject, seconds=10.0)
+    assert subject.rows, "readings were taken"
+    subject.flush()
+    assert subject.off == "an error while writing the readings"
+    assert len(logs.errors) == 1
+    assert subject.rows == [], "nothing is kept to retry: nothing more will be measured"

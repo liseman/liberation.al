@@ -9,7 +9,8 @@ plain NumPy, so it can be run on a live camera's frames and on a recorded stretc
   halpe26 joints 0 to 4 (nose, both eyes, both ears). The same region every frame, on a face at least
   `MIN_FACE_PX` across.
 - `region_means` averages each patch's R, G, and B per frame, cancelling sensor noise over the patch's pixels.
-- `Trace` keeps one tracked person's colour trace over a sliding window of about `WINDOW_S` seconds, and
+- `Trace` keeps one tracked person's colour trace over a sliding window of about `WINDOW_S` seconds (NumPy only, so
+  it runs the same on a live camera's frames and on a recorded stretch), and
   `Trace.reading` turns it into a `Reading`: POS for the rate, CHROM as the agreement check, an in-band SNR from
   the spectrum, and a confidence from those plus how much the face moved and whether the picture has any colour
   left at all (an infrared night mode's monochrome picture says nothing about blood).

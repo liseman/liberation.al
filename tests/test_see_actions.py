@@ -12,6 +12,7 @@ import pytest
 
 from liberational import segment_log
 from liberational.see import action_animals, actions, stgcn, vision_backend
+from liberational.see import hearts as hearts_module
 from liberational.see.vision_backend import People
 
 T = 500_000 * 3_600_000_000_000  # on an hour boundary, so a few seconds of rows stay in one segment
@@ -741,3 +742,63 @@ def test_the_heart_rate_hook_sees_every_frame_of_a_counted_track_and_the_flushes
     assert hearts.ended == [1] or hearts.ended == []
     assert hearts.gaps == 0, "a short run of empty frames is not a gap"
     assert hearts.flushes >= 2
+
+
+class Blind(Script):
+    """A backend whose crop fails, as a decoder's bad frame does: the face is there, its pixels can't be read."""
+
+    def crop(self, image: str, box: tuple[int, int, int, int]) -> np.ndarray:
+        self.cropped.append((image, box))
+        raise RuntimeError("this frame's pixels can't be read")
+
+
+class Streams:
+    """A `segment_log.Writers` that keeps what was appended to each stream."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, list[dict[str, Any]]] = {}
+
+    def append(self, stream: str, cam: str, records: list[dict[str, Any]]) -> None:
+        self.rows.setdefault(stream, []).extend(records)
+
+
+def face_person(x: float = 0.1) -> People:
+    """One person whose pose places the nose and both eyes, so see/hearts.py has a face to sample."""
+    joints = np.zeros((1, actions.JOINTS, 3), np.float32)
+    # Six confident joints (MIN_JOINTS starts a track): nose, both eyes, both ears, and a shoulder, in the 200 x 100
+    # frame; the pupils 20 px apart, so the face patches are small but real.
+    for i, (jx, jy) in enumerate(
+        ((100.0, 30.0), (90.0, 25.0), (110.0, 25.0), (80.0, 27.0), (120.0, 27.0), (100.0, 60.0))
+    ):
+        joints[0, i] = (jx, jy, 0.9)
+    return People(np.array([[x, 0.2, x + 0.2, 0.9, 0.9]], np.float32), joints)
+
+
+class Logs:
+    """The module's log, kept: the log itself doesn't propagate to pytest's capture (logs.py turns that off)."""
+
+    def __init__(self) -> None:
+        self.errors: list[tuple[tuple, dict]] = []
+
+    def exception(self, *args: Any, **kwargs: Any) -> None:
+        self.errors.append((args, kwargs))
+
+
+def test_a_failing_heart_rate_does_not_take_the_camera_s_vision_down(monkeypatch):
+    """A heart rate is an extra: an error in it costs the camera its heart rate, never its people, skeleton, or
+    coverage."""
+    logs = Logs()
+    monkeypatch.setattr(hearts_module, "LOG", logs)
+    into = Streams()
+    pulses = hearts_module.Hearts("cam0", 30.0, into)
+    poses, coverage = Rows(), Rows()
+    frames = [face_person(0.1)] * 45
+    pipeline = actions.ActionPipeline(Blind(frames), poses, coverage, "test-model", hearts=pulses, camera="cam0")
+    for i in range(len(frames)):
+        pipeline.feed(Decoded(frame_id(i), T + i * STEP))
+    pipeline.flush()
+    assert pulses.off == "an error while sampling a face"
+    assert len(logs.errors) == 1, "said once, with the traceback"
+    assert poses.appends, "the camera's pose rows still come"
+    assert coverage_rows(coverage) == [(T, T + 25 * STEP, 26), (T + 25 * STEP, T + 44 * STEP, 19)]
+    assert into.rows == {}, "and the heart rate wrote nothing"

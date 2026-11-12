@@ -6,7 +6,7 @@ CHROM as the agreement check, the in-band SNR, and the confidence). Nothing here
 rate it prints is what Live would have shown had you been sitting there.
 
 It reads no models and decodes no more than the video itself: the face geometry comes from `pose.track`, the rows
-see-actions already wrote, and the colour from the recorded H.264 through Continuum's store. Both must cover the
+see-actions already wrote, and the colour from the recorded H.264 through Continuum's store (`continuum_py`). Both must cover the
 stretch, so it is a check on a camera see-actions has been following (the close, full-rate one), not on an arbitrary
 file.
 

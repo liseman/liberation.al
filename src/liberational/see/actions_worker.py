@@ -133,6 +133,21 @@ async def follow(
     return seen
 
 
+def hearts_for(camera: str, fps: float, spans: Any, who: Any) -> Hearts | None:
+    """The camera's heart rate, or None when it isn't measured.
+
+    `vision.heart_rate` is read here, once when the camera starts following, so turning it off or on takes a
+    see-actions restart. A heart rate is an extra: a failure to set one up costs the camera its heart rate and
+    nothing else, and never its people."""
+    if not cfg.get("vision.heart_rate"):
+        return None
+    try:
+        return Hearts(camera, fps, spans, who=who)
+    except Exception:
+        log.exception("%s: no heart rate, though vision.heart_rate is on", camera)
+        return None
+
+
 def fps_of(camera: str) -> float:
     """A camera's analysis rate: `vision.actions_camera_fps` by name, else `vision.actions_fps`."""
     per = cfg.get("vision.actions_camera_fps") or {}
@@ -202,7 +217,7 @@ class Camera:
         self.counted = Counted(self.poses)
         heads = faces(camera)
         who = heads.who if heads is not None else None
-        hearts = Hearts(camera, self.fps, spans, who=who)  # a close, full-rate camera is measured; others not at all
+        hearts = hearts_for(camera, self.fps, spans, who)
         clip_weights = getattr(backend, "clip_weights", None)
         live = activity_kinds.Live(cfg.path("paths.state"))  # the owner's activities, reread each minute
         clips = (
