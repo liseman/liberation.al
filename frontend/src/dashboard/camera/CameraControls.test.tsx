@@ -202,22 +202,34 @@ it('keeps a queued reset separate from later edits behind an in flight save', as
   );
 });
 
-it('keeps the save state in one slot beside the title, through saving, applying, and applied', async () => {
+/** The save-state slot in a control's row: the first ancestor that holds one. */
+function slotOf(control: HTMLElement): HTMLElement {
+  for (let node = control.parentElement; node; node = node.parentElement) {
+    const slot = node.querySelector('[aria-live="polite"]');
+    if (slot) return slot as HTMLElement;
+  }
+  throw new Error("the control's row has no save-state slot");
+}
+
+it('shows the state beside the control that changed, and only there', async () => {
   const { writes } = setup();
   await open();
-  // The same element at every state, in the title row: a slot that is always there, so nothing under it moves.
-  const slot = screen.getByText('Camera controls').parentElement?.querySelector('[aria-live="polite"]');
-  expect(slot).toHaveAttribute('data-phase', 'idle');
+  const exposure = screen.getByRole('checkbox', { name: 'Automatic exposure' });
+  const frequency = screen.getByRole('combobox', { name: 'Frequency' });
+  // Every row that saves has its slot from the first render, so the mark coming and going moves nothing.
+  expect(slotOf(exposure)).toHaveAttribute('data-phase', 'idle');
+  expect(slotOf(frequency)).toHaveAttribute('data-phase', 'idle');
   server.use(
     http.post('/devices/camera-controls', async ({ request }) => {
       writes.push(await request.json());
       return HttpResponse.json({ ...view, pending: true });
     }),
   );
-  fireEvent.click(screen.getByRole('switch'));
-  expect(slot).toHaveAttribute('data-phase', 'saving');
-  await waitFor(() => expect(slot).toHaveTextContent('Saved. Applying camera controls.'));
-  expect(slot).toHaveAttribute('data-phase', 'saving');
-  await waitFor(() => expect(slot).toHaveAttribute('data-phase', 'saved'), { timeout: 5000 });
-  expect(slot).toHaveTextContent('Saved and applied.');
+  fireEvent.click(exposure);
+  expect(slotOf(exposure)).toHaveAttribute('data-phase', 'saving');
+  expect(slotOf(frequency)).toHaveAttribute('data-phase', 'idle');
+  await waitFor(() => expect(slotOf(exposure)).toHaveTextContent('Saved. Applying camera controls.'));
+  expect(slotOf(exposure)).toHaveAttribute('data-phase', 'saving');
+  await waitFor(() => expect(slotOf(exposure)).toHaveAttribute('data-phase', 'saved'), { timeout: 5000 });
+  expect(slotOf(exposure)).toHaveTextContent('Saved and applied.');
 });
