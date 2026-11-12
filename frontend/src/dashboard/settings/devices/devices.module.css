@@ -161,6 +161,26 @@
   width: 100%;
 }
 
+/* A control that saves itself, and the 20px slot its save state lives in at the end of its row. The slot is in the
+   page at every state, so the spinner, the check, and the error mark coming and going move nothing. The mark sits
+   with the control's first line (start), its middle (center), or its input (end). */
+.markRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.markRow[data-align="start"] {
+  align-items: flex-start;
+}
+.markRow[data-align="end"] {
+  align-items: flex-end;
+}
+.markRow > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .sliderControl {
   display: flex;
   gap: 10px;
