@@ -1,6 +1,6 @@
 [project]
 name = "liberational-pack"
-version = "0.1.0"
+version = "0.1.1"
 description = "Wearable ambient AI assistant: always-on audio, vision, memory, and voice."
 readme = "README.md"
 requires-python = ">=3.14"

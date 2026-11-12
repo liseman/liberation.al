@@ -1188,7 +1188,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "continuum-broker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "clap",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-capture"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "continuum-broker",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-catalog"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-core",
  "proptest",
@@ -1269,7 +1269,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-broker",
  "continuum-core",
@@ -1285,14 +1285,14 @@ dependencies = [
 
 [[package]]
 name = "continuum-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flatbuffers",
 ]
 
 [[package]]
 name = "continuum-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-broker",
  "continuum-client",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-gateway"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-ipc 60.1.0",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-log"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "tracing",
@@ -1351,7 +1351,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-py"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-buffer 60.1.0",
@@ -1373,7 +1373,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-sched"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-core",
  "proptest",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-search"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 58.4.1",
  "arrow-ipc 58.4.1",
@@ -1393,7 +1393,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-segments"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-buffer 60.1.0",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-shm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-core",
  "libc",
@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-tier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bytes",
  "chrono",
@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-vector"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 60.1.0",
  "arrow-schema 60.1.0",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "continuum-wire"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "continuum-core",
  "flatbuffers",
