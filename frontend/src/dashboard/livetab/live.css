@@ -309,9 +309,15 @@
   font: 600 11px var(--mantine-font-family);
   opacity: 0.75;
 }
-.flip-btn:hover {
-  opacity: 1;
-  filter: none;
+.flip-btn {
+  @mixin hover {
+    opacity: 1;
+    filter: none;
+  }
+}
+.flip-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .flip-btn.on {
   opacity: 1;
