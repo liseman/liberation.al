@@ -472,3 +472,114 @@ def test_a_download_with_the_wrong_checksum_is_thrown_away_not_carried_on_from(t
 def test_progress_is_said_as_megabytes_of_the_whole():
     assert fetch_models._progress("cut3r", 1_600_000_000, 3_200_000_000) == "  cut3r: 1,600 of 3,200 MB (50%)"
     assert fetch_models._progress("cut3r", 5_000_000, None) == "  cut3r: 5 MB"
+
+
+def refused_error(repo):
+    """What Hugging Face answers a login that has not been approved for a gated repository, or none at all."""
+    from huggingface_hub.errors import RepositoryNotFoundError, Response
+
+    client = importlib.import_module(Response.__module__.partition(".")[0])
+    url = f"https://huggingface.co/{repo}/resolve/main/config.json"
+    response = client.Response(401, headers={"X-Error-Code": "RepoNotFound"}, request=client.Request("GET", url))
+    return RepositoryNotFoundError(f"401 Client Error. Repository Not Found for url {url}.", response=response)
+
+
+def configured(monkeypatch, models, argv=("fetch_models", "--no-ollama")):
+    """Fetches what `models` declares, with every other fetch stubbed out."""
+    monkeypatch.setattr(fetch_models.shutil, "which", lambda name: None)  # no Ollama, no nvidia-smi
+    monkeypatch.setattr(fetch_models, "load", lambda: {"models": {"hf": models}})
+    monkeypatch.setattr(sys, "argv", list(argv))
+
+
+def test_a_gated_optional_model_is_one_line_and_leaves_the_exit_status_alone(monkeypatch, capsys):
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
+    fetched = []
+
+    def snapshot_download(repo, **kwargs):
+        if repo == "fixture/gated":
+            raise gated_error(repo)
+        fetched.append(repo)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    configured(
+        monkeypatch,
+        {
+            "concept": {"repo": "fixture/gated", "optional": True},
+            "points": {"repo": "fixture/open", "optional": True, "only_without": "concept"},
+        },
+    )
+    fetch_models.main()  # no SystemExit: an install works without SAM 3, so nothing failed
+    said = capsys.readouterr().out
+    assert "concept: not available here (fixture/gated is gated" in said
+    assert fetched == ["fixture/open"], "the ungated fallback was still fetched"
+
+
+def test_an_optional_model_the_login_cannot_read_is_not_an_error_either(monkeypatch, capsys):
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
+
+    def snapshot_download(repo, **kwargs):
+        raise refused_error(repo)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    configured(monkeypatch, {"concept": {"repo": "fixture/gated", "optional": True}})
+    fetch_models.main()
+    said = capsys.readouterr().out
+    assert "not available here" in said and "HTTP 401" in said
+    assert "HF_TOKEN" not in said and "token" not in said.lower(), "nothing here asks for a token"
+
+
+@pytest.mark.parametrize(("available", "fetched"), [(True, ["fixture/better"]), (False, ["fixture/fallback"])])
+def test_the_fallback_is_fetched_only_where_the_better_model_could_not_be_had(monkeypatch, capsys, available, fetched):
+    huggingface_hub = pytest.importorskip("huggingface_hub")  # only an extra brings it on Linux
+    calls = []
+
+    def snapshot_download(repo, **kwargs):
+        if repo == "fixture/better" and not available:
+            raise gated_error(repo)
+        calls.append(repo)
+
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", snapshot_download)
+    configured(
+        monkeypatch,
+        {
+            "concept": {"repo": "fixture/better", "optional": True},
+            "points": {"repo": "fixture/fallback", "optional": True, "only_without": "concept"},
+        },
+    )
+    fetch_models.main() if available else fetch_models.fetch(ollama=False)
+    assert calls == fetched
+    if available:
+        assert "points: not fetched (concept is here" in capsys.readouterr().out
+
+
+def test_an_optional_model_is_never_reported_missing(monkeypatch, tmp_path):
+    monkeypatch.setattr(fetch_models, "platform_key", lambda: "linux-x86_64")
+    monkeypatch.setattr(fetch_models, "owner_file", lambda path: tmp_path / path)
+    monkeypatch.setattr(
+        fetch_models,
+        "load",
+        lambda: {
+            "models": {
+                "files": {},
+                "hf": {
+                    "concept": {"repo": "org/sam3", "path": "models/sam3", "optional": True},
+                    "pets": {"repo": "org/pets", "path": "models/pets"},
+                },
+            }
+        },
+    )
+    assert fetch_models.missing() == ["pets: models/pets (org/pets)"], (
+        "a gated optional download is not a broken install"
+    )
+
+
+def test_an_optional_copy_with_other_weights_is_removed_without_stopping_the_run(snapshot, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        fetch_models.fetch_hf("pets", {"repo": "fixture/copy", "sha256": {"model.safetensors": "0" * 64}})
+    assert "checksum" in str(stopped.value.code)
+    assert not (snapshot / "model.safetensors").exists()
+    (snapshot / "model.safetensors").write_bytes(b"weights")
+    assert fetch_models.fetch_hf(
+        "concept", {"repo": "fixture/copy", "sha256": {"model.safetensors": "0" * 64}, "optional": True}
+    )
+    assert "not available here" in capsys.readouterr().out and not (snapshot / "model.safetensors").exists()
