@@ -32,7 +32,13 @@ export function CameraHead({
   on: boolean;
   live: boolean;
   status: { text: string; tone: 'ok' | 'warn' | 'dim' } | null;
-  use: { description: string; disabled: boolean; onChange: (on: boolean) => void; note?: ReactNode };
+  use: {
+    description: string;
+    disabled: boolean;
+    onChange: (on: boolean) => void;
+    note?: ReactNode; // under Use, for what it needs to say about itself
+    mark?: ReactNode; // at the end of Use's row: the slot its save state lives in
+  };
 }) {
   return (
     <SettingsRow className={`${fields.row} ${classes.camera}`}>
@@ -53,15 +59,18 @@ export function CameraHead({
         </div>
       </div>
       <div className={classes.toggles}>
-        <Checkbox
-          label="Use"
-          aria-label={`Use ${label}`}
-          description={use.description}
-          classNames={toggleClasses}
-          checked={on}
-          onChange={e => use.onChange(e.currentTarget.checked)}
-          disabled={use.disabled}
-        />
+        <div className={classes.markRow} data-align="start">
+          <Checkbox
+            label="Use"
+            aria-label={`Use ${label}`}
+            description={use.description}
+            classNames={toggleClasses}
+            checked={on}
+            onChange={e => use.onChange(e.currentTarget.checked)}
+            disabled={use.disabled}
+          />
+          {use.mark}
+        </div>
         {use.note}
       </div>
     </SettingsRow>

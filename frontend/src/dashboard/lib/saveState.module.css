@@ -1,0 +1,43 @@
+/* The one slot a control group's save state lives in. It is in the page at its full size from the first render, at
+   every state, so the tick, the spinner, or the error mark coming and going moves nothing beside it. */
+.slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+/* A small ring, turning while the change is saved and applied. Reduced motion keeps the ring and stops it. */
+.spinner {
+  box-sizing: border-box;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--lib-track);
+  border-top-color: var(--mantine-color-anchor);
+  border-radius: 50%;
+  animation: save-spin 0.8s linear infinite;
+}
+@keyframes save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+.check {
+  color: var(--lib-ok-text);
+}
+.error {
+  color: var(--lib-bad);
+}
