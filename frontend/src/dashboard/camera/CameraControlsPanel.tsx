@@ -1,8 +1,9 @@
 // A camera's controls panel, loaded when its popover first opens (CameraControls.tsx): its sliders and form stay
 // out of Live's first load.
-import { Button, Checkbox, NativeSelect, Slider, Stack, Switch, Text } from '@mantine/core';
+import { Button, Checkbox, Group, NativeSelect, Slider, Stack, Switch, Text } from '@mantine/core';
 import { useEffect, useRef, useState } from 'react';
 import { messageOf, request } from '../../shared/http';
+import { failed, SAVE_IDLE, SaveState, type SaveStatus, saved, saving } from '../lib/SaveState';
 
 export interface CameraControl {
   id: number;
@@ -39,6 +40,13 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
   const alive = useRef(true);
   const abort = useRef(new AbortController());
   const [reload, setReload] = useState(0);
+  // What the marks say: a change is queued or being written, the camera is applying it, or it did.
+  const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState(false);
+  // Which controls the current state belongs to, so a change is reported beside the control it was made on. A cycle
+  // is one save: controls changed into the same queue share it.
+  const [marks, setMarks] = useState<string[]>([]);
+  const cycle = useRef(false);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload explicitly retries failed reads.
   useEffect(() => {
@@ -87,6 +95,7 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
             controller.signal,
           );
           if (!controller.signal.aborted && !writing.current && queue.current.length === 0) {
+            setApplied(!result.pending);
             setView(old =>
               result.pending && old
                 ? {
@@ -142,6 +151,7 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
             if (next.auto_exposure !== undefined) pending.auto_exposure = next.auto_exposure;
           }
         }
+        setApplied(!result.pending);
         setView({
           ...result,
           auto_exposure: pending.auto_exposure ?? result.auto_exposure,
@@ -159,11 +169,20 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
     } finally {
       writing.current = false;
       if (alive.current) {
+        if (queue.current.length === 0) {
+          setBusy(false);
+          cycle.current = false; // the next change is a new one, beside its own control
+        }
         void flush();
       }
     }
   }
-  function change(changes: Changes) {
+  function change(mark: string, changes: Changes) {
+    setMarks(old => (cycle.current ? [...new Set([...old, mark])] : [mark]));
+    cycle.current = true;
+    setBusy(true);
+    setApplied(false);
+    setError(''); // a failed write's reason gives way to the change being tried now
     if (changes.reset) {
       // Reset is a barrier: writes on either side remain separate requests.
       queue.current.push(changes);
@@ -195,93 +214,128 @@ export function CameraControlsPanel({ camera }: { camera: string }) {
       void flush();
     }, 300);
   }
+  // The marks replace the "Saved. Applying…" line. Each control that saves itself has its own slot at the end of its
+  // row, always there, so the mark showing moves nothing; the one that changed spins while it is saved and applied,
+  // keeps its reason on failure (hover, or a screen reader), and checks for a moment once it has.
+  const status: SaveStatus = busy
+    ? saving('Saving the camera controls.')
+    : stalled
+      ? failed('Saved, but camera has not applied these values.')
+      : error
+        ? failed(error)
+        : view?.pending
+          ? saving('Saved. Applying camera controls.')
+          : applied
+            ? saved()
+            : SAVE_IDLE;
+  const mark = (key: string): SaveStatus => (marks.includes(key) ? status : SAVE_IDLE);
   return (
     <Stack gap="sm">
       <Text fw={600}>Camera controls</Text>
-      {error && (
+      {error && !view && (
         <Text role="alert" c="red" size="sm">
           {error}
         </Text>
       )}
       {!view && !error && <Text size="sm">Loading controls…</Text>}
-      {error && (
+      {error && !view && (
         <Button size="xs" variant="default" onClick={() => setReload(n => n + 1)}>
           Refresh controls
         </Button>
-      )}
-      {view?.pending && !stalled && (
-        <Text size="sm" role="status">
-          Saved. Applying camera controls…
-        </Text>
-      )}
-      {stalled && (
-        <>
-          <Text size="sm" role="alert">
-            Saved, but camera has not applied these values.
-          </Text>
-          <Button size="xs" variant="default" onClick={() => setPollRetry(value => value + 1)}>
-            Check again
-          </Button>
-        </>
       )}
       {view?.note && <Text size="sm">{view.note}</Text>}
       {view?.available && (
         <>
           {!view.can_control && <Text size="sm">Camera controls are read only.</Text>}
-          <Checkbox
-            label="Automatic exposure"
-            checked={view.auto_exposure}
-            disabled={!view.can_control}
-            onChange={event => change({ auto_exposure: event.currentTarget.checked })}
-          />
+          <Group gap="xs" wrap="nowrap" align="center">
+            <Checkbox
+              flex="1 1 auto"
+              miw={0}
+              label="Automatic exposure"
+              checked={view.auto_exposure}
+              disabled={!view.can_control}
+              onChange={event => change('exposure', { auto_exposure: event.currentTarget.checked })}
+            />
+            <SaveState status={mark('exposure')} />
+          </Group>
           {view.controls.map(control => {
+            const key = `control:${control.id}`;
             const disabled = !view.can_control || control.disabled;
-            const set = (value: number | boolean) => change({ values: { [control.id]: value } });
+            const set = (value: number | boolean) => change(key, { values: { [control.id]: value } });
             if (control.type === 'boolean')
               return (
-                <Switch
-                  key={control.id}
-                  label={control.name}
-                  checked={Boolean(control.current)}
-                  disabled={disabled}
-                  onChange={event => set(event.currentTarget.checked)}
-                />
+                <Group key={control.id} gap="xs" wrap="nowrap" align="center">
+                  <Switch
+                    flex="1 1 auto"
+                    miw={0}
+                    label={control.name}
+                    checked={Boolean(control.current)}
+                    disabled={disabled}
+                    onChange={event => set(event.currentTarget.checked)}
+                  />
+                  <SaveState status={mark(key)} />
+                </Group>
               );
             if (control.type === 'menu')
               return (
-                <NativeSelect
-                  key={control.id}
-                  label={control.name}
-                  value={String(control.current)}
-                  disabled={disabled}
-                  data={(control.options ?? []).map(option => ({ value: String(option.value), label: option.label }))}
-                  onChange={event => set(Number(event.currentTarget.value))}
-                />
+                <Group key={control.id} gap="xs" wrap="nowrap" align="flex-end">
+                  <NativeSelect
+                    flex="1 1 auto"
+                    miw={0}
+                    label={control.name}
+                    value={String(control.current)}
+                    disabled={disabled}
+                    data={(control.options ?? []).map(option => ({ value: String(option.value), label: option.label }))}
+                    onChange={event => set(Number(event.currentTarget.value))}
+                  />
+                  <SaveState status={mark(key)} />
+                </Group>
               );
             return (
               <div key={control.id}>
                 <Text size="sm" id={`camera-control-${control.id}`}>
                   {control.name}: {control.current}
                 </Text>
-                <Slider
-                  aria-labelledby={`camera-control-${control.id}`}
-                  value={control.current}
-                  min={control.min}
-                  max={control.max}
-                  step={control.step || 1}
-                  disabled={disabled}
-                  onChange={set}
-                />
+                <Group gap="xs" wrap="nowrap" align="center">
+                  <Slider
+                    flex="1 1 auto"
+                    miw={0}
+                    aria-labelledby={`camera-control-${control.id}`}
+                    value={control.current}
+                    min={control.min}
+                    max={control.max}
+                    step={control.step || 1}
+                    disabled={disabled}
+                    onChange={set}
+                  />
+                  <SaveState status={mark(key)} />
+                </Group>
               </div>
             );
           })}
           <Text size="xs" c="dimmed">
             Reset saves currently adjustable controls to camera defaults. Automatic exposure is unchanged.
           </Text>
-          <Button variant="default" size="xs" disabled={!view.can_control} onClick={() => change({ reset: true })}>
-            Reset defaults
-          </Button>
+          <Group gap="xs" wrap="nowrap" align="center">
+            <Button
+              flex="1 1 auto"
+              variant="default"
+              size="xs"
+              disabled={!view.can_control}
+              onClick={() => change('reset', { reset: true })}
+            >
+              Reset defaults
+            </Button>
+            <SaveState status={mark('reset')} />
+          </Group>
         </>
+      )}
+      {/* The panel's own way back from a camera that never applied the values: at the end, so its coming moves the
+          panel's edge and never the controls above it. */}
+      {stalled && (
+        <Button size="xs" variant="default" onClick={() => setPollRetry(value => value + 1)}>
+          Check again
+        </Button>
       )}
     </Stack>
   );

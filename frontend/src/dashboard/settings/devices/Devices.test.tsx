@@ -123,6 +123,15 @@ it('renames a network camera through the display-name draft without replacing it
   expect(screen.getByRole('checkbox', { name: 'Use entryway' })).toBeChecked();
 });
 
+/** The save-state slot in a control's row: the first ancestor that holds one. */
+function slotOf(control: HTMLElement): HTMLElement {
+  for (let node = control.parentElement; node; node = node.parentElement) {
+    const slot = node.querySelector('[aria-live="polite"]');
+    if (slot) return slot as HTMLElement;
+  }
+  throw new Error("the control's row has no save-state slot");
+}
+
 function renderDevices(control = true) {
   const view = config(control);
   // The Network cameras card between Cameras and Microphones reads the ingest sources.
@@ -401,7 +410,10 @@ describe('Settings: Cameras and microphones', () => {
     const slider = await screen.findByRole('slider', { name: 'Sensitivity for Desk Mic' });
     slider.focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(await screen.findByText('Saved, in use now')).toBeInTheDocument();
+    // Said in the slider's own row, in a slot that is always there, never by a line that moves the card.
+    const said = await screen.findByText('Saved, in use now');
+    expect(slotOf(slider)).toBe(said.closest('[aria-live="polite"]'));
+    expect(slotOf(slider)).toHaveAttribute('data-phase', 'saved');
     expect(posted).toEqual([{ mic: 'Desk Mic', sensitivity: 90 }]);
   });
 
@@ -528,7 +540,12 @@ describe('camera video controls', () => {
     expect(screen.getByText('Resolution: 1280×720 at 30 fps')).toBeInTheDocument();
     await userEvent.selectOptions(select, '640x480@60');
     await waitFor(() => expect(posted).toEqual([{ index: 0, width: 640, height: 480, fps: 60 }]));
-    expect(await screen.findByText(/restarting cam0/i)).toBeInTheDocument();
+    const said = await screen.findByText(/restarting cam0/i);
+    expect(slotOf(select)).toBe(said.closest('[aria-live="polite"]'));
+    expect(slotOf(select)).toHaveAttribute('data-phase', 'saved');
+    // The card's heading keeps its slot for the one change no control owns, restarting all capture: it is empty here.
+    const cameras = screen.getByRole('region', { name: 'Cameras' });
+    expect(cameras.querySelector('[aria-live="polite"]')).toHaveAttribute('data-phase', 'idle');
     expect(select).toHaveValue('640x480@60');
   });
 
