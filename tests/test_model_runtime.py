@@ -490,3 +490,18 @@ def test_an_unreporting_process_of_another_service_still_makes_models_unknown(st
         other.wait()
     pose = next(m for m in view["configured"] if m["key"] == "models.files.pose_live")
     assert pose["state"] == "unknown"
+
+
+def test_a_callers_own_row_is_listed_with_the_configured_models(state):
+    """Settings lists the mask backend with the other models (which one finds objects, and why), without a load."""
+    row = {
+        "key": "objects.mask_backend",
+        "name": "example/sam3",
+        "purpose": "find objects: SAM 3 is installed, so Find objects looks for the name you give it.",
+        "device": "unknown",
+    }
+    view = runtime.snapshot({}, None, [row])
+    assert {r["key"] for r in view["configured"]} >= {"objects.mask_backend"}
+    listed = next(r for r in view["configured"] if r["key"] == "objects.mask_backend")
+    assert (listed["name"], listed["purpose"], listed["state"]) == (row["name"], row["purpose"], "unloaded")
+    assert row["key"] not in {p["service"] for p in view["processes"]}, "it is not a process or a load report"

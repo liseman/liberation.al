@@ -340,6 +340,7 @@ export function ObjectMemoryPage() {
           draft={objectDraft}
           cameras={cameras}
           cameraNames={cameraNames}
+          findBackend={data.data?.status.find_objects?.backend ?? ''}
           onSaved={() => client.invalidateQueries({ queryKey: OVERVIEW_KEY })}
         />
       </div>

@@ -485,7 +485,7 @@ def test_cancel_endpoint_prevents_a_delayed_segment_request_with_conflict_respon
         "/objects/api/segment", {"snapshot": snap.token, "bbox": [0, 0, 1, 1], "job": "cancel-endpoint-delayed"}
     )
     assert page.handle(delayed, "POST")
-    assert delayed.sent == (409, {"error": "EdgeTAM selection was cancelled."})
+    assert delayed.sent == (409, {"error": "The object selection was cancelled."})
 
 
 def test_cancel_endpoint_is_served_through_the_dashboard_post_router(dashboard_server, monkeypatch):
@@ -1013,17 +1013,20 @@ def test_find_objects_runs_on_the_viewed_crop_and_each_mask_is_a_frame_selection
     clicked = page._remember_selection(snap.token, segmentation.Result(np.ones((80, 100), bool), 0.9, "fixture/sam2"))
     received = []
 
-    def find_all(image, job=None):
+    def find_all(image, *, concept="", job=None):
         decoded = objects.decode(image)
         assert decoded is not None
-        received.append((decoded.shape[:2], job))
+        received.append((decoded.shape[:2], concept, job))
         left = np.zeros(decoded.shape[:2], dtype=bool)
         left[:, : decoded.shape[1] // 2] = True  # the crop's left half
-        return [segmentation.Result(left, 0.8, "fixture/sam2")] * segmentation.FIND_MAX
+        backend = segmentation.Backend("sam2", segmentation.GRID, "fixture/sam2", "/models/sam2")
+        found = [segmentation.Result(left, 0.8, "fixture/sam2")] * segmentation.FIND_MAX
+        return segmentation.Found(found, backend)
 
     monkeypatch.setattr(segmentation, "find_all", find_all)
-    out = page.find({"snapshot": snap.token, "crop": [20, 10, 40, 20], "job": "j1"})
-    assert received == [((512, 1024), "j1")], "the crop, scaled up for SAM2, once"
+    out = page.find({"snapshot": snap.token, "crop": [20, 10, 40, 20], "job": "j1", "concept": "  my wallet "})
+    assert received == [((512, 1024), "my wallet", "j1")], "the crop, scaled up for SAM2, once, for the name typed"
+    assert (out["backend"], out["note"]) == ("sam2", ""), "the answer names the model that ran"
     first = out["objects"][0]
     assert first["bbox"] == pytest.approx([0.2, 0.125, 0.2, 0.25])
     expected = np.zeros((80, 100), dtype=bool)
@@ -1042,17 +1045,33 @@ def test_find_objects_without_a_crop_looks_at_the_whole_frame(monkeypatch):
     snap = page._snapshots.add("cam0", time.time(), snapshot(np.zeros((80, 100, 3), np.uint8)).image)
     shapes = []
 
-    def find_all(image, job=None):
+    def find_all(image, *, concept="", job=None):
         decoded = objects.decode(image)
         assert decoded is not None
-        shapes.append(decoded.shape[:2])
-        return []
+        shapes.append((decoded.shape[:2], concept))
+        backend = segmentation.Backend("edgetam", segmentation.TODAY, "fixture/edgetam", "/models/edgetam")
+        return segmentation.Found([], backend, "SAM 3 needs an NVIDIA GPU with about 5 GB free; the point grid ran.")
 
     monkeypatch.setattr(segmentation, "find_all", find_all)
-    assert page.find({"snapshot": snap.token})["objects"] == []
-    assert shapes == [(80, 100)]
+    found = page.find({"snapshot": snap.token})
+    assert found["objects"] == [] and found["backend"] == "edgetam"
+    assert found["note"].startswith("SAM 3 needs an NVIDIA GPU"), "a fallback says why it ran"
+    assert shapes == [((80, 100), "")], "no name typed is a grid run, not an error"
     with pytest.raises(FileNotFoundError):
         page.find({"snapshot": "gone"})
+
+
+def test_find_objects_refuses_a_name_that_is_not_text_or_is_too_long(monkeypatch):
+    monkeypatch.setattr(page, "_snapshots", objects.Snapshots())
+    snap = page._snapshots.add("cam0", time.time(), snapshot(np.zeros((80, 100, 3), np.uint8)).image)
+    calls = []
+    monkeypatch.setattr(segmentation, "find_all", lambda *args, **kw: calls.append(kw))
+    with pytest.raises(ValueError, match="concept must be text"):
+        page.find({"snapshot": snap.token, "concept": ["wallet"]})
+    with pytest.raises(ValueError, match="at most 80 characters"):
+        page.find({"snapshot": snap.token, "concept": "w" * (page.MAX_CONCEPT + 1)})
+    assert calls == [], "a name is cleaned and checked before any model runs"
+    assert page.concept({"concept": "  my \n wallet "}) == "my wallet"
 
 
 def test_status_names_each_camera_by_its_place_and_falls_back_to_its_id(store, vision, monkeypatch):

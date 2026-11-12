@@ -502,6 +502,8 @@ describe('remembering an object', () => {
         return HttpResponse.json({
           snapshot: 'snap1',
           ms: 1234,
+          backend: 'edgetam',
+          note: '',
           objects: [
             {
               ...selection({ selection: 'whole', mask: 'mask:whole' }),
@@ -529,7 +531,9 @@ describe('remembering an object', () => {
     await screen.findByText('Click the object, or draw a box around it, to outline it.');
     expect(finds).toEqual([]);
     await userEvent.click(screen.getByRole('button', { name: 'Find objects' }));
-    expect(await screen.findByText('Found 2 objects in 1.2 s. Click one to select it.')).toBeInTheDocument();
+    expect(
+      await screen.findByText('Found 2 objects in 1.2 s with EdgeTAM. Click one to select it.'),
+    ).toBeInTheDocument();
     expect(finds).toEqual([{ snapshot: 'snap1', crop: expect.any(Array), job: expect.any(String) }]);
     clickSegment(frame());
     expect(await screen.findByText('Selected. Name it, then remember it.')).toBeInTheDocument();
@@ -538,6 +542,38 @@ describe('remembering an object', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Remember selected object' }));
     await screen.findByText(/^Remembered\./);
     expect(enrolled).toMatchObject({ snapshot: 'snap1', selection: 'whole', name: 'lamp' });
+  });
+
+  it('find objects looks for the name typed when SAM 3 is in use, and says which model ran', async () => {
+    serve([ssd], status({ find_objects: { backend: 'sam3', model: 'example/sam3', why: 'SAM 3 is installed.' } }));
+    const finds: Record<string, unknown>[] = [];
+    server.use(
+      http.post('/objects/api/import', () => HttpResponse.json(snapshot)),
+      http.post('/objects/api/find', async ({ request }) => {
+        finds.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json({
+          snapshot: 'snap1',
+          ms: 900,
+          backend: 'edgetam',
+          note: 'SAM 3 needs an NVIDIA GPU with about 5 GB free; the point grid ran instead.',
+          objects: [],
+        });
+      }),
+    );
+    renderPage(<ObjectMemoryPage />);
+    await screen.findByText(/cameras ready/);
+    await userEvent.click(screen.getByRole('button', { name: 'Freeze view' }));
+    await screen.findByText('Click the object, or draw a box around it, to outline it.');
+    // The page says up front what SAM 3 needs, before the owner presses anything.
+    expect(screen.getByText(/Find objects looks for a name with SAM 3/)).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/Object name/), 'my lamp');
+    await userEvent.click(screen.getByRole('button', { name: 'Find objects' }));
+    expect(
+      await screen.findByText(/^No objects found in view with EdgeTAM\. SAM 3 needs an NVIDIA GPU/),
+    ).toBeInTheDocument();
+    expect(finds).toEqual([
+      { snapshot: 'snap1', crop: expect.any(Array), job: expect.any(String), concept: 'my lamp' },
+    ]);
   });
 
   it("remembers the object picked last, even when an earlier pick's mask loads after it", async () => {
@@ -557,6 +593,8 @@ describe('remembering an object', () => {
         HttpResponse.json({
           snapshot: 'snap1',
           ms: 500,
+          backend: 'sam2',
+          note: '',
           objects: [
             { ...selection({ selection: 'a', mask: 'slow-mask-a' }), outline: half(0, 0.5) },
             { ...selection({ selection: 'b', mask: 'mask-b' }), outline: half(0.5, 1) },
