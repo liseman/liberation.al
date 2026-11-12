@@ -271,13 +271,18 @@ async function benchPage() {
     ready.still.close();
 
     const stages = {};
+    let waits = 0;
     let last = 0;
     if (run.stages)
       enhancer.mark = name => {
         wait(gl);
         const now = performance.now();
         stages[name] = (stages[name] ?? 0) + now - last;
-        last = now;
+        // What a wait costs with nothing to wait for: each stage's time includes one
+        wait(gl);
+        last = performance.now();
+        stages.wait = (stages.wait ?? 0) + last - now;
+        waits += 1;
       };
 
     const total = [];
@@ -343,8 +348,22 @@ async function benchPage() {
           total.push(t3 - t1);
         }
         if (run.mode === 'behaviour' && probe && scene) {
-          probe.drawImage(canvas, 0, 0);
-          const data = probe.getImageData(0, 0, run.width, run.height).data;
+          // The highlight alone (over black), and the picture where it is shown. A renderer that says where the
+          // plain picture belongs (shift) draws only the highlight; one that doesn't draws both on its canvas.
+          let data;
+          let picture;
+          if (enhancer.shift) {
+            probe.fillStyle = '#000';
+            probe.fillRect(0, 0, run.width, run.height);
+            probe.drawImage(canvas, 0, 0, run.width, run.height);
+            data = probe.getImageData(0, 0, run.width, run.height).data;
+            probe.drawImage(plain, -enhancer.shift.x * run.width, -enhancer.shift.y * run.height);
+            picture = probe.getImageData(0, 0, run.width, run.height).data;
+          } else {
+            probe.drawImage(canvas, 0, 0);
+            data = probe.getImageData(0, 0, run.width, run.height).data;
+            picture = data;
+          }
           const g = ready.ground;
           let count = 0;
           let inGround = 0;
@@ -360,7 +379,7 @@ async function benchPage() {
                 count += 1;
                 if (x >= g.x && x < g.x + g.side && y >= g.y && y < g.y + g.side) inGround += 1;
               } else if (x >= x0 && x < run.width - x0 && y >= y0 && y < run.height - y0) {
-                sum += Math.abs(data[i + 1] - scene[i + 1]);
+                sum += Math.abs(picture[i + 1] - scene[i + 1]);
                 counted += 1;
               }
             }
@@ -395,7 +414,13 @@ async function benchPage() {
       out.frameMs = { median: round(median(total)), p95: round(centile(total, 0.95)) };
       out.framesASecond = round(1000 / (median(total) + median(plainMs)));
     }
-    if (run.stages) out.stages = Object.fromEntries(Object.entries(stages).map(([k, v]) => [k, round(v / frames)]));
+    if (run.stages) {
+      // Each stage net of the bare wait; "wait" is one bare wait
+      const bare = (stages.wait ?? 0) / Math.max(1, waits);
+      out.stages = Object.fromEntries(
+        Object.entries(stages).map(([k, v]) => [k, round(k === 'wait' ? bare : Math.max(0, v / frames - bare))]),
+      );
+    }
     if (run.mode === 'behaviour') {
       const from = Math.round(2 * run.fps); // once the highlight has faded in
       const after = values => values.slice(from);
@@ -435,15 +460,13 @@ async function benchPage() {
 
 // ---- The driver ----
 
-const built = await need('esbuild').build({
-  entryPoints: [renderer],
-  bundle: true,
-  format: 'iife',
-  globalName: 'EnhanceBundle',
-  write: false,
+// Vite is the dashboard's own bundler: the renderer and what it imports, as one script that sets EnhanceBundle
+const built = await need('vite').build({
+  configFile: false,
   logLevel: 'silent',
+  build: { write: false, minify: false, lib: { entry: renderer, formats: ['iife'], name: 'EnhanceBundle' } },
 });
-const bundle = built.outputFiles[0].text;
+const bundle = (Array.isArray(built) ? built[0] : built).output[0].code;
 const runs = runsFor();
 
 /** Utilisation of each graphics card, sampled four times a second: [ms, [percent, ...]]. */
