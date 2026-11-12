@@ -18,7 +18,7 @@ def named(tmp_path, monkeypatch):
 
     conftest's `vision` fixture points every segment read at an in-memory log; this test is about the store's own
     rows coming back, so the real read is put back."""
-    pytest.importorskip("continuum_py").SegmentWriter  # the native store must be built
+    pytest.importorskip("continuum_py").SegmentWriter  # noqa: B018 (the native store must be built)
     monkeypatch.setattr(S, "at", lambda state=None: S.Log(S.root(state)))
     reg = registry.at(tmp_path)
     reg.claim(registry.utterance(1.0), "Alice", Basis.OWNER_TAG, "dashboard")
