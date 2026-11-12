@@ -46,7 +46,8 @@ export function PlanFrame({
   }, []);
   // The editor takes what's left of the window under where it starts, as the 3D view does (CloudView.tsx): measured,
   // since what's above it (the tabs, the place's header, Save, and any message) is the page's to decide, and measured
-  // again after each render (a message above it comes and goes) and when the window changes.
+  // again after each render (a message above it comes and goes) and when the window changes. Its frame reaches the
+  // window's bottom edge, so the page gives up its own room under it (data-fills-page, page.module.css).
   const [top, setTop] = useState(0);
   const measure = () => {
     const el = frame.current;
@@ -64,6 +65,7 @@ export function PlanFrame({
       <iframe
         ref={frame}
         className={classes.planFrame}
+        data-fills-page
         style={{ '--plan-top': `${top}px` } as CSSProperties}
         title="Plan editor"
         src={editorUrl(import.meta.env.BASE_URL, '2d', scheme, look)}

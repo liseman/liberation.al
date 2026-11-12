@@ -876,3 +876,18 @@ it('says so when no camera can be placed, with why for each', async () => {
   ).toBeTruthy();
   expect(await screen.findByText(/Not in the scene: its spot has no facing/)).toBeTruthy();
 });
+
+it("takes the window's height from where the view starts, and measures again when a render moves that", async () => {
+  serve(scene({ splat: null }));
+  const { container } = renderPage(<CloudView place="p1" />);
+  const floor = await screen.findByRole('checkbox', { name: 'Floor' });
+  const frame = container.querySelector<HTMLElement>('[data-fills-page]');
+  expect(frame).toBeTruthy();
+  // The page gives up the room it kept under a view that reaches the window's bottom edge, and the view's own CSS
+  // takes the window's height less where the view starts (jsdom lays nothing out, so that starts at nothing).
+  expect(frame?.style.getPropertyValue('--cloud-top')).toBe('0px');
+  const measure = vi.spyOn(frame as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 268 } as DOMRect);
+  await userEvent.click(floor);
+  await waitFor(() => expect(frame?.style.getPropertyValue('--cloud-top')).toBe('268px'));
+  measure.mockRestore();
+});
