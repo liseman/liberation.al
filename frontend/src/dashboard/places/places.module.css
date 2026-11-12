@@ -275,13 +275,12 @@
   text-decoration: underline;
 }
 
-/* The plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. */
+/* The plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. Its
+   height is the one above, the window's under where it starts, so Save, above it, and the plan are on one screen
+   without the page scrolling to reach them; the minimum is the editor's own, for a window too short for it. */
 .planFrame {
   display: block;
   width: 100%;
-  /* the window's height from where the editor starts (PlanFrame measures that) to its bottom edge, less a phone's
-     bottom bar, so Save, above it, and the plan are on one screen without the page scrolling to reach them */
-  height: calc(100dvh - var(--plan-top, 0px) - var(--bottom-h, 0px));
   min-height: 26rem;
   border: 0;
   border-radius: var(--mantine-radius-md);
