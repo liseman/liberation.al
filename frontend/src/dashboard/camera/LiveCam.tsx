@@ -1,6 +1,6 @@
 // A camera, live: frames from its gateway session (mux.ts) drawn on a canvas. Until the first frame arrives, a note
 // says there's no picture yet; when frames stop for 4 s, the last one stays, dimmed, until they come back.
-import { attach, useLiveError, useLiveNow } from './mux';
+import { attach, feedTaps, useLiveError, useLiveNow } from './mux';
 import './camera.css';
 import { type Ref, type RefObject, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
@@ -72,17 +72,32 @@ function DemoCam({ cam, alt, canvasRef }: { cam: string; alt: string; canvasRef?
     const canvas = ref.current;
     const picture = new Image();
     let active = true;
+    let still: ImageBitmap | undefined;
+    // The demo's camera is a still: it is handed on a few times a second, as frames, so Enhance has a picture
+    const feed = setInterval(() => {
+      if (still) feedTaps(cam, still, performance.now() / 1000);
+    }, 200);
     picture.onload = () => {
       if (!active || !canvas) return;
       canvas.width = picture.naturalWidth;
       canvas.height = picture.naturalHeight;
       canvas.getContext('2d')?.drawImage(picture, 0, 0);
+      if (typeof createImageBitmap === 'function')
+        createImageBitmap(picture).then(
+          bitmap => {
+            if (active) still = bitmap;
+            else bitmap.close();
+          },
+          () => {},
+        );
     };
     picture.src = `/demo/media/${encodeURIComponent(cam)}.jpg`;
     if (typeof canvasRef === 'function') canvasRef(canvas);
     else if (canvasRef) canvasRef.current = canvas;
     return () => {
       active = false;
+      clearInterval(feed);
+      still?.close();
       picture.onload = null;
       if (typeof canvasRef === 'function') canvasRef(null);
       else if (canvasRef) canvasRef.current = null;
