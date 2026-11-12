@@ -218,7 +218,7 @@ export function Remember({
       setFound(result.objects);
       const seconds = (result.ms / 1000).toFixed(1);
       const model = backendName(result.backend);
-      // The server's note explains a fallback in words ("SAM 3 needs an NVIDIA GPU with about 5 GB free...").
+      // The server's note explains a fallback in words ("SAM 3 had no room on the GPU ... so EdgeTAM looked instead").
       const note = result.note ? ` ${result.note}` : '';
       say(
         result.objects.length
@@ -513,11 +513,6 @@ export function Remember({
               {message.text}
             </Text>
           )}
-          {frozen && findBackend === 'sam3' && (
-            <Text size="sm" c="dimmed">
-              Find objects looks for a name with SAM 3: type the object&apos;s name below, then press Find objects.
-            </Text>
-          )}
           {frozen && (
             <>
               {crop && (
@@ -559,6 +554,7 @@ export function Remember({
                 <Stack gap="sm">
                   <TextInput
                     label="Object name"
+                    description={findBackend === 'sam3' ? 'With SAM 3, Find objects looks for this name.' : undefined}
                     required
                     maxLength={80}
                     placeholder="my SSD"

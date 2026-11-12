@@ -535,7 +535,8 @@ def test_a_find_run_with_no_name_uses_the_point_grid_and_says_why(monkeypatch):
     install(monkeypatch, EDGE.key, SAM3.key)
     chosen, note = segmentation.find_backend("")
     assert chosen.kind == "edgetam", "SAM 3 has nothing to look for without a name"
-    assert "name the object first" in note and "point grid" in note
+    assert "name the object first" in note and "found everything in view instead" in note
+    assert "point grid" not in note, "the answer says what happened, not what we call the method"
 
 
 @pytest.mark.parametrize(
@@ -596,19 +597,24 @@ def test_installed_reads_the_configured_local_copy_and_nothing_else(tmp_path):
     ("models", "backend", "said"),
     [
         pytest.param(
-            (segmentation.TODAY, segmentation.CONCEPT), "sam3", "looks for the name you give it", id="sam3-installed"
+            (segmentation.TODAY, segmentation.CONCEPT), "sam3", "looks for the name you type", id="sam3-installed"
         ),
-        pytest.param((segmentation.TODAY, segmentation.GRID), "sam2", "point grid on SAM 2", id="sam2-installed"),
-        pytest.param((segmentation.TODAY,), "edgetam", "Only EdgeTAM is installed", id="edgetam-only"),
+        pytest.param(
+            (segmentation.TODAY, segmentation.GRID), "sam2", "SAM 2 finds everything in view", id="sam2-installed"
+        ),
+        pytest.param((segmentation.TODAY,), "edgetam", "EdgeTAM finds everything in view", id="edgetam-only"),
     ],
 )
 def test_describe_says_which_model_and_why_in_plain_words(monkeypatch, models, backend, said):
     install(monkeypatch, *models)
     seen = segmentation.describe()
     assert (seen["backend"], said in seen["why"]) == (backend, True)
+    assert "point grid" not in seen["why"] and "`" not in seen["why"], (
+        "owner-facing words describe what a model does, never our internals or a command"
+    )
     row = segmentation.mask_backend_row()
     assert row["key"] == "objects.mask_backend" and row["name"] == seen["model"]
-    assert row["purpose"].startswith("find objects: ") and said in row["purpose"]
+    assert (row["purpose"], row["why"]) == ("find objects", seen["why"])
 
 
 def test_a_bad_mask_backend_setting_is_said_in_the_status_and_refused_at_a_request(monkeypatch):
@@ -635,7 +641,10 @@ def test_a_concept_run_with_no_gpu_room_uses_the_point_grid_for_that_request_and
     found = segmentation.find_all(image_bytes(), concept="wallet", job="j1")
     assert [target for target, _args in calls] == [segmentation._find_concept, segmentation._find]
     assert calls[1][1][1] == SAM2.key, "the fallback ran on the point grid's own model"
-    assert (found.backend.kind, found.note) == ("sam2", segmentation.NO_ROOM)
+    assert (found.backend.kind, found.note) == (
+        "sam2",
+        "SAM 3 had no room on the GPU (it needs about 5 GB free), so SAM 2 looked instead.",
+    ), "the note names the model that actually looked"
     assert len(found.objects) == 1
 
 
@@ -688,10 +697,10 @@ def test_the_concept_model_is_refused_rather_than_squeezed_when_no_gpu_has_room(
     monkeypatch.setitem(sys.modules, "torch", fake)
     assert segmentation._device("auto", segmentation.CONCEPT_BYTES) == "cuda:0"
     free["free"] = segmentation.CONCEPT_BYTES - 1
-    with pytest.raises(segmentation._NoRoom, match="NVIDIA GPU"):
+    with pytest.raises(segmentation._NoRoom, match="no room on the GPU"):
         segmentation._device("auto", segmentation.CONCEPT_BYTES)
     free["free"] = None  # an Apple Silicon or CPU machine: no CUDA at all
-    with pytest.raises(segmentation._NoRoom, match="NVIDIA GPU"):
+    with pytest.raises(segmentation._NoRoom, match="no room on the GPU"):
         segmentation._device("auto", segmentation.CONCEPT_BYTES)
     assert segmentation._device("auto") == "cpu", "the point grid still runs there"
 

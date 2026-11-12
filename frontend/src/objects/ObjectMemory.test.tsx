@@ -247,7 +247,7 @@ describe('renaming and removing an object', () => {
     expect(screen.getByRole('button', { name: 'Rename my SSD' })).toBeInTheDocument();
   });
 
-  it("keeps the box open with the store's reason when the name is taken", async () => {
+  it("keeps the box open with the store's reason on the box itself when the name is taken", async () => {
     serve();
     server.use(
       http.post('/objects/api/rename', () =>
@@ -259,8 +259,19 @@ describe('renaming and removing an object', () => {
     const box = screen.getByLabelText('New name for my SSD');
     await userEvent.clear(box);
     await userEvent.type(box, 'keys{Enter}');
-    expect(await screen.findByText('Could not rename it: name or alias already enrolled')).toBeInTheDocument();
-    expect(screen.getByLabelText('New name for my SSD')).toHaveValue('keys');
+    // The reason belongs beside what it is about, not in the toast at the bottom of the window.
+    expect(await screen.findByText('name or alias already enrolled')).toBeInTheDocument();
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveValue('keys');
+    await userEvent.type(box, '!');
+    expect(screen.queryByText('name or alias already enrolled')).not.toBeInTheDocument(); // typing clears it
+  });
+
+  it("says when it was last seen in the dashboard's words, not a machine date", async () => {
+    serve();
+    renderPage(<ObjectMemoryPage />);
+    // The fixture was seen a minute ago, so this is "Today, 15:21" (or Yesterday just after midnight).
+    expect(await screen.findByText(/^visual · (Today|Yesterday), \d{2}:\d{2}$/)).toBeInTheDocument();
   });
 
   it('removes one after asking, and its Undo remembers it again', async () => {
@@ -283,8 +294,13 @@ describe('renaming and removing an object', () => {
     );
     renderPage(<ObjectMemoryPage />);
     await userEvent.click(await screen.findByRole('button', { name: 'Remove my SSD' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Remove my SSD' });
-    expect(within(dialog).getByText(/recorded sightings stay/)).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: 'Remove “my SSD”?' });
+    // The title asks and the body gives the consequence, as the other confirm prompts do.
+    expect(
+      within(dialog).getByText(
+        'It stops being matched. Its recorded sightings stay, and you can undo this from the message that follows.',
+      ),
+    ).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Remove' }));
     expect(await screen.findByText('Removed my SSD. Its recorded sightings stay.')).toBeInTheDocument();
     expect(forgotten).toEqual([{ id: 'o1' }]);
@@ -555,7 +571,7 @@ describe('remembering an object', () => {
           snapshot: 'snap1',
           ms: 900,
           backend: 'edgetam',
-          note: 'SAM 3 needs an NVIDIA GPU with about 5 GB free; the point grid ran instead.',
+          note: 'SAM 3 had no room on the GPU (it needs about 5 GB free), so EdgeTAM looked instead.',
           objects: [],
         });
       }),
@@ -564,12 +580,12 @@ describe('remembering an object', () => {
     await screen.findByText(/cameras ready/);
     await userEvent.click(screen.getByRole('button', { name: 'Freeze view' }));
     await screen.findByText('Click the object, or draw a box around it, to outline it.');
-    // The page says up front what SAM 3 needs, before the owner presses anything.
-    expect(screen.getByText(/Find objects looks for a name with SAM 3/)).toBeInTheDocument();
+    // The page says up front what SAM 3 does with the name, under the field it is about.
+    expect(screen.getByText('With SAM 3, Find objects looks for this name.')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/Object name/), 'my lamp');
     await userEvent.click(screen.getByRole('button', { name: 'Find objects' }));
     expect(
-      await screen.findByText(/^No objects found in view with EdgeTAM\. SAM 3 needs an NVIDIA GPU/),
+      await screen.findByText(/^No objects found in view with EdgeTAM\. SAM 3 had no room on the GPU/),
     ).toBeInTheDocument();
     expect(finds).toEqual([
       { snapshot: 'snap1', crop: expect.any(Array), job: expect.any(String), concept: 'my lamp' },
