@@ -91,6 +91,7 @@ GET /surroundings/thumb/([0-9a-f]{32})\.jpg
 GET /transcript
 GET /transcript/day
 GET /vision
+GET /vitals
 GET /voices/unknown/groups
 GET /zones
 GET /zones/history

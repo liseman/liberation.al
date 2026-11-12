@@ -506,6 +506,10 @@ backend = "auto"
 # Ground notable objects with the Ollama caption backend on the first view, on scene changes at most every
 # 30 s, and on steady views every 300 s. The boxes are shown on live video between groundings.
 objects = true
+# Read a heart rate from the colour of skin on a close, full-rate camera (vitals.py, see/hearts.py), and show it on
+# Live when the reading is confident. see-actions reads it once when it starts, so a change needs a restart of that
+# service; with it off nothing is measured and nothing is written.
+heart_rate = true
 
 # Default device for the animal check and pet embeddings when a caller does not choose one.
 # "auto" takes the last CUDA GPU, else Apple's GPU, else the CPU; or name one ("cuda:0", "cpu"). Caption-grounded

@@ -926,6 +926,56 @@ def action_coverage(row: Mapping[str, Any], cam: str) -> Record:
     }
 
 
+# Heart rate from the colour of skin (see/hearts.py on vitals.py): one row a second for each tracked person on a
+# close, full-rate camera, whether or not their face was named. `bpm` is NaN when the window wasn't trustworthy
+# (unknown is not zero, and a number that isn't trustworthy is never stored): `confidence` is why, with the in-band
+# SNR and the share of the window's frames the reading saw (`coverage`).
+VITALS_HEART_RATES = "vitals.heart_rate"
+HEART_RATE_SCHEMA = [
+    *SPAN,
+    ("track_id", "i64"),  # see-actions' track, as pose.track names it
+    ("person", "id?"),  # their PersonId once a face look names the track; None while they're unknown
+    ("bpm", "f32"),  # NaN when the reading wasn't trustworthy
+    ("confidence", "f32"),  # 0 to 1, the product of the pulse, agreement, stillness, and coverage scores
+    ("snr_db", "f32"),  # the pulse's in-band spectral SNR
+    ("coverage", "f32"),  # the share of the window's frames the trace had
+    ("face_px", "i32"),  # the face's side in pixels, median over the window
+    ("fps", "f32"),  # the rate its samples came at
+    ("method", "str"),  # "pos-v1": POS, with CHROM as the agreement check
+]
+
+
+def heart_rate_row(r: Mapping[str, Any]) -> Row:
+    return {
+        **_span_row(r),
+        "track_id": int(r["track_id"]),
+        "person": r.get("person"),
+        "bpm": float(r["bpm"]),
+        "confidence": float(r["confidence"]),
+        "snr_db": float(r["snr_db"]),
+        "coverage": float(r["coverage"]),
+        "face_px": int(r["face_px"]),
+        "fps": float(r["fps"]),
+        "method": str(r["method"]),
+    }
+
+
+def heart_rate(row: Mapping[str, Any], cam: str) -> Record:
+    bpm = float(row["bpm"])
+    return {
+        **_span(row, cam),
+        "track_id": str(int(row["track_id"])),
+        "person": row["person"],
+        "bpm": None if math.isnan(bpm) else bpm,  # a NaN reads as "no reading", never as a rate
+        "confidence": float(row["confidence"]),
+        "snr_db": float(row["snr_db"]),
+        "coverage": float(row["coverage"]),
+        "face_px": int(row["face_px"]),
+        "fps": float(row["fps"]),
+        "method": row["method"],
+    }
+
+
 # Faces from see-actions' tracked heads (see/head_faces.py): one match per look at a track's head, with the face's box
 # normalized to the frame, and the visits a named person's matches make on one camera. A match is a moment; its `id`
 # is also its `detection`, which a visit's `shots` name (People's photos). `shots` is a JSON list: there's no
@@ -1176,6 +1226,7 @@ STREAMS[ACTION_SPANS] = Stream(ACTION_SPANS, ACTIVITY, activity_row, activity)
 STREAMS[OBJECT_MATCHES] = Stream(OBJECT_MATCHES, OBJECT_MATCH_SCHEMA, object_match_row, object_match)
 STREAMS[CAPTIONS] = Stream(CAPTIONS, CAPTION_SCHEMA, caption_row, caption)
 STREAMS[CAMERA_OBJECTS] = Stream(CAMERA_OBJECTS, CAMERA_OBJECTS_SCHEMA, camera_objects_row, camera_objects)
+STREAMS[VITALS_HEART_RATES] = Stream(VITALS_HEART_RATES, HEART_RATE_SCHEMA, heart_rate_row, heart_rate)
 STREAMS[FACE_MATCHES] = Stream(FACE_MATCHES, FACE_MATCH_SCHEMA, face_match_row, face_match)
 STREAMS[FACE_VISITS] = Stream(FACE_VISITS, FACE_VISIT_SCHEMA, face_visit_row, face_visit)
 STREAMS[FACE_EMBEDDINGS] = Stream(FACE_EMBEDDINGS, FACE_EMBEDDING_SCHEMA, face_embedding_row, face_embedding)

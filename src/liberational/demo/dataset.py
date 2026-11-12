@@ -47,6 +47,9 @@ HERE = {
     "Sam": ("front-room", "Living room", (6.5, 2.5), (18, 16)),
     "Rex": ("front-room", "Living room", (5.3, 3.2), (18, 1)),
 }
+# The demo household's made-up heart rates: a reading a person while they sit near the close camera. Nobody here
+# bleeds, and nothing about a reading is real but its shape.
+HEARTS = {"Alice": (71, 0.84), "Sam": (88, 0.72)}
 CAPTIONS = (
     "Sam has set the table. Dana has joined him, and Rex is resting nearby.",
     "Alice is finishing the pasta for dinner.",

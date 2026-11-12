@@ -326,6 +326,28 @@ def test_a_coverage_span_survives_its_columns_and_is_named_by_camera_and_start(r
 
 
 @st.composite
+def heart_rate_records(draw):
+    start = draw(times)
+    return {
+        "id": S.new_id(),
+        "ts_start": start,
+        "ts_end": draw(st.floats(min_value=start, max_value=start + 20, allow_nan=False)),
+        "cam": "cam0",
+        "track_id": str(draw(st.integers(1, 2**62))),
+        "person": draw(st.one_of(st.none(), st.just(S.new_id()))),
+        # Only a rate: a window that wasn't trustworthy is kept as NaN in the row and read back as no rate at all
+        # (test_a_heart_rate_window_that_was_not_trustworthy_reads_as_no_rate), so it is not part of this round trip.
+        "bpm": draw(st.floats(42, 180, width=32)),
+        "confidence": draw(st.floats(0, 1, width=32)),
+        "snr_db": draw(st.floats(-60, 60, width=32)),
+        "coverage": draw(st.floats(0, 1, width=32)),
+        "face_px": draw(st.integers(0, 4000)),
+        "fps": draw(st.floats(0, 240, width=32)),
+        "method": draw(st.sampled_from(["pos-v1"])),
+    }
+
+
+@st.composite
 def presence_records(draw):
     return {
         **span(draw),
@@ -356,6 +378,7 @@ RECORDS = {
     S.FACE_SIGNALS: face_signal_records(),
     S.PRESENCE_SPANS: presence_records(),
     S.PLACE_VISITS: place_visit_records(),
+    S.VITALS_HEART_RATES: heart_rate_records(),
 }
 
 
@@ -382,6 +405,27 @@ def test_a_record_survives_its_typed_columns(stream, data):
     row = spec.to_row(record)
     assert set(row) == {name for name, _ in spec.schema}, "the row is exactly the schema's columns"
     assert same(spec.to_record(row, "cam0"), record)
+
+
+def test_a_heart_rate_window_that_was_not_trustworthy_reads_as_no_rate():
+    """The row keeps NaN (unknown is not zero); a reader gets None, so nothing can show it as a number."""
+    record = {
+        "id": S.new_id(),
+        "ts_start": T,
+        "ts_end": T + 12,
+        "track_id": "7",
+        "person": None,
+        "bpm": float("nan"),
+        "confidence": 0.2,
+        "snr_db": 3.0,
+        "coverage": 0.9,
+        "face_px": 170,
+        "fps": 30.0,
+        "method": "pos-v1",
+    }
+    row = S.heart_rate_row(record)
+    assert math.isnan(row["bpm"]), "the store keeps it as unknown, not as zero"
+    assert S.heart_rate(row, "cam0")["bpm"] is None
 
 
 def test_a_bluetooth_record_json_wrote_with_a_nan_still_reads():
@@ -513,6 +557,17 @@ FIXED = {
     },
     S.PRESENCE_SPANS: {"frames": 90, "max_people": 2, "tracks": 3, "left_censored": False, "right_censored": True},
     S.PLACE_VISITS: {"place": "0190a5b8-0000-7000-8000-000000000009", "producer": "place-detect-1", "basis": "wifi"},
+    S.VITALS_HEART_RATES: {
+        "track_id": "1793733746000001",
+        "person": None,
+        "bpm": 72.0,
+        "confidence": 0.8125,
+        "snr_db": 12.5,
+        "coverage": 0.9375,
+        "face_px": 168,
+        "fps": 30.0,
+        "method": "pos-v1",
+    },
     S.CAMERA_OBJECTS: {
         "frame_id": "0190a5b8-0000-7000-8000-000000000005",
         "frame_seq": 7,
