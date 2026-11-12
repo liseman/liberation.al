@@ -605,7 +605,8 @@ it('gives the drawn plan the height under the card, as the map has, and measures
   const { container } = renderPage(<PlacesTab />);
   await screen.findByRole('button', { name: /^Home/ });
   // The box the plan and everything under it sit in: the page and the card give up their room under it (data-fills-page,
-  // page.module.css and places.module.css), so the plan can reach the window's bottom edge as the map does.
+  // page.module.css and places.module.css), so the plan reaches the page's gutter above the window's bottom edge, as
+  // the map does.
   const box = container.querySelector<HTMLElement>('[data-fills-page]');
   expect(box).toBeTruthy();
   expect(box?.contains(drawing())).toBe(true);

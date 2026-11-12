@@ -129,7 +129,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const [viewSwitch, setViewSwitch] = useState<HTMLElement | null>(null);
   // The plan drawn fills the window under the place's heading, as the map does, so switching between the two moves
   // nothing: lib/fill.ts measures where the box starts (after the card's top row), and data-fills-page has the page and
-  // the card give up their own room under it.
+  // the card give up their own room under it, leaving the page frame's gutter above the window's bottom edge.
   const fillRef = useRef<HTMLDivElement>(null);
   const fillStyle = useFillsPage(fillRef);
   const [unsaved, setUnsaved] = useState(false);
@@ -311,7 +311,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                   </Suspense>
                 ) : (
                   // One box for the plan and everything under it, the place's own bar included, so the box starts where
-                  // the map's does and both end at the window's bottom edge.
+                  // the map's does and both stop the page frame's gutter above the window's bottom edge.
                   <div ref={fillRef} className={classes.planFill} data-fills-page style={fillStyle}>
                     {!place.example && place.scene && (
                       <OwnerBar key={place.id} place={place} showing={showing} onShow={setShowing} />

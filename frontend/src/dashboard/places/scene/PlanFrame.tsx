@@ -26,8 +26,8 @@ export function PlanFrame({
   onChange?: (scene: Scene) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  // The editor takes what's left of the window under where it starts (lib/fill.ts measures that), down to the window's
-  // bottom edge: data-fills-page has the page give up the room it kept under it there.
+  // The editor takes what's left of the window under where it starts (lib/fill.ts measures that), down to the page
+  // frame's gutter above the window's bottom edge: data-fills-page has the page give up the room it kept under it.
   const fillsStyle = useFillsPage(frame);
   const first = useRef(scene);
   const known = useRef(cameras);
