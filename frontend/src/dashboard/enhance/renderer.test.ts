@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Enhancer, SMALL_MAX, smallSizes, TooSlow } from './renderer';
+import { SMALL_MAX, smallSizes } from './maths';
+import { Enhancer, TooSlow } from './renderer';
 
 /** A stand-in WebGL2 context that records every call, counts what is made and freed, and behaves as a lost context
  *  does once lost: nothing can be made on it and it has no extensions. jsdom has no WebGL. */

@@ -7,6 +7,7 @@
 //   node tools/enhance_bench.mjs frontend --browser firefox --preset paced --sizes 1920x1080@60
 //   node tools/enhance_bench.mjs frontend --browser chromium-software --preset behaviour
 //   node tools/enhance_bench.mjs frontend --renderer /path/to/another/renderer.ts ...   (to compare two versions)
+//   node tools/enhance_bench.mjs frontend --copy page ...   (the renderer makes the small copy, as for JPEG frames)
 //
 // Browsers: chromium-gpu (Playwright's headless Chromium on the graphics card through ANGLE and Vulkan),
 // chromium-software (the same on SwiftShader, a CPU rasteriser: how a machine without a usable graphics card does),
@@ -53,6 +54,8 @@ const sizes = option('sizes', '960x540@30,1280x720@30,1920x1080@30,1920x1080@60'
 const looks = option('looks', 'subtle,contrast,colour').split(',');
 const seconds = Number(option('seconds', '6'));
 const firefoxBinary = option('firefox', '/usr/lib/firefox/firefox');
+// 'worker' (the frame's source hands over its small copy, as live video does) or 'page' (the renderer makes it)
+const workerCopy = option('copy', 'worker') === 'worker';
 
 /** The runs a preset asks for. */
 function runsFor() {
@@ -80,7 +83,7 @@ function runsFor() {
     console.error(`unknown preset ${preset}`);
     process.exit(2);
   }
-  return runs;
+  return runs.map(run => ({ ...run, workerCopy }));
 }
 
 // ---- The page: everything below until the server runs in the browser ----
@@ -94,6 +97,7 @@ function frameWorker() {
   let canvas;
   let context;
   let run;
+  let halves = [];
   let seed = 7;
   const random = () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -158,6 +162,21 @@ function frameWorker() {
       }
     canvas = new OffscreenCanvas(run.width, run.height);
     context = canvas.getContext('2d');
+    halves = [];
+    let hw = run.width;
+    let hh = run.height;
+    while (Math.max(hw, hh) > 640) {
+      hw = Math.ceil(hw / 2);
+      hh = Math.ceil(hh / 2);
+      halves.push({ width: hw, height: hh });
+    }
+    if (!halves.length) halves.push({ width: hw, height: hh });
+    halves = halves.map(size => {
+      const c = new OffscreenCanvas(size.width, size.height);
+      const x = c.getContext('2d', { alpha: false });
+      x.imageSmoothingQuality = 'low';
+      return { canvas: c, context: x };
+    });
   }
 
   /** How far the camera has moved at t seconds, in frame pixels. */
@@ -181,8 +200,20 @@ function frameWorker() {
       const dx = (run.travel * scale * Math.sin(2 * Math.PI * t)) / 2;
       context.drawImage(patch, g.x + (g.side - patch.width) / 2 + dx - ox, g.y + (g.side - patch.height) / 2 - oy);
     }
+    // The small copy, as the player worker makes it for live video (enhance/maths.ts smallSizes: halve until the
+    // long side is 640 or less), before the canvas's picture leaves with the frame
+    let small;
+    if (run.workerCopy) {
+      let from = canvas;
+      for (const step of halves) {
+        step.context.drawImage(from, 0, 0, step.canvas.width, step.canvas.height);
+        from = step.canvas;
+      }
+      small = from.transferToImageBitmap();
+    }
     const bitmap = canvas.transferToImageBitmap();
-    self.postMessage({ type: 'frame', bitmap, i, t, ox, oy, sent: performance.timeOrigin + performance.now() }, [bitmap]);
+    const sent = performance.timeOrigin + performance.now();
+    self.postMessage({ type: 'frame', bitmap, small, i, t, ox, oy, sent }, small ? [bitmap, small] : [bitmap]);
   }
 
   self.onmessage = e => {
@@ -350,12 +381,13 @@ async function benchPage() {
         plain2d.drawImage(m.bitmap, 0, 0);
         const t1 = performance.now();
         last = t1;
-        enhancer.draw(m.bitmap, m.t, false);
+        enhancer.draw(m.bitmap, m.t, false, m.small);
         const t2 = performance.now();
         if (run.mode === 'paced') fences.push({ sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0), at: t2 });
         else wait(gl);
         const t3 = performance.now();
         m.bitmap.close();
+        m.small?.close();
         frames += 1;
         if (frames > 20) {
           plainMs.push(t1 - arrived);

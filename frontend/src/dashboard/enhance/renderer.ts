@@ -3,7 +3,8 @@
 // the layer sets from `shift` (Enhance.tsx). Each frame the page decodes is handed over before it is closed:
 //
 //   1. a small copy of the frame is made with 2D canvases, each half the size of the one before (a 2 by 2 average),
-//      until its long side is 640 or less;
+//      until its long side is 640 or less. For live video the player worker has already made it, off the page's
+//      thread, and hands it over with the frame;
 //   2. Stabiliser (maths.ts) estimates the shift against its reference frame on the CPU, from a luma copy of that;
 //   3. the small copy is uploaded, and a state pass, at a reduced size (which is also the spatial low-pass), samples
 //      it shifted back and updates two running averages per pixel into half-float targets (ping-pong, two outputs);
@@ -32,6 +33,7 @@ import {
   lumaSize,
   NOISE_FLOOR,
   Stabiliser,
+  smallSizes,
 } from './maths';
 
 export type Look = 'subtle' | 'contrast' | 'colour';
@@ -65,8 +67,6 @@ const BANDS: Record<Look, { low: number; high: number; size: number }> = {
 const CALM_FAST_TAU = 0.25;
 /** How much the colour look amplifies the band-passed colour. */
 const COLOUR_GAIN = 40;
-/** The small copy's long side is at most this: enough for the 320-wide state and the luma copy. */
-export const SMALL_MAX = 640;
 /** The overlay's long side is at most this. The highlight is a blurred field, so the page scaling it up shows
  *  nothing. */
 const OVERLAY_MAX = 960;
@@ -256,24 +256,6 @@ function step(width: number, height: number, read = false): Step {
   return { canvas, context };
 }
 
-/** The sizes of the small-copy chain for a frame: each half the one before, until the long side is SMALL_MAX or
- *  less. A frame already that small gets one copy at its own size. Halving is the point: a 2D canvas scales with
- *  plain bilinear sampling, which at exactly half size is the 2 by 2 average, and at any smaller size skips pixels.
- *  One copy straight to the small size was measured: fine detail then flickers with every wobble, the motion
- *  estimate loses its place many times a second, and up to 40 % of the picture lights. */
-export function smallSizes(width: number, height: number): { width: number; height: number }[] {
-  const sizes: { width: number; height: number }[] = [];
-  let w = width;
-  let h = height;
-  while (Math.max(w, h) > SMALL_MAX) {
-    w = Math.ceil(w / 2);
-    h = Math.ceil(h / 2);
-    sizes.push({ width: w, height: h });
-  }
-  if (!sizes.length) sizes.push({ width, height });
-  return sizes;
-}
-
 /** Thrown by draw when the work takes too long even on one frame in EVERY_MOST: the plain picture is better. */
 export class TooSlow extends Error {
   constructor() {
@@ -356,9 +338,15 @@ export class Enhancer {
   }
 
   /** Take one frame. at: its capture time in seconds; flip: the picture arrives upside down (its camera's
-   *  video.flip). Afterwards `shift` says where the plain picture belongs. Throws when this computer cannot keep up
-   *  even at the lowest rate. */
-  draw(frame: CanvasImageSource & { width: number; height: number }, at: number, flip = false): void {
+   *  video.flip); copy: the frame's small copy, upright, when its source made one (maths.ts smallSizes says what
+   *  size). Afterwards `shift` says where the plain picture belongs. Throws TooSlow when this computer cannot keep
+   *  up even at the lowest rate. */
+  draw(
+    frame: CanvasImageSource & { width: number; height: number },
+    at: number,
+    flip = false,
+    copy?: (CanvasImageSource & TexImageSource & { width: number; height: number }) | null,
+  ): void {
     const gl = this.gl;
     if (this.disposed || gl.isContextLost()) return;
     const { width, height } = frame;
@@ -376,13 +364,17 @@ export class Enhancer {
     if (!small || !lumaStep || !this.targets) return;
 
     // 1. The small copy, and the luma copy the motion estimate reads (a 2D canvas: no graphics memory is read)
-    let from: CanvasImageSource = frame;
-    for (const s of this.steps) {
-      s.context.drawImage(from, 0, 0, s.canvas.width, s.canvas.height);
-      from = s.canvas;
+    let analysed: CanvasImageSource & TexImageSource = small.canvas;
+    if (copy && !flip && copy.width === small.canvas.width && copy.height === small.canvas.height) analysed = copy;
+    else {
+      let from: CanvasImageSource = frame;
+      for (const s of this.steps) {
+        s.context.drawImage(from, 0, 0, s.canvas.width, s.canvas.height);
+        from = s.canvas;
+      }
     }
     const luma = this.luma;
-    lumaStep.context.drawImage(small.canvas, 0, 0, luma.width, luma.height);
+    lumaStep.context.drawImage(analysed, 0, 0, luma.width, luma.height);
     const pixels = lumaStep.context.getImageData(0, 0, luma.width, luma.height).data;
     const [lr, lg, lb] = LUMA;
     for (let i = 0, p = 0; i < luma.data.length; i++, p += 4)
@@ -404,7 +396,7 @@ export class Enhancer {
     else {
       if (this.pending) gl.deleteSync(this.pending);
       this.pending = null;
-      this.highlight(small.canvas, at);
+      this.highlight(analysed, at);
     }
 
     const ms = performance.now() - started;
@@ -414,7 +406,7 @@ export class Enhancer {
   }
 
   /** Upload the small copy, update the averages, and draw the look. */
-  private highlight(small: HTMLCanvasElement, at: number): void {
+  private highlight(small: TexImageSource, at: number): void {
     const gl = this.gl;
     const targets = this.targets;
     if (!targets) return;

@@ -162,9 +162,9 @@ export function EnhanceLayer({ cam }: { cam: string }) {
       setDrawn(false);
       useEnhanceUnsupported.setState({ reason });
     };
-    const stop = tapFrames(cam, (bitmap, at, flip) => {
+    const stop = tapFrames(cam, (bitmap, at, flip, small) => {
       try {
-        drawer.draw(bitmap, at, flip);
+        drawer.draw(bitmap, at, flip, small);
       } catch (error) {
         giveUp(error instanceof TooSlow ? error.message : STOPPED);
         return;

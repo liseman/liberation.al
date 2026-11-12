@@ -9,6 +9,7 @@
 // their playhead before reporting the request ID and actual capture time.
 
 import { type FrameMetadata, sourceBoxToDecoded, sourceContentRect } from '../camera/geometry';
+import { smallSizes } from '../enhance/maths';
 import { BONES, MIN_CONF } from '../pose/skeleton';
 import { av1Sequence, looksLikeAv1 } from './av1';
 import { avcParameterSets } from './avc';
@@ -20,6 +21,8 @@ import type { MediaContext } from './protocol';
 /** From the page. */
 export type ToWorker =
   | { type: 'canvas'; canvas: OffscreenCanvas; returnBitmap?: boolean }
+  /** Whether each returned frame should come with its small copy (Live's Enhance view analyses that). */
+  | { type: 'small'; on: boolean }
   | { type: 'media'; media: MediaContext }
   | { type: 'message'; buffer: ArrayBuffer; media?: MediaContext; epoch?: number }
   | { type: 'playhead'; us: number | 'live' }
@@ -28,7 +31,14 @@ export type ToWorker =
 
 /** To the page. */
 export type FromWorker =
-  | { type: 'frame'; bitmap: ImageBitmap; frameUs: number; metadata?: FrameMetadata; epoch?: number }
+  | {
+      type: 'frame';
+      bitmap: ImageBitmap;
+      small?: ImageBitmap;
+      frameUs: number;
+      metadata?: FrameMetadata;
+      epoch?: number;
+    }
   | { type: 'captured'; requestId: number; frameUs: number | null }
   | {
       type: 'drawn';
@@ -81,6 +91,8 @@ type Picture = VideoFrame | ImageBitmap;
 class Pipeline {
   private canvas: OffscreenCanvas | null = null;
   private returnBitmap = false;
+  private small = false;
+  private smallSteps: { canvas: OffscreenCanvas; context: OffscreenCanvasRenderingContext2D }[] = [];
   private ctx: OffscreenCanvasRenderingContext2D | null = null;
   private decoder: VideoDecoder | null = null;
   private codec: Codec | null = null;
@@ -114,6 +126,43 @@ class Pipeline {
 
   constructor(post: (m: FromWorker) => void) {
     this.post = post;
+  }
+
+  /** Whether to hand a small copy over with each returned frame. */
+  setSmall(on: boolean): void {
+    this.small = on;
+    if (!on) this.smallSteps = [];
+  }
+
+  /** The canvas's picture at the last of smallSizes: each copy half the one before, made here so the page's thread
+   *  doesn't have to (at 1920 by 1080 it costs that thread 3 ms a frame). */
+  private smallCopy(w: number, h: number): ImageBitmap | undefined {
+    if (!this.canvas) return undefined;
+    const sizes = smallSizes(w, h);
+    const last = sizes[sizes.length - 1];
+    const have = this.smallSteps[this.smallSteps.length - 1]?.canvas;
+    if (
+      !last ||
+      !have ||
+      have.width !== last.width ||
+      have.height !== last.height ||
+      this.smallSteps.length !== sizes.length
+    )
+      this.smallSteps = sizes.flatMap(size => {
+        const canvas = new OffscreenCanvas(size.width, size.height);
+        const context = canvas.getContext('2d', { alpha: false });
+        if (!context) return [];
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = 'low'; // plain bilinear: at exactly half size, the 2 by 2 average
+        return [{ canvas, context }];
+      });
+    if (this.smallSteps.length !== sizes.length) return undefined;
+    let from: OffscreenCanvas = this.canvas;
+    for (const step of this.smallSteps) {
+      step.context.drawImage(from, 0, 0, step.canvas.width, step.canvas.height);
+      from = step.canvas;
+    }
+    return from.transferToImageBitmap();
   }
 
   setCanvas(canvas: OffscreenCanvas, returnBitmap = false): void {
@@ -427,8 +476,18 @@ class Pipeline {
     // Inference overlays already use upright image coordinates, so they never inherit the pixel transform.
     const pick = this.overlays.pick(best);
     if (pick.kind !== 'none') draw(this.ctx, media ? projectedOverlay(pick.overlay, metadata) : pick.overlay, w, h);
-    if (this.returnBitmap)
-      this.post({ type: 'frame', bitmap: this.canvas.transferToImageBitmap(), frameUs: best, metadata, epoch });
+    if (this.returnBitmap) {
+      // Before the canvas's picture leaves with the frame
+      const small = this.small ? this.smallCopy(w, h) : undefined;
+      this.post({
+        type: 'frame',
+        bitmap: this.canvas.transferToImageBitmap(),
+        ...(small ? { small } : {}),
+        frameUs: best,
+        metadata,
+        epoch,
+      });
+    }
     this.post({
       type: 'drawn',
       metadata,
@@ -530,12 +589,17 @@ export function draw(
 
 // Only when running as a worker; importing this module in a test or the page registers nothing.
 if (typeof window === 'undefined' && typeof self !== 'undefined' && 'postMessage' in self) {
-  const pipeline = new Pipeline(m => self.postMessage(m, { transfer: m.type === 'frame' ? [m.bitmap] : [] }));
+  const pipeline = new Pipeline(m =>
+    self.postMessage(m, { transfer: m.type === 'frame' ? (m.small ? [m.bitmap, m.small] : [m.bitmap]) : [] }),
+  );
   self.onmessage = (e: MessageEvent<ToWorker>) => {
     const m = e.data;
     switch (m.type) {
       case 'canvas':
         pipeline.setCanvas(m.canvas, m.returnBitmap);
+        break;
+      case 'small':
+        pipeline.setSmall(m.on);
         break;
       case 'media':
         pipeline.context(m.media);
