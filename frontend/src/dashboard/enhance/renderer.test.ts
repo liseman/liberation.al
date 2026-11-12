@@ -168,6 +168,25 @@ describe('Enhancer.draw', () => {
     expect(Math.max(canvas.width, canvas.height)).toBeLessThanOrEqual(960);
   });
 
+  it("uses the small copy and luma that come with a frame: the page's thread copies and reads nothing", () => {
+    const { gl, state } = fakeGl();
+    const { canvas, copies } = canvases(gl);
+    const enhancer = new Enhancer(canvas);
+    const copy = {
+      picture: { width: 480, height: 270 } as unknown as ImageBitmap,
+      luma: new Float32Array(256 * 144),
+      width: 256,
+      height: 144,
+    };
+    for (let i = 0; i < 3; i++) enhancer.draw(FULL, 1 + i / 60, false, copy);
+    expect(enhancer.stats.frames).toBe(3);
+    expect(copies).toEqual([]);
+    expect(state.uploads).toEqual([480, 480, 480]);
+    // A copy of the wrong size is not trusted: the page makes its own
+    enhancer.draw(FULL, 1.05, false, { ...copy, picture: { width: 320, height: 180 } as unknown as ImageBitmap });
+    expect(copies).toEqual([960, 480, 240, 256]);
+  });
+
   it('keeps the last highlight over the new picture when the graphics card has not finished the one before', () => {
     const { gl, state, count } = fakeGl();
     const enhancer = new Enhancer(canvases(gl).canvas);

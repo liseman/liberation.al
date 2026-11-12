@@ -1,5 +1,6 @@
 // Live's encoded access units use the existing player worker's WebCodecs decoder and upright pixel handling.
 
+import type { SmallCopy } from '../enhance/small';
 import type { MediaContext } from '../player/protocol';
 import type { WorkerLike } from '../player/worker';
 import type { FrameMetadata } from './geometry';
@@ -9,7 +10,7 @@ export class LiveVideoDecoder {
   private closed = false;
 
   constructor(
-    onFrame: (bitmap: ImageBitmap, at: number, metadata?: FrameMetadata, small?: ImageBitmap) => void,
+    onFrame: (bitmap: ImageBitmap, at: number, metadata?: FrameMetadata, small?: SmallCopy) => void,
     onError: (error: string) => void,
   ) {
     if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined')
@@ -24,7 +25,7 @@ export class LiveVideoDecoder {
       if (m.type === 'frame') {
         if (this.closed) {
           m.bitmap.close();
-          m.small?.close();
+          m.small?.picture.close();
           return;
         }
         // Live feeds are native pixels, so the worker's absent media context is expected here. Preserve orientation

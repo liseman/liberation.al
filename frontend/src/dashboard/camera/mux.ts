@@ -4,6 +4,7 @@
 // layer; its JPEG frames are decoded once and drawn on each of those canvases. A camera's session is released when
 // its last canvas goes (leaving the Live tab) or the page is hidden, and taken again when they come back.
 import { create } from 'zustand';
+import type { SmallCopy } from '../enhance/small';
 import { watchFrames, watchVideo } from './gateway';
 import type { FrameMetadata } from './geometry';
 import { paintThumb } from './thumbs';
@@ -23,8 +24,8 @@ let ticker: ReturnType<typeof setInterval> | undefined;
 
 /** Something that also wants each decoded frame of a camera (Live's Enhance view): handed the picture before the
  *  canvases' copy is closed, never kept. capturedAt is in seconds; flip as for draw; small is the frame's small
- *  copy (enhance/maths.ts smallSizes), upright, when the frame came from the video decoder while a tap was on. */
-export type FrameTap = (bitmap: ImageBitmap, capturedAt: number, flip: boolean, small?: ImageBitmap) => void;
+ *  copy and luma (enhance/small.ts), upright, when the frame came from the video decoder while a tap was on. */
+export type FrameTap = (bitmap: ImageBitmap, capturedAt: number, flip: boolean, small?: SmallCopy) => void;
 const taps = new Map<string, Set<FrameTap>>();
 /** cam -> tells its video decoder whether anything wants small copies, while the camera is watched. */
 const smallWanted = new Map<string, (on: boolean) => void>();
@@ -48,13 +49,7 @@ export function tapFrames(cam: string, tap: FrameTap): () => void {
 }
 
 /** Hand a frame to cam's taps. The demo's still cameras (LiveCam.tsx) call it too. */
-export function feedTaps(
-  cam: string,
-  bitmap: ImageBitmap,
-  capturedAt: number,
-  flip = false,
-  small?: ImageBitmap,
-): void {
+export function feedTaps(cam: string, bitmap: ImageBitmap, capturedAt: number, flip = false, small?: SmallCopy): void {
   for (const tap of taps.get(cam) ?? []) {
     try {
       tap(bitmap, capturedAt, flip, small);
@@ -73,7 +68,7 @@ function draw(
   capturedAt: number,
   metadata?: FrameMetadata,
   flip = false,
-  small?: ImageBitmap,
+  small?: SmallCopy,
 ): void {
   try {
     for (const c of canvases.get(cam) ?? []) {
@@ -100,7 +95,7 @@ function draw(
     feedTaps(cam, bmp, capturedAt, flip, small);
   } finally {
     bmp.close();
-    small?.close();
+    small?.picture.close();
   }
   useLiveError.setState(Object.assign(Object.create(null), useLiveError.getState(), { [cam]: undefined }), true);
   lastAt.set(cam, Date.now());
@@ -156,7 +151,7 @@ function watchCamera(cam: string): () => void {
           if (active) draw(cam, bitmap, at, metadata, false, small);
           else {
             bitmap.close();
-            small?.close();
+            small?.picture.close();
           }
         }, fail);
         video.wantSmall(taps.has(cam));

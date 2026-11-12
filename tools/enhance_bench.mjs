@@ -28,7 +28,7 @@
 // Each run prints one JSON line. The graphics cards' utilisation during each run is sampled with nvidia-smi when it
 // is installed, because a card that is also running models answers more slowly.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -56,7 +56,8 @@ const sizes = option('sizes', '960x540@30,1280x720@30,1920x1080@30,1920x1080@60'
 const looks = option('looks', 'subtle,contrast,colour').split(',');
 const seconds = Number(option('seconds', '6'));
 const firefoxBinary = option('firefox', '/usr/lib/firefox/firefox');
-// 'worker' (the frame's source hands over its small copy, as live video does) or 'page' (the renderer makes it)
+// 'worker' (the frame's source hands over its small copy and luma, as live video does) or 'page' (the renderer
+// makes them)
 const workerCopy = option('copy', 'worker') === 'worker';
 // 'fine' (the scene has hairlines and fine stripes, which is hard on any stabiliser) or 'plain' (blocks and lines)
 const fine = option('detail', 'fine') === 'fine';
@@ -104,7 +105,12 @@ function frameWorker() {
   let canvas;
   let context;
   let run;
-  let halves = [];
+  let copier = null;
+  try {
+    importScripts('/small.js');
+  } catch {
+    // no small.ts beside this renderer
+  }
   let seed = 7;
   const random = () => {
     seed = (seed + 0x6d2b79f5) | 0;
@@ -169,21 +175,9 @@ function frameWorker() {
       }
     canvas = new OffscreenCanvas(run.width, run.height);
     context = canvas.getContext('2d');
-    halves = [];
-    let hw = run.width;
-    let hh = run.height;
-    while (Math.max(hw, hh) > 640) {
-      hw = Math.ceil(hw / 2);
-      hh = Math.ceil(hh / 2);
-      halves.push({ width: hw, height: hh });
-    }
-    if (!halves.length) halves.push({ width: hw, height: hh });
-    halves = halves.map(size => {
-      const c = new OffscreenCanvas(size.width, size.height);
-      const x = c.getContext('2d', { alpha: false });
-      x.imageSmoothingQuality = 'low';
-      return { canvas: c, context: x };
-    });
+    // A renderer without a small.ts beside it (an older one) takes the frame alone
+    const maker = run.workerCopy && self.EnhanceSmall?.SmallCopier;
+    copier = maker ? new maker((cw, ch) => new OffscreenCanvas(cw, ch)) : null;
   }
 
   /** How far the camera has moved at t seconds, in frame pixels. */
@@ -207,20 +201,18 @@ function frameWorker() {
       const dx = (run.travel * scale * Math.sin(2 * Math.PI * t)) / 2;
       context.drawImage(patch, g.x + (g.side - patch.width) / 2 + dx - ox, g.y + (g.side - patch.height) / 2 - oy);
     }
-    // The small copy, as the player worker makes it for live video (enhance/maths.ts smallSizes: halve until the
-    // long side is 640 or less), before the canvas's picture leaves with the frame
+    // The small copy and its luma, as the player worker makes them for live video (enhance/small.ts), before the
+    // canvas's picture leaves with the frame
     let small;
-    if (run.workerCopy) {
-      let from = canvas;
-      for (const step of halves) {
-        step.context.drawImage(from, 0, 0, step.canvas.width, step.canvas.height);
-        from = step.canvas;
-      }
-      small = from.transferToImageBitmap();
+    if (copier) {
+      const made = copier.copy(canvas, run.width, run.height, false, true);
+      const picture = made.canvas.transferToImageBitmap();
+      small = { picture, luma: made.luma.data, width: made.luma.width, height: made.luma.height };
     }
     const bitmap = canvas.transferToImageBitmap();
     const sent = performance.timeOrigin + performance.now();
-    self.postMessage({ type: 'frame', bitmap, small, i, t, ox, oy, sent }, small ? [bitmap, small] : [bitmap]);
+    const moved = small ? [bitmap, small.picture, small.luma.buffer] : [bitmap];
+    self.postMessage({ type: 'frame', bitmap, small, i, t, ox, oy, sent }, moved);
   }
 
   self.onmessage = e => {
@@ -348,6 +340,8 @@ async function benchPage() {
     const fences = [];
     const gpuMs = [];
     let frames = 0;
+    let firstArrival = 0;
+    let lastArrival = 0;
     let animationFrames = 0;
     let worstGap = 0;
     let lastAnimation = 0;
@@ -381,6 +375,8 @@ async function benchPage() {
       worker.onmessage = e => {
         const m = e.data;
         const arrived = performance.now();
+        if (!frames) firstArrival = arrived;
+        lastArrival = arrived;
         if (run.mode === 'paced') {
           late.push(performance.timeOrigin + arrived - m.sent);
           poll();
@@ -394,7 +390,7 @@ async function benchPage() {
         else wait(gl);
         const t3 = performance.now();
         m.bitmap.close();
-        m.small?.close();
+        m.small?.picture.close();
         frames += 1;
         if (frames > 20) {
           plainMs.push(t1 - arrived);
@@ -443,6 +439,8 @@ async function benchPage() {
       clearInterval(timer);
       watching = false;
       const slot = 1000 / run.fps;
+      // Frames the page took in each second: the stream's own rate when the page keeps up
+      out.framesASecond = round(((frames - 1) * 1000) / Math.max(1, lastArrival - firstArrival));
       out.lateMs = { median: round(median(late)), p95: round(centile(late, 0.95)), max: round(Math.max(...late)) };
       out.graphicsMs = { median: round(median(gpuMs)), p95: round(centile(gpuMs, 0.95)) };
       out.inSlot = round(gpuMs.filter(v => v <= slot).length / Math.max(1, frames));
@@ -515,6 +513,17 @@ const built = await need('vite').build({
   build: { write: false, minify: false, lib: { entry: renderer, formats: ['iife'], name: 'EnhanceBundle' } },
 });
 const bundle = (Array.isArray(built) ? built[0] : built).output[0].code;
+// The small-copy maker beside the renderer, for the frame worker, when this renderer has one
+const smallSource = path.join(path.dirname(renderer), 'small.ts');
+let smallBundle = '';
+if (existsSync(smallSource)) {
+  const made = await need('vite').build({
+    configFile: false,
+    logLevel: 'silent',
+    build: { write: false, minify: false, lib: { entry: smallSource, formats: ['iife'], name: 'EnhanceSmall' } },
+  });
+  smallBundle = (Array.isArray(made) ? made[0] : made).output[0].code;
+}
 const runs = runsFor();
 
 /** Utilisation of each graphics card, sampled four times a second: [ms, [percent, ...]]. */
@@ -567,6 +576,7 @@ const finished = new Promise(resolve => {
       });
     } else if (req.url === '/config') send('application/json', JSON.stringify({ runs }));
     else if (req.url === '/bundle.js') send('text/javascript', bundle);
+    else if (req.url === '/small.js') send('text/javascript', smallBundle);
     else if (req.url === '/worker.js') send('text/javascript', `(${frameWorker.toString()})()`);
     else if (req.url === '/page.js') send('text/javascript', `(${benchPage.toString()})()`);
     else

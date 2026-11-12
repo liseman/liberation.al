@@ -389,9 +389,9 @@ describe('Pipeline', () => {
     p.reset();
   });
 
-  it('hands a small copy over with each returned frame while asked to, made before the picture leaves', async () => {
+  it('hands a small copy and its luma over with each returned frame while asked to, made before the picture leaves', async () => {
     const order: string[] = [];
-    const smalls: { width: number; height: number; drawn: unknown[] }[] = [];
+    const made: { width: number; height: number; drawn: unknown[] }[] = [];
     vi.stubGlobal(
       'OffscreenCanvas',
       class {
@@ -401,7 +401,7 @@ describe('Pipeline', () => {
         constructor(width: number, height: number) {
           this.width = width;
           this.height = height;
-          smalls.push(this);
+          made.push(this);
         }
         getContext() {
           return {
@@ -409,6 +409,11 @@ describe('Pipeline', () => {
               this.drawn.push(source);
               order.push('copy');
             },
+            // A mid-grey picture
+            getImageData: (_x: number, _y: number, w: number, h: number) => ({
+              data: new Uint8ClampedArray(4 * w * h).fill(51),
+            }),
+            setTransform: () => {},
           };
         }
         transferToImageBitmap() {
@@ -435,11 +440,16 @@ describe('Pipeline', () => {
     p.setSmall(true);
     await p.take(jpegMessage(2_000_000));
     const frame = posted.filter(m => m.type === 'frame').at(-1);
+    if (frame?.type !== 'frame' || !frame.small) throw new Error('no small copy came with the frame');
     // The made-up picture is 4 by 3, already small: one copy at its own size, drawn from the frame's canvas
-    expect(frame).toMatchObject({ frameUs: 2_000_000, small: { width: 4, height: 3 } });
-    expect(smalls.map(s => [s.width, s.height])).toEqual([[4, 3]]);
-    expect(smalls[0]?.drawn).toEqual([canvas]);
-    expect(order).toEqual(['picture leaves', 'copy', 'small leaves', 'picture leaves']);
+    expect(frame.frameUs).toBe(2_000_000);
+    expect(frame.small.picture).toMatchObject({ width: 4, height: 3 });
+    expect(made[0]).toMatchObject({ width: 4, height: 3, drawn: [canvas] });
+    // Its luma is a whole luma copy, 0 to 1 (51 of 255 is 0.2), in an array of its own to hand across
+    expect(frame.small.luma).toHaveLength(frame.small.width * frame.small.height);
+    expect(frame.small.luma[0]).toBeCloseTo(0.2, 5);
+    // The copies are made while the frame's picture is still on its canvas
+    expect(order.slice(1)).toEqual(['copy', 'copy', 'copy', 'small leaves', 'picture leaves']);
     p.setSmall(false);
     await p.take(jpegMessage(3_000_000));
     expect(posted.filter(m => m.type === 'frame').at(-1)).not.toHaveProperty('small');

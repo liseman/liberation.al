@@ -282,16 +282,16 @@ it('asks the video decoder for small copies only while something taps the camera
   // Nothing taps the camera: the worker is told not to make them
   expect(asked()).toEqual([false]);
   const picture = () => ({ width: 1920, height: 1080, close: vi.fn() }) as unknown as ImageBitmap;
-  const seen: (ImageBitmap | undefined)[] = [];
+  const seen: unknown[] = [];
   const stop = mux.tapFrames('cam0', (_bitmap, _at, _flip, small) => seen.push(small));
   expect(asked()).toEqual([false, true]);
   const bitmap = picture();
-  const small = picture();
+  const small = { picture: picture(), luma: new Float32Array(4), width: 2, height: 2 };
   worker.emit({ type: 'frame', bitmap, small, frameUs: 1_000_000 });
   expect(seen).toEqual([small]);
-  // Both are closed once the frame has been drawn and handed on
+  // Both pictures are closed once the frame has been drawn and handed on
   expect(bitmap.close).toHaveBeenCalledTimes(1);
-  expect(small.close).toHaveBeenCalledTimes(1);
+  expect(small.picture.close).toHaveBeenCalledTimes(1);
   stop();
   expect(asked()).toEqual([false, true, false]);
   off();

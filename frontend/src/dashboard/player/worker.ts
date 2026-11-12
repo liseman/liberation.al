@@ -9,7 +9,7 @@
 // their playhead before reporting the request ID and actual capture time.
 
 import { type FrameMetadata, sourceBoxToDecoded, sourceContentRect } from '../camera/geometry';
-import { smallSizes } from '../enhance/maths';
+import { SmallCopier, type SmallCopy } from '../enhance/small';
 import { BONES, MIN_CONF } from '../pose/skeleton';
 import { av1Sequence, looksLikeAv1 } from './av1';
 import { avcParameterSets } from './avc';
@@ -34,7 +34,7 @@ export type FromWorker =
   | {
       type: 'frame';
       bitmap: ImageBitmap;
-      small?: ImageBitmap;
+      small?: SmallCopy;
       frameUs: number;
       metadata?: FrameMetadata;
       epoch?: number;
@@ -92,7 +92,7 @@ class Pipeline {
   private canvas: OffscreenCanvas | null = null;
   private returnBitmap = false;
   private small = false;
-  private smallSteps: { canvas: OffscreenCanvas; context: OffscreenCanvasRenderingContext2D }[] = [];
+  private copier: SmallCopier | null = null;
   private ctx: OffscreenCanvasRenderingContext2D | null = null;
   private decoder: VideoDecoder | null = null;
   private codec: Codec | null = null;
@@ -131,38 +131,21 @@ class Pipeline {
   /** Whether to hand a small copy over with each returned frame. */
   setSmall(on: boolean): void {
     this.small = on;
-    if (!on) this.smallSteps = [];
+    if (!on) this.copier = null;
   }
 
-  /** The canvas's picture at the last of smallSizes: each copy half the one before, made here so the page's thread
-   *  doesn't have to (at 1920 by 1080 it costs that thread 3 ms a frame). */
-  private smallCopy(w: number, h: number): ImageBitmap | undefined {
+  /** The canvas's picture as a small copy with its luma (enhance/small.ts), made here so the page's thread doesn't
+   *  have to: reading pixels back and halving a large frame are what held it. */
+  private smallCopy(w: number, h: number): SmallCopy | undefined {
     if (!this.canvas) return undefined;
-    const sizes = smallSizes(w, h);
-    const last = sizes[sizes.length - 1];
-    const have = this.smallSteps[this.smallSteps.length - 1]?.canvas;
-    if (
-      !last ||
-      !have ||
-      have.width !== last.width ||
-      have.height !== last.height ||
-      this.smallSteps.length !== sizes.length
-    )
-      this.smallSteps = sizes.flatMap(size => {
-        const canvas = new OffscreenCanvas(size.width, size.height);
-        const context = canvas.getContext('2d', { alpha: false });
-        if (!context) return [];
-        context.imageSmoothingEnabled = true;
-        context.imageSmoothingQuality = 'low'; // plain bilinear: at exactly half size, the 2 by 2 average
-        return [{ canvas, context }];
-      });
-    if (this.smallSteps.length !== sizes.length) return undefined;
-    let from: OffscreenCanvas = this.canvas;
-    for (const step of this.smallSteps) {
-      step.context.drawImage(from, 0, 0, step.canvas.width, step.canvas.height);
-      from = step.canvas;
+    try {
+      this.copier ??= new SmallCopier((width, height) => new OffscreenCanvas(width, height));
+      const { canvas, luma } = this.copier.copy(this.canvas, w, h, false, true);
+      const picture = (canvas as OffscreenCanvas).transferToImageBitmap();
+      return { picture, luma: luma.data, width: luma.width, height: luma.height };
+    } catch {
+      return undefined; // the page makes its own
     }
-    return from.transferToImageBitmap();
   }
 
   setCanvas(canvas: OffscreenCanvas, returnBitmap = false): void {
@@ -590,7 +573,9 @@ export function draw(
 // Only when running as a worker; importing this module in a test or the page registers nothing.
 if (typeof window === 'undefined' && typeof self !== 'undefined' && 'postMessage' in self) {
   const pipeline = new Pipeline(m =>
-    self.postMessage(m, { transfer: m.type === 'frame' ? (m.small ? [m.bitmap, m.small] : [m.bitmap]) : [] }),
+    self.postMessage(m, {
+      transfer: m.type === 'frame' ? (m.small ? [m.bitmap, m.small.picture, m.small.luma.buffer] : [m.bitmap]) : [],
+    }),
   );
   self.onmessage = (e: MessageEvent<ToWorker>) => {
     const m = e.data;

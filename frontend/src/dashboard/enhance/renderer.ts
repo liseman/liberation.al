@@ -3,9 +3,9 @@
 // the layer sets from `shift` (Enhance.tsx). Each frame the page decodes is handed over before it is closed:
 //
 //   1. a small copy of the frame is made with 2D canvases, each half the size of the one before (a 2 by 2 average),
-//      until its long side is 640 or less. For live video the player worker has already made it, off the page's
-//      thread, and hands it over with the frame;
-//   2. Stabiliser (maths.ts) estimates the shift against its reference frame on the CPU, from a luma copy of that;
+//      until its long side is 640 or less, and a luma copy is read from it (small.ts). For live video the player
+//      worker has already made both, off the page's thread, and hands them over with the frame;
+//   2. Stabiliser (maths.ts) estimates the shift against its reference frame on the CPU, from the luma copy;
 //   3. the small copy is uploaded, and a state pass, at a reduced size (which is also the spatial low-pass), samples
 //      it shifted back and updates two running averages per pixel into half-float targets (ping-pong, two outputs);
 //   4. a strength pass, at the same size, divides the band-pass (fast minus slow) by the local contrast of the slow
@@ -14,9 +14,9 @@
 //
 // Why the full frame never goes through WebGL: measured at 1920 by 1080 in Firefox, uploading it cost 18 ms of a
 // 24 ms frame (there is no path that stays on the graphics card there), and reading a luma copy back for the motion
-// estimate stalled the page behind whatever else the card was doing. The small copy costs about a millisecond, the
-// estimate reads a 2D canvas and no graphics memory, and nothing here waits for the graphics card: if it has not
-// finished the frame before, this frame's highlight is skipped and the last one stays over the new picture.
+// estimate stalled the page behind whatever else the card was doing. Uploading the small copy costs about a
+// millisecond, and nothing here waits for the graphics card: if it has not finished the frame before, this frame's
+// highlight is skipped and the last one stays over the new picture.
 //
 // The colour look is linear Eulerian video magnification (Wu et al., SIGGRAPH 2012); MIT's patents on it permit
 // non-commercial use, which is how this project uses it (maths.ts says more).
@@ -30,11 +30,11 @@ import {
   HIGHLIGHT_HIGH,
   HIGHLIGHT_LOW,
   LUMA,
-  lumaSize,
+  type Luma,
   NOISE_FLOOR,
   Stabiliser,
-  smallSizes,
 } from './maths';
+import { SmallCopier, type SmallCopy } from './small';
 
 export type Look = 'subtle' | 'contrast' | 'colour';
 
@@ -74,7 +74,7 @@ const OVERLAY_MAX = 960;
  *  overlay can dim a picture but not take its colour out. */
 export const CONTRAST_SATURATION = 0.5;
 /** Enhance may hold the page's thread for this share of the time between frames. Above it, frames are passed over. */
-const BUDGET = 0.4;
+const BUDGET = 0.5;
 /** The most frames passed over between two worked on. If that is still too slow, Enhance stops and says so. */
 const EVERY_MOST = 4;
 /** Frames between two looks at the load. */
@@ -239,23 +239,6 @@ interface Target {
   fbo: WebGLFramebuffer;
 }
 
-/** A 2D canvas of the small-copy chain. */
-interface Step {
-  canvas: HTMLCanvasElement;
-  context: CanvasRenderingContext2D;
-}
-
-function step(width: number, height: number, read = false): Step {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', read ? { alpha: false, willReadFrequently: true } : { alpha: false });
-  if (!context) throw new Error('This browser has no 2D canvas.');
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = 'low'; // plain bilinear: at exactly half size, the 2 by 2 average
-  return { canvas, context };
-}
-
 /** Thrown by draw when the work takes too long even on one frame in EVERY_MOST: the plain picture is better. */
 export class TooSlow extends Error {
   constructor() {
@@ -272,13 +255,14 @@ export class Enhancer {
   private readonly corners: WebGLBuffer;
   private disposed = false;
   private frameSize = { width: 0, height: 0 };
-  private flipped = false;
-  /** The small copies, largest first; the last is the one analysed. */
-  private steps: Step[] = [];
-  /** Half the small copy, which the luma copy is drawn from. */
-  private halfStep: Step | null = null;
-  private lumaStep: Step | null = null;
-  private luma = { data: new Float32Array(0), width: 0, height: 0 };
+  /** Makes the small copy of a frame that arrives without one. */
+  private readonly copier = new SmallCopier((width, height) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
+  });
+  private smallSize = { width: 0, height: 0 };
   private smallTexture: WebGLTexture | null = null;
   private smallLod = 0;
   private targets: [Target, Target] | null = null;
@@ -340,14 +324,14 @@ export class Enhancer {
   }
 
   /** Take one frame. at: its capture time in seconds; flip: the picture arrives upside down (its camera's
-   *  video.flip); copy: the frame's small copy, upright, when its source made one (maths.ts smallSizes says what
-   *  size). Afterwards `shift` says where the plain picture belongs. Throws TooSlow when this computer cannot keep
-   *  up even at the lowest rate. */
+   *  video.flip); copy: the frame's small copy and luma, upright, when its source made them (live video's player
+   *  worker does). Afterwards `shift` says where the plain picture belongs. Throws TooSlow when this computer cannot
+   *  keep up even at the lowest rate. */
   draw(
     frame: CanvasImageSource & { width: number; height: number },
     at: number,
     flip = false,
-    copy?: (CanvasImageSource & TexImageSource & { width: number; height: number }) | null,
+    copy?: SmallCopy | null,
   ): void {
     const gl = this.gl;
     if (this.disposed || gl.isContextLost()) return;
@@ -360,31 +344,26 @@ export class Enhancer {
       return;
     }
     const started = performance.now();
-    this.prepare(width, height, flip);
-    const small = this.steps[this.steps.length - 1];
-    const lumaStep = this.lumaStep;
-    if (!small || !lumaStep || !this.targets) return;
+    this.prepare(width, height);
+    if (!this.targets) return;
 
-    // 1. The small copy, and the luma copy the motion estimate reads (a 2D canvas: no graphics memory is read)
-    let analysed: CanvasImageSource & TexImageSource = small.canvas;
-    if (copy && !flip && copy.width === small.canvas.width && copy.height === small.canvas.height) analysed = copy;
-    else {
-      let from: CanvasImageSource = frame;
-      for (const s of this.steps) {
-        s.context.drawImage(from, 0, 0, s.canvas.width, s.canvas.height);
-        from = s.canvas;
-      }
+    // 1. The small copy and its luma: the frame's source made them, or they are made here (2D canvases)
+    let picture: TexImageSource;
+    let luma: Luma;
+    const { smallSize } = this;
+    if (
+      copy &&
+      copy.picture.width === smallSize.width &&
+      copy.picture.height === smallSize.height &&
+      copy.luma.length === copy.width * copy.height
+    ) {
+      picture = copy.picture;
+      luma = { data: copy.luma, width: copy.width, height: copy.height };
+    } else {
+      const made = this.copier.copy(frame, width, height, flip);
+      picture = made.canvas;
+      luma = made.luma;
     }
-    // The luma copy comes from half the small copy: blurred to about its own size, so fine detail doesn't unsettle
-    // the estimate
-    const luma = this.luma;
-    const half = this.halfStep;
-    if (half) half.context.drawImage(analysed, 0, 0, half.canvas.width, half.canvas.height);
-    lumaStep.context.drawImage(half ? half.canvas : analysed, 0, 0, luma.width, luma.height);
-    const pixels = lumaStep.context.getImageData(0, 0, luma.width, luma.height).data;
-    const [lr, lg, lb] = LUMA;
-    for (let i = 0, p = 0; i < luma.data.length; i++, p += 4)
-      luma.data[i] = (lr * (pixels[p] ?? 0) + lg * (pixels[p + 1] ?? 0) + lb * (pixels[p + 2] ?? 0)) / 255;
     this.mark?.('small copy');
 
     // 2. Stabilise
@@ -402,7 +381,7 @@ export class Enhancer {
     else {
       if (this.pending) gl.deleteSync(this.pending);
       this.pending = null;
-      this.highlight(analysed, at);
+      this.highlight(picture, at);
     }
 
     const ms = performance.now() - started;
@@ -509,26 +488,17 @@ export class Enhancer {
   }
 
   /** Size the canvases and textures for a frame of width by height, when it or the look's size changes. */
-  private prepare(width: number, height: number, flip: boolean): void {
+  private prepare(width: number, height: number): void {
     const gl = this.gl;
     const band = BANDS[this.look];
     const scale = band.size / Math.max(width, height);
     const state = { width: Math.max(2, Math.round(width * scale)), height: Math.max(2, Math.round(height * scale)) };
-    const sameFrame = width === this.frameSize.width && height === this.frameSize.height && flip === this.flipped;
+    const sameFrame = width === this.frameSize.width && height === this.frameSize.height;
     if (sameFrame && state.width === this.stateSize.width && state.height === this.stateSize.height) return;
 
     if (!sameFrame) {
-      this.steps = smallSizes(width, height).map(s => step(s.width, s.height));
-      const first = this.steps[0];
-      // An upside-down picture is turned as the first copy is made
-      if (flip && first) first.context.setTransform(-1, 0, 0, -1, first.canvas.width, first.canvas.height);
-      const dims = lumaSize(width, height);
-      const last = this.steps[this.steps.length - 1]?.canvas;
-      this.halfStep = last ? step(Math.ceil(last.width / 2), Math.ceil(last.height / 2), true) : null;
-      this.lumaStep = step(dims.width, dims.height, true);
-      this.luma = { data: new Float32Array(dims.width * dims.height), ...dims };
       this.frameSize = { width, height };
-      this.flipped = flip;
+      this.smallSize = SmallCopier.size(width, height);
       const out = Math.min(1, OVERLAY_MAX / Math.max(width, height));
       this.canvas.width = Math.round(width * out);
       this.canvas.height = Math.round(height * out);
@@ -538,8 +508,7 @@ export class Enhancer {
     // The small copy on the graphics card, with mipmaps: the state samples it at its own size, between two levels,
     // so what it averages is already blurred to that size. Sampled sharp, fine detail flickers with every sub-pixel
     // wobble and lights (measured: up to 3.5 % of the picture, against 0.15 %).
-    const small = this.steps[this.steps.length - 1]?.canvas;
-    if (!small) return;
+    const small = this.smallSize;
     if (this.smallTexture) gl.deleteTexture(this.smallTexture);
     this.smallTexture = gl.createTexture();
     this.smallLod = Math.max(0, Math.log2(Math.max(small.width, small.height) / band.size));
@@ -650,9 +619,6 @@ export class Enhancer {
     this.smallTexture = null;
     this.targets = null;
     this.strength = null;
-    this.steps = [];
-    this.halfStep = null;
-    this.lumaStep = null;
     if (!this.canvas.isConnected) gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }
