@@ -1,8 +1,31 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from '../../test/render';
+import { feedTaps, useLiveNow } from '../camera/mux';
 import { usePrefs } from '../lib/prefs';
 import { EnhanceButton, EnhanceLayer, EnhanceLook, useEnhanceUnsupported } from './Enhance';
+
+// jsdom has no WebGL: where a test needs frames drawn, a stand-in takes the renderer's place
+const drawer = vi.hoisted(() => ({ on: false, draw: (): void => {}, drawn: 0 }));
+vi.mock('./renderer', async original => {
+  const real = await original<typeof import('./renderer')>();
+  class StandIn {
+    setLook(): void {}
+    draw(): void {
+      drawer.drawn += 1;
+      drawer.draw();
+    }
+    dispose(): void {}
+  }
+  return {
+    ...real,
+    Enhancer: function Enhancer(canvas: HTMLCanvasElement) {
+      return drawer.on ? new StandIn() : new real.Enhancer(canvas);
+    },
+  };
+});
+
+const FRAME = { width: 4, height: 2, close: () => {} } as ImageBitmap;
 
 function reducedMotion(on: boolean): void {
   vi.spyOn(window, 'matchMedia').mockImplementation(
@@ -24,6 +47,8 @@ afterEach(() => {
   localStorage.clear();
   usePrefs.setState({ enhance: undefined, enhanceLook: undefined });
   useEnhanceUnsupported.setState({ reason: undefined });
+  useLiveNow.setState(Object.create(null), true);
+  Object.assign(drawer, { on: false, draw: () => {}, drawn: 0 });
   vi.restoreAllMocks();
 });
 
@@ -71,5 +96,38 @@ describe('the Enhance layer', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     renderPage(<EnhanceLayer cam="cam0" />);
     expect(useEnhanceUnsupported.getState().reason).toBe('This browser has no WebGL2.');
+  });
+
+  it('shows its picture again when frames come back after they stopped', () => {
+    drawer.on = true;
+    useLiveNow.setState({ cam0: true });
+    const { container } = renderPage(<EnhanceLayer cam="cam0" />);
+    const canvas = container.querySelector('canvas.enhance-canvas');
+    act(() => feedTaps('cam0', FRAME, 1));
+    expect(canvas).toHaveClass('drawn');
+    act(() => useLiveNow.setState({ cam0: false }));
+    expect(canvas).toHaveClass('paused');
+    act(() => {
+      feedTaps('cam0', FRAME, 9);
+      useLiveNow.setState({ cam0: true });
+    });
+    expect(canvas).toHaveClass('drawn');
+    expect(canvas).not.toHaveClass('paused');
+  });
+
+  it('gives the plain picture back, and says so, when drawing a frame fails', () => {
+    drawer.on = true;
+    const { container } = renderPage(<EnhanceLayer cam="cam0" />);
+    act(() => feedTaps('cam0', FRAME, 1));
+    expect(container.querySelector('canvas.enhance-canvas')).toHaveClass('drawn');
+    drawer.draw = () => {
+      throw new Error('This browser cannot render the running averages.');
+    };
+    act(() => feedTaps('cam0', FRAME, 2));
+    expect(useEnhanceUnsupported.getState().reason).toMatch(/stopped/);
+    // Its last picture must not stay over the live one, and it stops taking frames
+    expect(container.querySelector('canvas.enhance-canvas')).not.toHaveClass('drawn');
+    act(() => feedTaps('cam0', FRAME, 3));
+    expect(drawer.drawn).toBe(2);
   });
 });
