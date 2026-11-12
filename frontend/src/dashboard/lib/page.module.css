@@ -2,11 +2,17 @@
 .frame {
   --page-gutter: 24px;
   --page-top: 20px; /* the space above the page's first row; Known's sticky tab row takes it inside itself */
+  --page-bottom: 32px; /* the room under the page's last row */
   width: 100%;
   max-width: calc(1280px + 2 * var(--page-gutter));
   min-width: 0;
   margin-inline: auto;
-  padding: var(--page-top) var(--page-gutter) 32px;
+  padding: var(--page-top) var(--page-gutter) var(--page-bottom);
+}
+/* A view that is the window's own height, down to its bottom edge (Places' 3D view and plan editor, through
+   data-fills-page): the gutter under it would be the only thing left over, and it would push the page into a scroll. */
+.frame:has([data-fills-page]) {
+  --page-bottom: 0;
 }
 .frame[data-width="narrow"] {
   max-width: calc(880px + 2 * var(--page-gutter));
