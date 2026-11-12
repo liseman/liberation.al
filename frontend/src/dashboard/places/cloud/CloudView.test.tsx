@@ -543,7 +543,7 @@ const allCameras = (cameras: object[], pairs: object[] = []) =>
     plan_transform: [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0],
     learning: learning(),
     views: VIEWS,
-    combined: { place: 'p1', id: 's1', cameras, pairs },
+    combined: { place: 'p1', id: 's1', cameras, pairs, covered: { floor_m2: 33.5, plan_m2: 88.5 } },
   });
 
 function serveAll(cameras: object[], pairs: object[] = []) {
@@ -585,7 +585,11 @@ it('shows every camera placed in one scene from above, each saying how it is pla
   expect(screen.getByText(/Not in the scene: it has no spot on your plan/)).toBeTruthy();
   // what the pair's pictures said is detail of its two cameras' rows
   expect(screen.getAllByText(/hall and porch see the same space and are adjusted/)).toHaveLength(2);
-  expect(screen.getByText(/^One map of what the cameras have seen, each surface once\./)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /^One map of what the cameras have seen, each surface once\..* It covers about 38 percent of your plan's floor so far \(34 of 89 m²\)\.$/,
+    ),
+  ).toBeTruthy();
   // each row leads with its state in a word, and the camera that needs a spot says so and opens the plan editor
   const rows = screen.getAllByRole('listitem');
   expect(
