@@ -907,8 +907,8 @@ it("takes the window's height from where the view starts, and measures again whe
   const floor = await screen.findByRole('checkbox', { name: 'Floor' });
   const frame = container.querySelector<HTMLElement>('[data-fills-page]');
   expect(frame).toBeTruthy();
-  // The page gives up the room it kept under a view that reaches the window's bottom edge, and the view's own CSS
-  // takes the window's height less where the view starts (jsdom lays nothing out, so that starts at nothing).
+  // The page gives up the room it kept under a view that fills the window, and the view's own CSS takes the window's
+  // height less where the view starts and the page frame's gutter (jsdom lays nothing out, so that starts at nothing).
   expect(frame?.style.getPropertyValue('--fills-top')).toBe('0px');
   const measure = vi.spyOn(frame as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 268 } as DOMRect);
   await userEvent.click(floor);
