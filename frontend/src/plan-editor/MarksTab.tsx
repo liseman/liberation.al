@@ -2,7 +2,7 @@
 // way to add one or remove it. Each change is one write to the scene (useAreas.ts), so it undoes and saves like any
 // other edit. An object's label is what the Places page shows for it; an unexplored area's name is its label too.
 import { type Area, type AreaKind, box, newId } from './areas';
-import { isSelected, kindName, useAreasUi } from './areasUi';
+import { isSelected, kindName, kindWord, markName, useAreasUi } from './areasUi';
 import { middle } from './spots';
 import { useAreas } from './useAreas';
 
@@ -34,7 +34,7 @@ function Section({ kind, title, hint }: { kind: AreaKind; title: string; hint: s
                 className={`${BUTTON} ${on ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary' : ''}`}
                 onClick={() => select(kind, on ? null : area.id)}
               >
-                {area.label || kindName(kind)}
+                {markName(area)}
               </button>
             );
           })}
@@ -45,8 +45,7 @@ function Section({ kind, title, hint }: { kind: AreaKind; title: string; hint: s
       </button>
       {adding === kind && (
         <p className="text-[11px] text-muted-foreground">
-          Click the plan where the {kindName(kind)} goes, in the 2D view with the select tool. Its corners reshape it
-          after it is there.
+          Click the plan where it goes (2D view, select tool), or put it in the middle.
         </p>
       )}
       {/* a way to add without finding the plan first: a new one in the middle of the plan */}
@@ -72,7 +71,7 @@ function Section({ kind, title, hint }: { kind: AreaKind; title: string; hint: s
 
 export function MarksTab() {
   const { areas, set } = useAreas();
-  const { selected, adding, select } = useAreasUi();
+  const { selected, select } = useAreasUi();
   const area = selected ? areas[selected.kind].find(a => a.id === selected.id) : undefined;
   const change = (patch: Partial<Area>) => {
     if (area) set(area.kind, area.id, { ...area, ...patch });
@@ -83,7 +82,7 @@ export function MarksTab() {
       <Section
         kind="unexplored"
         title="Unexplored areas"
-        hint="Nothing is marked not seen yet. Add an area the house hasn't mapped."
+        hint="No unexplored areas yet. Mark a part of the house the cameras haven't seen."
       />
       {selected && area && (
         <section className="flex flex-col gap-2 border-border/60 border-t pt-3">
@@ -93,6 +92,7 @@ export function MarksTab() {
             <input
               className={INPUT}
               type="text"
+              placeholder="What is it? (sofa, bookcase)"
               value={area.label}
               onChange={event => change({ label: event.target.value })}
               onKeyDown={event => event.stopPropagation()} // the editor's own shortcuts are single keys
@@ -100,20 +100,15 @@ export function MarksTab() {
           </label>
           <button
             type="button"
-            className={`${BUTTON} w-fit`}
+            className={`${BUTTON} w-fit text-destructive`}
             onClick={() => {
               set(area.kind, area.id, null);
               select(null);
             }}
           >
-            Remove this {kindName(area.kind)}
+            Remove this {kindWord(area.kind)}
           </button>
         </section>
-      )}
-      {adding && (
-        <p className="text-[11px] text-muted-foreground">
-          Pick the {kindName(adding)} up on the plan, or put it in the middle; the plan's click places it.
-        </p>
       )}
       <p className="text-[11px] text-muted-foreground">
         An object is a labelled box on the plan. An unexplored area is a shape the house hasn't seen yet. Drag either to

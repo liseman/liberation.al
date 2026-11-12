@@ -75,7 +75,8 @@ const TABS = [
     : [
         { id: 'build', label: 'Build', icon: tabIcon('wall'), component: BuildTab },
         { id: 'cameras', label: 'Cameras', icon: tabIcon('topview'), component: CamerasTab },
-        { id: 'marks', label: 'Marks', icon: tabIcon('item'), component: MarksTab },
+        // a flag, not the palm tree: the tab marks objects and unexplored areas, not the garden
+        { id: 'marks', label: 'Marks', icon: tabIcon('site-flag'), component: MarksTab },
       ]),
 ];
 
