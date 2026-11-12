@@ -72,9 +72,6 @@ def test_an_unknown_backend_is_refused(machine):
         vision_backend.load("models", backend="tpu")
 
 
-MODELS = pathlib.Path(__file__).resolve().parents[1] / "data" / "models"
-
-
 def test_the_model_files_are_the_ones_config_names(machine, tmp_path):
     # see-actions must open the files [models.files.*] names: editing pose_live.path as defaults.toml documents
     # used to leave the service opening the old filename and failing at camera load.
@@ -111,12 +108,11 @@ def test_the_model_name_a_row_records_is_the_configured_detector_and_pose():
 
 
 def models() -> pathlib.Path:
-    for root in (MODELS,):
-        detector = cfg.model_path("person_detector").name
-        if all(
-            (root / f).exists() for f in (detector, "rtmpose-m_halpe26_256x192.onnx", "stgcnpp_ntu120_xsub_hrnet_j.pth")
-        ):
-            return root
+    """The installed model files' folder, skipped where this checkout has none: a fresh worktree has none until
+    `mise run models`, and the suite's guard lets a test read these files, which are inputs rather than data."""
+    installed = [cfg.model_path(name) for name in ("person_detector", "pose_live", "action_stgcnpp")]
+    if all(path.exists() for path in installed):
+        return installed[0].parent
     pytest.skip("model weights are missing; run mise run models")
 
 
@@ -139,6 +135,5 @@ def test_a_backend_runs_a_frame_end_to_end(asked):
     assert people.boxes.shape[1:] == (5,) and people.joints.shape[2:] == (3,)
     assert backend.crop(image, (10, 20, 50, 60)).shape == (40, 40, 3)
     assert backend.shift(image) is None and backend.shift(image) == (0.0, 0.0)
-    if (models() / "stgcnpp_ntu120_xsub_hrnet_j.pth").exists():
-        assert backend.score(np.zeros((1, 90, 17, 3), np.float32)).shape[0] == 1
+    assert backend.score(np.zeros((1, 90, 17, 3), np.float32)).shape[0] == 1
     assert set(cast(gpu_pose.TorchBackend, backend).providers()) >= {"detector", "pose1"}

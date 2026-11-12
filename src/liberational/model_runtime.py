@@ -16,7 +16,7 @@ import threading
 import time
 import uuid
 import weakref
-from collections.abc import Generator
+from collections.abc import Generator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Self
 
@@ -472,8 +472,14 @@ def _select_paths(directory: Path, active: dict[int, str] | None, errors: list[s
         return list(dict.fromkeys(paths))
 
 
-def snapshot(active_processes: dict[int, str] | None = None, ollama: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Process-grouped verified loads and configured intent, with unknown evidence kept explicit."""
+def snapshot(
+    active_processes: dict[int, str] | None = None,
+    ollama: dict[str, Any] | None = None,
+    extra: Sequence[Mapping[str, str]] = (),
+) -> dict[str, Any]:
+    """Process-grouped verified loads and configured intent, with unknown evidence kept explicit. `extra` rows are
+    listed with the configured models without being a load report: the caller's own choice that has no weights of its
+    own to report (which model finds objects, and why)."""
     processes: list[dict[str, Any]] = []
     errors: list[str] = []
     directory = _directory()
@@ -525,7 +531,7 @@ def snapshot(active_processes: dict[int, str] | None = None, ollama: dict[str, A
             _verified_paths.update(sorted(verified)[:MAX_LIVE_REPORTERS])
             if len(verified) > MAX_LIVE_REPORTERS:
                 errors.append("Too many live model reporters to retain all priority paths")
-    return aggregate(processes, configured(), _service_roots(active_processes), ollama, errors)
+    return aggregate(processes, [*configured(), *extra], _service_roots(active_processes), ollama, errors)
 
 
 def _service_roots(active: dict[int, str] | None) -> dict[int, str] | None:
@@ -547,7 +553,7 @@ def _service_roots(active: dict[int, str] | None) -> dict[int, str] | None:
 
 def aggregate(
     records: list[dict[str, Any]],
-    catalog: list[dict[str, str]],
+    catalog: Sequence[Mapping[str, str]],
     active_processes: dict[int, str] | None,
     ollama: dict[str, Any] | None,
     errors: list[str],
@@ -573,6 +579,7 @@ def aggregate(
     configured_rows = []
     ollama_names = {model["name"] for model in (ollama or {}).get("models", [])}
     for model in catalog:
+        model = dict(model)
         if (
             (model["key"], model["name"]) in loaded_names
             or model["key"].startswith("models.ollama.")

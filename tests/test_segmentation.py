@@ -14,11 +14,38 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from liberational import config as cfg
 from liberational.vision import segmentation
 
 BOX = [0.1, 0.1, 0.5, 0.5]
 MASK = np.zeros((60, 80), dtype=bool)
 MASK[10:30, 20:40] = True
+
+# The three models, as find_backend and points_backend see them. Every install has EdgeTAM; the other two are
+# optional downloads, and a test says which ones it pretends are on disk.
+EDGE = segmentation.Backend("edgetam", segmentation.TODAY, "fixture/edgetam", "/models/edgetam")
+SAM2 = segmentation.Backend("sam2", segmentation.GRID, "fixture/sam2", "/models/sam2")
+SAM3 = segmentation.Backend("sam3", segmentation.CONCEPT, "fixture/sam3", "/models/sam3")
+BY_KEY = {EDGE.key: EDGE, SAM2.key: SAM2, SAM3.key: SAM3}
+
+
+def install(monkeypatch, *keys):
+    """Pretends exactly these models' weights are installed, with fixture repos instead of the real ones."""
+    monkeypatch.setattr(segmentation, "installed", lambda key: key in keys)
+    monkeypatch.setattr(segmentation, "_model", lambda key: BY_KEY[key])
+
+
+@pytest.fixture(autouse=True)
+def no_real_models(tmp_path):
+    """Every object model's weights are somewhere else, so no test's answer depends on this machine's data/models.
+
+    Which optional models are on disk decides Find objects' backend, so a test that left it to the config passed only
+    where the weights happened to be missing. `install` says what is present; a test of the real check overrides the
+    paths again, and a later override wins.
+    """
+    absent = {key: {"path": str(tmp_path / "no-models" / key)} for key in BY_KEY}
+    with cfg.override({"models": {"hf": absent}}):
+        yield
 
 
 def image_bytes():
@@ -49,7 +76,7 @@ def test_segment_returns_the_actual_model_mask_and_score(monkeypatch):
         return mask, 0.9
 
     monkeypatch.setattr(segmentation, "_run", infer)
-    monkeypatch.setattr(segmentation.cfg, "hf_repo", lambda name: "fixture/edgetam")
+    monkeypatch.setattr(segmentation, "points_backend", lambda want="auto": EDGE)
     result = segmentation.segment(image_bytes(), bbox=[0.1, 0.1, 0.5, 0.5])
     assert np.array_equal(result.mask, mask)
     assert result.score == 0.9
@@ -60,14 +87,14 @@ def test_segment_returns_the_actual_model_mask_and_score(monkeypatch):
 @pytest.mark.parametrize("mask", [np.zeros((60, 80), dtype=bool), np.ones((3, 4), dtype=bool)])
 def test_empty_or_wrong_sized_model_masks_are_not_saved(mask, monkeypatch):
     monkeypatch.setattr(segmentation, "_run", lambda *args: (mask, 0.8))
-    with pytest.raises(segmentation.Unavailable, match="usable object mask"):
+    with pytest.raises(segmentation.Unavailable, match="usable mask there"):
         segmentation.segment(image_bytes(), point=[0.5, 0.5])
 
 
 def test_another_active_segmentation_is_refused_instead_of_queued():
     assert segmentation._lock.acquire(blocking=False)
     try:
-        with pytest.raises(segmentation.Unavailable, match="already selecting"):
+        with pytest.raises(segmentation.Unavailable, match="already being selected"):
             segmentation.segment(image_bytes(), point=[0.5, 0.5])
     finally:
         segmentation._lock.release()
@@ -162,7 +189,11 @@ def no_warm_child():
 def test_a_timeout_ends_the_warm_child_and_the_next_request_starts_another(monkeypatch):
     started = fake_children(monkeypatch)
     with pytest.raises(segmentation.Unavailable, match="too long"):
-        segmentation._run(segmentation._infer, (b"image", {"point": [0.5, 0.5]}, "fixture/edgetam", "cpu"), 0.01)
+        segmentation._run(
+            segmentation._infer,
+            (b"image", {"point": [0.5, 0.5]}, "object_segmentation", "fixture/edgetam", "cpu"),
+            0.01,
+        )
     assert started[0].terminated and segmentation._server is None
 
 
@@ -171,7 +202,7 @@ def test_the_warm_child_serves_the_next_request_and_stops_only_after_idle_s(monk
     clock = FrozenClock()
     monkeypatch.setattr(segmentation, "time", clock)
     monkeypatch.setattr(segmentation, "REAP_EVERY_S", 3600.0)  # the idle reaper's own tick never reaps in this test
-    args = (b"image", {"point": [0.5, 0.5]}, "fixture/edgetam", "cpu")
+    args = (b"image", {"point": [0.5, 0.5]}, "object_segmentation", "fixture/edgetam", "cpu")
     assert segmentation._run(segmentation._infer, args, 1)[1] == 0.9
     assert segmentation._run(segmentation._infer, args, 1)[1] == 0.8
     assert len(started) == 1, "one child for both"
@@ -192,7 +223,9 @@ def test_the_warm_child_serves_the_next_request_and_stops_only_after_idle_s(monk
 def test_a_failure_the_child_reports_keeps_it_warm(monkeypatch):
     started = fake_children(monkeypatch, (False, segmentation.FAILED))
     with pytest.raises(segmentation.Unavailable, match="could not load or run"):
-        segmentation._run(segmentation._infer, (b"image", {"point": [0.5, 0.5]}, "fixture/edgetam", "cpu"), 1)
+        segmentation._run(
+            segmentation._infer, (b"image", {"point": [0.5, 0.5]}, "object_segmentation", "fixture/edgetam", "cpu"), 1
+        )
     assert not started[0].terminated and segmentation._server is not None
 
 
@@ -217,7 +250,7 @@ def test_the_child_answers_each_request_and_says_why_one_failed_without_its_deta
     assert conn.sent == [(True, 3), (False, segmentation.MISSING), (False, segmentation.FAILED)]
 
 
-def _waiting_infer(image, prompt, model, device, *, marker, ignore_term):
+def _waiting_infer(image, prompt, key, model_ref, device, *, marker, ignore_term):
     """A request that never finishes: it says it started (a file: an Event can't go through the pipe) and waits."""
     if ignore_term:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -358,15 +391,17 @@ def test_find_all_unpacks_each_childs_mask_and_refuses_ones_of_another_size(monk
     image = image_bytes()  # 80 x 60
     mask = np.zeros((60, 80), dtype=bool)
     mask[5:20, 10:30] = True
-    monkeypatch.setattr(segmentation.cfg, "hf_repo", lambda name: "fixture/edgetam")
+    monkeypatch.setattr(segmentation, "points_backend", lambda want="auto": EDGE)
     monkeypatch.setattr(segmentation, "_run", lambda *args: ([(np.packbits(mask), mask.shape, 0.7)],))
-    [found] = segmentation.find_all(image)
-    assert np.array_equal(found.mask, mask) and (found.score, found.model) == (0.7, "fixture/edgetam")
+    found = segmentation.find_all(image)
+    [one] = found.objects
+    assert np.array_equal(one.mask, mask) and (one.score, one.model) == (0.7, "fixture/edgetam")
+    assert (found.backend.kind, found.note) == ("edgetam", "")
     monkeypatch.setattr(segmentation, "_run", lambda *args: ([(np.packbits(mask), (3, 4), 0.7)],))
     with pytest.raises(segmentation.Unavailable, match="don't fit"):
         segmentation.find_all(image)
     monkeypatch.setattr(segmentation, "_run", lambda *args: ([],))
-    assert segmentation.find_all(image) == [], "nothing found is an answer"
+    assert segmentation.find_all(image).objects == [], "nothing found is an answer"
 
 
 @pytest.fixture
@@ -444,7 +479,9 @@ def edge_boundary(monkeypatch):
     def reported(*args, **kwargs):
         calls.reports.append((args, kwargs))
 
-    monkeypatch.setitem(sys.modules, "transformers", SimpleNamespace(EdgeTamModel=Factory, Sam2Processor=Processor))
+    monkeypatch.setitem(
+        sys.modules, "transformers", SimpleNamespace(EdgeTamModel=Factory, Sam2Model=Factory, Sam2Processor=Processor)
+    )
     monkeypatch.setattr(segmentation.model_runtime, "loaded", reported)
     segmentation._load.cache_clear()
     yield calls
@@ -459,7 +496,7 @@ def edge_boundary(monkeypatch):
     ],
 )
 def test_edgetam_prompts_keep_pixel_coordinates_and_return_native_size_masks(edge_boundary, prompt, expected):
-    mask, score = segmentation._infer(image_bytes(), prompt, "fixture/edgetam", "cpu")
+    mask, score = segmentation._infer(image_bytes(), prompt, "object_segmentation", "fixture/edgetam", "cpu")
     assert edge_boundary.loads == [("fixture/edgetam", True)]
     assert edge_boundary.prompts == [expected]
     assert edge_boundary.forwards[0]["multimask_output"] is False
@@ -468,7 +505,7 @@ def test_edgetam_prompts_keep_pixel_coordinates_and_return_native_size_masks(edg
 
 
 def test_edgetam_find_objects_reuses_one_embedding_and_batches_independent_point_prompts(edge_boundary):
-    found = segmentation._infer_all(image_bytes(), "fixture/edgetam", "cpu")
+    found = segmentation._infer_all(image_bytes(), "object_segmentation", "fixture/edgetam", "cpu")
     assert edge_boundary.loads == [("fixture/edgetam", True)]
     assert edge_boundary.embeddings == 1
     assert len(edge_boundary.forwards) == 32
@@ -486,3 +523,236 @@ def test_edgetam_find_objects_reuses_one_embedding_and_batches_independent_point
     mask, score = found[0]
     assert mask.shape == (60, 80) and mask.any() and not mask.all()
     assert score == pytest.approx(0.95)
+
+
+def test_a_typed_name_finds_objects_with_sam3s_one_concept_prompt(monkeypatch):
+    install(monkeypatch, EDGE.key, SAM2.key, SAM3.key)
+    chosen, note = segmentation.find_backend("my SSD")
+    assert (chosen.kind, chosen.repo, note) == ("sam3", "fixture/sam3", "")
+
+
+def test_a_find_run_with_no_name_uses_the_point_grid_and_says_why(monkeypatch):
+    install(monkeypatch, EDGE.key, SAM3.key)
+    chosen, note = segmentation.find_backend("")
+    assert chosen.kind == "edgetam", "SAM 3 has nothing to look for without a name"
+    assert "name the object first" in note and "point grid" in note
+
+
+@pytest.mark.parametrize(
+    ("models", "kind"),
+    [
+        pytest.param((segmentation.TODAY, segmentation.GRID), "sam2", id="sam2-installed"),
+        pytest.param((segmentation.TODAY,), "edgetam", id="edgetam-only"),
+    ],
+)
+def test_without_sam3_the_point_grid_runs_on_the_best_installed_model(monkeypatch, models, kind):
+    install(monkeypatch, *models)
+    assert segmentation.points_backend().kind == kind
+    assert segmentation.find_backend("wallet")[0].kind == kind
+
+
+def test_pinning_a_model_whose_weights_are_not_installed_is_an_error_not_a_fallback(monkeypatch):
+    install(monkeypatch, EDGE.key)
+    with (
+        cfg.override({"objects": {"mask_backend": "sam3"}}),
+        pytest.raises(segmentation.Unavailable, match="is not installed"),
+    ):
+        segmentation.find_backend("wallet")
+    with (
+        cfg.override({"objects": {"mask_backend": "sam2"}}),
+        pytest.raises(segmentation.Unavailable, match="is not installed"),
+    ):
+        segmentation.points_backend(segmentation.forced())
+
+
+def test_pinning_edgetam_keeps_todays_model_and_pinning_sam3_still_points_with_the_grid(monkeypatch):
+    install(monkeypatch, EDGE.key, SAM2.key, SAM3.key)
+    with cfg.override({"objects": {"mask_backend": "edgetam"}}):
+        assert segmentation.points_backend(segmentation.forced()).kind == "edgetam"
+        assert segmentation.find_backend("wallet")[0].kind == "edgetam"
+    with cfg.override({"objects": {"mask_backend": "sam3"}}):
+        assert segmentation.find_backend("wallet")[0].kind == "sam3"
+        assert segmentation.points_backend(segmentation.forced()).kind == "sam2", "a box or point is not a concept"
+
+
+def test_installed_reads_the_configured_local_copy_and_nothing_else(tmp_path):
+    """The real check, without a stub: it reads models.hf.<key>.path, and only a config.json there counts."""
+    there = tmp_path / "models" / "there"
+    there.mkdir(parents=True)
+    (there / "config.json").write_text("{}")
+    entries = {key: {"path": str(tmp_path / "models" / key), "repo": f"fixture/{key}"} for key in BY_KEY}
+    entries[segmentation.CONCEPT]["path"] = str(there)
+    with cfg.override({"models": {"hf": entries}}):
+        assert segmentation.installed(segmentation.CONCEPT) is True
+        assert segmentation.installed(segmentation.TODAY) is False, "a declared path with nothing under it is absent"
+        assert segmentation.installed("object_segmentation_nonexistent") is False, "an undeclared key has no path"
+        assert segmentation._model(segmentation.CONCEPT).model_ref == str(there), "it loads from the installed copy"
+        assert segmentation._model(segmentation.TODAY).model_ref == f"fixture/{segmentation.TODAY}", (
+            "an absent model names its repo, and fails cleanly if it cannot load"
+        )
+
+
+@pytest.mark.parametrize(
+    ("models", "backend", "said"),
+    [
+        pytest.param(
+            (segmentation.TODAY, segmentation.CONCEPT), "sam3", "looks for the name you give it", id="sam3-installed"
+        ),
+        pytest.param((segmentation.TODAY, segmentation.GRID), "sam2", "point grid on SAM 2", id="sam2-installed"),
+        pytest.param((segmentation.TODAY,), "edgetam", "Only EdgeTAM is installed", id="edgetam-only"),
+    ],
+)
+def test_describe_says_which_model_and_why_in_plain_words(monkeypatch, models, backend, said):
+    install(monkeypatch, *models)
+    seen = segmentation.describe()
+    assert (seen["backend"], said in seen["why"]) == (backend, True)
+    row = segmentation.mask_backend_row()
+    assert row["key"] == "objects.mask_backend" and row["name"] == seen["model"]
+    assert row["purpose"].startswith("find objects: ") and said in row["purpose"]
+
+
+def test_a_bad_mask_backend_setting_is_said_in_the_status_and_refused_at_a_request(monkeypatch):
+    install(monkeypatch, EDGE.key)
+    with cfg.override({"objects": {"mask_backend": "sam4"}}):
+        assert segmentation.describe()["backend"] == "unavailable"
+        with pytest.raises(segmentation.Unavailable, match="auto, sam3, sam2, edgetam"):
+            segmentation.find_backend("wallet")
+
+
+def test_a_concept_run_with_no_gpu_room_uses_the_point_grid_for_that_request_and_says_so(monkeypatch):
+    install(monkeypatch, EDGE.key, SAM2.key, SAM3.key)
+    masks = np.zeros((60, 80), dtype=bool)
+    masks[5:20, 10:30] = True
+    calls = []
+
+    def run(target, args, timeout):
+        calls.append((target, args))
+        if target is segmentation._find_concept:
+            raise segmentation._NoRoom(segmentation.NO_ROOM)
+        return ([(np.packbits(masks), masks.shape, 0.8)],)
+
+    monkeypatch.setattr(segmentation, "_run", run)
+    found = segmentation.find_all(image_bytes(), concept="wallet", job="j1")
+    assert [target for target, _args in calls] == [segmentation._find_concept, segmentation._find]
+    assert calls[1][1][1] == SAM2.key, "the fallback ran on the point grid's own model"
+    assert (found.backend.kind, found.note) == ("sam2", segmentation.NO_ROOM)
+    assert len(found.objects) == 1
+
+
+def test_a_concept_prompt_passes_the_name_to_the_child_and_its_masks_come_back_packed(monkeypatch):
+    install(monkeypatch, EDGE.key, SAM3.key)
+    seen = []
+    mask = np.zeros((60, 80), dtype=bool)
+    mask[5:20, 10:30] = True
+
+    def run(target, args, timeout):
+        seen.append(args)
+        return ([(np.packbits(mask), mask.shape, 0.6)],)
+
+    monkeypatch.setattr(segmentation, "_run", run)
+    found = segmentation.find_all(image_bytes(), concept="  my   wallet ")
+    assert seen[0][1] == "  my   wallet ", "the route cleans the name; the model gets what it was handed"
+    assert (found.backend.kind, found.note) == ("sam3", "")
+    assert np.array_equal(found.objects[0].mask, mask)
+
+
+def test_the_concept_model_is_refused_rather_than_squeezed_when_no_gpu_has_room(monkeypatch):
+    """`_device` is where the concept model's memory gate lives: it never loads on a device that hasn't the room."""
+    free: dict[str, int | None] = {"free": segmentation.CONCEPT_BYTES + 1}
+
+    class Cuda:
+        @staticmethod
+        def is_available():
+            return free["free"] is not None
+
+        @staticmethod
+        def device_count():
+            return 1 if free["free"] is not None else 0
+
+        @staticmethod
+        def mem_get_info(index):
+            return (free["free"], 24 * 2**30)
+
+        @staticmethod
+        def current_device():
+            return 0
+
+    class Mps:
+        @staticmethod
+        def is_available():
+            return False
+
+    fake = SimpleNamespace(
+        cuda=Cuda, backends=SimpleNamespace(mps=Mps), set_num_threads=lambda n: None, current_device=lambda: 0
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake)
+    assert segmentation._device("auto", segmentation.CONCEPT_BYTES) == "cuda:0"
+    free["free"] = segmentation.CONCEPT_BYTES - 1
+    with pytest.raises(segmentation._NoRoom, match="NVIDIA GPU"):
+        segmentation._device("auto", segmentation.CONCEPT_BYTES)
+    free["free"] = None  # an Apple Silicon or CPU machine: no CUDA at all
+    with pytest.raises(segmentation._NoRoom, match="NVIDIA GPU"):
+        segmentation._device("auto", segmentation.CONCEPT_BYTES)
+    assert segmentation._device("auto") == "cpu", "the point grid still runs there"
+
+
+def test_sam3s_published_checkpoint_loads_its_detector_tensors_by_name_and_refuses_another_fit(monkeypatch, tmp_path):
+    torch = pytest.importorskip("torch")
+    (tmp_path / "model.safetensors").write_bytes(b"pinned")
+    weight = torch.zeros(1)
+    state = {"detector_model.encoder.0": weight, "tracker_model.mask": weight}
+    loads = []
+
+    class Model:
+        def __init__(self, config):
+            assert config == "the detector's own config", "the image model is built from the checkpoint's detector"
+
+        def load_state_dict(self, weights, strict=False):
+            loads.append((sorted(weights), strict))
+            return SimpleNamespace(missing_keys=[], unexpected_keys=[])
+
+        def to(self, device):
+            return self
+
+        def eval(self):
+            return self
+
+    class Processor:
+        @classmethod
+        def from_pretrained(cls, model_ref, *, local_files_only):
+            return cls()
+
+    cuda = SimpleNamespace(
+        is_available=lambda: True,
+        device_count=lambda: 1,
+        mem_get_info=lambda index: (8 * 2**30, 24 * 2**30),
+        current_device=lambda: 0,
+    )
+    fake = SimpleNamespace(
+        cuda=cuda,
+        backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False)),
+        set_num_threads=lambda n: None,
+        current_device=lambda: 0,
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake)  # `_device` asks this one where to load and how much room it has
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoConfig=SimpleNamespace(
+                from_pretrained=lambda ref, **kwargs: SimpleNamespace(detector_config="the detector's own config")
+            ),
+            Sam3Model=Model,
+            Sam3Processor=Processor,
+        ),
+    )
+    monkeypatch.setitem(sys.modules, "safetensors.torch", SimpleNamespace(load_file=lambda path: state))
+    monkeypatch.setattr(segmentation.model_runtime, "loaded", lambda *args, **kwargs: None)
+    segmentation._load_concept.cache_clear()
+    try:
+        loaded, _processor, device = segmentation._load_concept(str(tmp_path), "auto")
+        assert loaded is not None
+        assert loads == [(["encoder.0"], False)], "only the image model's tensors, under its own names"
+        assert device == "cuda:0", "the concept model loads on the GPU that has room"
+    finally:
+        segmentation._load_concept.cache_clear()

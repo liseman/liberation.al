@@ -618,10 +618,17 @@ fast_replies = true
 
 # On-demand object masks on the Objects page. EdgeTAM runs once per selection, never as a live camera loop.
 [objects]
-# PyTorch device for EdgeTAM: auto chooses CUDA, Apple Silicon MPS, or CPU. Explicit cpu/cuda:N/mps is allowed.
+# PyTorch device for the object models: auto chooses CUDA, Apple Silicon MPS, or CPU. Explicit cpu/cuda:N/mps is
+# allowed.
 segmentation_device = "auto"
-# Deadline for one isolated EdgeTAM selection, including model load; a timeout saves no mask or object.
+# Deadline for one isolated object selection, including model load; a timeout saves no mask or object.
 segmentation_timeout_s = 60.0
+# Which model finds objects (the Objects page's Find objects). "auto" uses SAM 3 and its concept prompt when its
+# weights are installed and a GPU has room for them, else the point grid on SAM 2 when its weights are installed,
+# else the point grid on EdgeTAM, which every install has. "sam3", "sam2", or "edgetam" pins one; a pinned model
+# whose weights are not installed is an error, not a fallback. The box and point prompts on the same page always use
+# the point grid (SAM 2, else EdgeTAM): they are a prompt, not a name. See [models.hf.object_segmentation_concept].
+mask_backend = "auto"
 
 [models.ollama]
 # A tag ending in -t<N> is the model before it run with N CPU threads (`mise run models` makes it with
@@ -685,12 +692,46 @@ only_on = ["linux-x86_64"]
 needs = "cuda"
 
 # EdgeTAM prompted/automatic image masks (Meta code/weights Apache-2.0), Transformers conversion by its contributor.
-# Fixed checkpoint revision and local directory keep on-demand requests entirely offline.
+# Fixed checkpoint revision and local directory keep on-demand requests entirely offline. This is Find objects'
+# point grid on an install that has neither of the two entries below, and it is never removed.
 [models.hf.object_segmentation]
 repo = "yonigozlan/EdgeTAM-hf"
 revision = "c266ce53b3fc00f0f495b583f6a116c4e57f53bb"
 path = "data/models/edgetam"
 allow_patterns = ["*.json", "*.safetensors", "*.txt"]
+
+# Find objects by name: Meta's SAM 3 (about 850M parameters, 3.44 GB), prompted with the name the owner types. It
+# finds far more of what is asked for than the point grid (see the detection measurements), at about 4.6 GB of GPU
+# memory, so it is loaded when a Find run asks and released on the same idle timer.
+#
+# Licence: the SAM License, Meta's own terms. Free to use, including commercially, but not an open-source licence
+# (it is not OSI-approved) and not one the pack can relicense; read https://huggingface.co/facebook/sam3 before
+# accepting the gate. It is an optional download and never part of a package.
+#
+# Gated on Hugging Face: `mise run models` tries with this machine's own Hugging Face login, and a refusal is only a
+# line saying so (Find objects then uses the point grid), never an error. Nothing here asks for or stores a token.
+# Optional, so `pack-setup --check` never reports it missing. NVIDIA GPU only: Apple Silicon and CPU installs keep
+# the point grid.
+[models.hf.object_segmentation_concept]
+repo = "facebook/sam3"
+revision = "3c879f39826c281e95690f02c7821c4de09afae7"
+path = "data/models/sam3"
+allow_patterns = ["*.json", "*.txt", "merges.txt", "vocab.json", "model.safetensors", "LICENSE"]
+sha256 = { "model.safetensors" = "6d06f0a5f84e435071fe6603e61d0b4cc7b40e0d39d487cfd4d67d8cc11cc14a" }
+needs = "cuda"
+optional = true
+
+# Find objects' fallback: Meta's SAM 2.1 hiera-base-plus image model (Apache-2.0), the same point grid as EdgeTAM on a
+# larger backbone. Not gated, pinned by revision and checksum, and fetched only where SAM 3's weights above could
+# not be had, so an install with SAM 3 does not carry it. Optional, like SAM 3.
+[models.hf.object_segmentation_points]
+repo = "facebook/sam2.1-hiera-base-plus"
+revision = "b7320756a13354e7530a63935656d35b2f91a290"
+path = "data/models/sam2.1-hiera-base-plus"
+allow_patterns = ["*.json", "*.txt", "*.yaml", "model.safetensors"]
+sha256 = { "model.safetensors" = "2012733a0de5d03efd1bba550a2847c4551be9ef2e0d497c83074df66189f780" }
+optional = true
+only_without = "object_segmentation_concept"
 
 # see-actions' animal check: Google's SigLIP 2 Base B/16 (Apache-2.0), about 1.5 GB on disk,
 # fetched into the standard Hugging Face cache. The processor supplies its image normalization and tokenizer.
@@ -776,13 +817,17 @@ url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files
 path = "data/models/voices-v1.0.bin"
 skip_on = ["darwin-arm64"]
 
-# RF-DETR Small person/animal detector (Roboflow code/weights Apache-2.0), fixed 512x512 RGB ONNX.
-# Immutable third-party conversion, checked against the official Roboflow checkpoint.
-# Raw COCO boxes/logits; sigmoid/global top-300 decoding, without YOLOX grids or NMS.
+# RF-DETR Medium person/animal detector (Roboflow code/weights Apache-2.0), fixed 576x576 RGB ONNX, exported from
+# the official COCO checkpoint with Roboflow's own exporter (rfdetr 1.12.0, opset 17, batch 1, fp32) and published as
+# a third-party conversion pinned to one revision. It names its two raw tensors pred_boxes and pred_logits, which
+# see/gpu_pose reads by role alongside dets and labels. Raw COCO boxes/logits; sigmoid/global top-300 decoding,
+# without YOLOX grids or NMS. Chosen over Small by the six-stream bench (#423): +1.5 person AP, +0.8 on small people,
+# +2.3 animal AP, +5.0 screens AP, with the main camera's stream still at 30 fps. Large measured +3.7 person AP and
+# did not hold 30 fps under the same load, so it is not shipped.
 [models.files.person_detector]
-url = "https://huggingface.co/Deeds67/rfdetr-small/resolve/eb76679daa78e76b4b9ef358ef18bed7b65e383a/detection/model.onnx"
-path = "data/models/rfdetr-small.onnx"
-sha256 = "31fe724f8d5dbff5d09eb4c2c44d2d4083c086c167aec54e11e694e652307f9b"
+url = "https://huggingface.co/PierreMarieCurie/rf-detr-onnx/resolve/94f91976449c187be38e649863e3dadecc312437/rf-detr-medium.onnx"
+path = "data/models/rfdetr-medium.onnx"
+sha256 = "18250b5a3a9552ae117d592f8e8c27fe52438d70c914a77a8913fc45d8f29e69"
 
 # Pose model for see-actions' skeletons, action windows, and Live overlays: RTMPose-m, halpe26, 256x192,
 # Apache-2.0 (OpenMMLab), ONNX. A 52 MB zip; the 56 MB end2end.onnx inside it is kept. Run locally only.

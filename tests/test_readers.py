@@ -180,6 +180,9 @@ COMPUTED_KEYS = {
     "unifi.py": 'setting(section, key) over unifi.CONSOLES, which writes "unifi." and "unifi_protect." whole',
     "dashboard/network_cameras.py": 'unifi.setting(section, "mode"), its sections those of unifi.CONSOLES',
     "vision/crossings.py": '"crossings." + key over the settings() literals',
+    # models.hf.<key>.path and .repo, where key is one of the module's three model constants (TODAY, GRID, CONCEPT), so
+    # every key it reads is models.hf.object_segmentation{,concept,_points} with one of those two suffixes.
+    "vision/segmentation.py": 'f"models.hf.{key}.path" and ".repo" over CONCEPT, GRID, and TODAY',
 }
 
 

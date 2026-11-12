@@ -35,11 +35,20 @@ export interface CameraStatus {
   error?: string;
 }
 
+/** Which model Find objects uses, and why, in plain words (segmentation.describe). */
+export interface FindBackend {
+  /** "sam3" (a concept prompt for the name typed), "sam2" or "edgetam" (the point grid), or "unavailable". */
+  backend: string;
+  model: string;
+  why: string;
+}
+
 export interface Status {
   objects: number;
   cameras: CameraStatus[];
   observer: { finished_at: number } | null;
   observer_error: string | null;
+  find_objects?: FindBackend;
 }
 
 export interface QueryResult {
@@ -109,11 +118,18 @@ export const segment = (
   job: string,
   signal?: AbortSignal,
 ) => request<Segmentation>(`${base}/api/segment`, { snapshot, ...prompt, job }, signal);
-/** EdgeTAM's automatic masks over `crop` (frame pixels: the region in view), or the whole snapshot. */
-export const findObjects = (snapshot: string, crop: Box | null, job: string, signal?: AbortSignal) =>
-  request<{ snapshot: string; objects: FoundObject[]; ms: number }>(
+/** The objects found over `crop` (frame pixels: the region in view), or the whole snapshot: SAM 3 looks for
+ *  `concept` (the name typed) when its weights are installed, the point grid otherwise. */
+export const findObjects = (
+  snapshot: string,
+  crop: Box | null,
+  job: string,
+  concept: string,
+  signal?: AbortSignal,
+) =>
+  request<{ snapshot: string; objects: FoundObject[]; ms: number; backend: string; note: string }>(
     `${base}/api/find`,
-    { snapshot, ...(crop ? { crop } : {}), job },
+    { snapshot, ...(crop ? { crop } : {}), job, ...(concept ? { concept } : {}) },
     signal,
   );
 export const cancelSegment = (job: string) =>
