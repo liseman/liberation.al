@@ -881,9 +881,9 @@ it("takes the window's height from where the view starts, and measures again whe
   expect(frame).toBeTruthy();
   // The page gives up the room it kept under a view that reaches the window's bottom edge, and the view's own CSS
   // takes the window's height less where the view starts (jsdom lays nothing out, so that starts at nothing).
-  expect(frame?.style.getPropertyValue('--cloud-top')).toBe('0px');
+  expect(frame?.style.getPropertyValue('--fills-top')).toBe('0px');
   const measure = vi.spyOn(frame as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 268 } as DOMRect);
   await userEvent.click(floor);
-  await waitFor(() => expect(frame?.style.getPropertyValue('--cloud-top')).toBe('268px'));
+  await waitFor(() => expect(frame?.style.getPropertyValue('--fills-top')).toBe('268px'));
   measure.mockRestore();
 });

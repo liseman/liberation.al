@@ -25,20 +25,11 @@
 // writes one, and the code for them is kept for it.
 import { Anchor, Button, Checkbox, Group, Progress, SegmentedControl, Select, Slider, Text } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import {
-  type ChangeEvent,
-  Component,
-  type CSSProperties,
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type ChangeEvent, Component, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { messageOf } from '../../../shared/http';
 import { readPrefs, writePrefs } from '../../../shared/prefs';
+import { useFillsPage } from '../../lib/fill';
 import { PageError } from '../../lib/page';
 import { viewName } from '../../review/views';
 import { linkClick } from '../../router';
@@ -395,21 +386,10 @@ function CloudMap({
     }
   }, [draw, splatReady, size, colour, show, ready, combined, hiddenCameras, inside]);
 
-  // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
-  // header, the tabs, the known row) is the page's to decide, and measured again after each render and when the window
-  // changes. Its frame reaches the window's bottom edge, so the page gives up the room it kept under it there
-  // (data-fills-page, places.module.css and page.module.css).
+  // The view takes what's left of the window under where it starts (lib/fill.ts measures that), down to the window's
+  // bottom edge: data-fills-page has the page give up the room it kept under it there.
   const frame = useRef<HTMLDivElement>(null);
-  const [top, setTop] = useState(0);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const el = frame.current;
-      if (el) setTop(Math.ceil(el.getBoundingClientRect().top + window.scrollY));
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  });
+  const fillsStyle = useFillsPage(frame);
 
   if (!webgl)
     return (
@@ -528,12 +508,7 @@ function CloudMap({
   };
   return (
     <>
-      <div
-        ref={frame}
-        className={classes.cloudFrame}
-        data-fills-page
-        style={{ '--cloud-top': `${top}px` } as CSSProperties}
-      >
+      <div ref={frame} className={classes.cloudFrame} data-fills-page style={fillsStyle}>
         {switchIn && all && !own && modes}
         {views.length > 0 && !(switchIn && all && !own) && (
           <Group gap="md" mb="sm" align="flex-end" wrap="wrap">

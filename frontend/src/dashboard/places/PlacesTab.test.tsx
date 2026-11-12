@@ -590,3 +590,20 @@ it('says every camera is missing something when none can place anyone', async ()
   ).toBeTruthy();
   expect(screen.getByText(/porch can't place anyone yet/)).toBeTruthy();
 });
+
+it('gives the drawn plan the height under the card, as the map has, and measures where that box starts', async () => {
+  serve([HOME]);
+  const { container } = renderPage(<PlacesTab />);
+  await screen.findByRole('button', { name: /^Home/ });
+  // The box the plan and everything under it sit in: the page and the card give up their room under it (data-fills-page,
+  // page.module.css and places.module.css), so the plan can reach the window's bottom edge as the map does.
+  const box = container.querySelector<HTMLElement>('[data-fills-page]');
+  expect(box).toBeTruthy();
+  expect(box?.contains(drawing())).toBe(true);
+  // jsdom lays nothing out, so where the box starts is nothing; a render measures it again.
+  expect(box?.style.getPropertyValue('--fills-top')).toBe('0px');
+  const measure = vi.spyOn(box as HTMLElement, 'getBoundingClientRect').mockReturnValue({ top: 348 } as DOMRect);
+  fireEvent.click(row(/^Home/));
+  await waitFor(() => expect(box?.style.getPropertyValue('--fills-top')).toBe('348px'));
+  measure.mockRestore();
+});

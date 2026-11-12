@@ -145,7 +145,7 @@
   top: var(--top-h, 56px);
   bottom: 0;
   width: 100%;
-  height: calc(100vh - var(--top-h, 56px) - var(--bottom-h, 0px));
+  height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px));
   z-index: 0;
   pointer-events: none;
   opacity: 0.16;

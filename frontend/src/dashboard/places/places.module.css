@@ -58,11 +58,13 @@
   font-size: var(--mantine-font-size-lg);
 }
 
-/* The plan scales down to the column and never past its own drawn size. */
+/* The plan fills the box it is given: its viewBox maps into that box with the aspect kept and centred (an SVG's own
+   default), so the whole plan shows at any window size, and the paths over it, drawn in the same viewBox over the same
+   box (.paths), stay on it. */
 .drawing svg {
   display: block;
-  max-width: 100%;
-  height: auto;
+  width: 100%;
+  height: 100%;
   margin-inline: auto;
 }
 
@@ -103,11 +105,16 @@
   background: var(--mantine-color-text);
 }
 
-/* Paths: a second SVG over the plan with the plan's viewBox, so the two scale together. */
+/* Paths: a second SVG over the plan with the plan's viewBox, so the two scale together. The plan takes what the rows
+   under it leave of the page's height (see .planFill), and never less than this, so it stays usable on a short window
+   (the card scrolls inside itself for the rest). */
 .drawingWrap {
   position: relative;
-  max-width: max-content;
+  width: 100%;
   margin-inline: auto;
+}
+.drawingWrap > .drawing {
+  height: 100%;
 }
 
 .paths {
@@ -195,17 +202,43 @@
   margin-bottom: 10px;
 }
 
-/* The 3D view: a canvas that fills the panel's width, a little shorter than wide. */
-/* The 3D view and the row of our settings under it: the window's height from where the view starts (CloudView measures
-   that) down to its bottom edge, less a phone's bottom bar. The map takes what the settings leave. A window too short
-   for both scrolls here, inside the card, rather than pushing the page into a scroll. */
+/* The page's views that are the window's own height, from where each starts (lib/fill.ts measures that) to its bottom
+   edge, less a phone's bottom bar: the map, the plan drawn in 2D, and the editor's page. */
+.cloudFrame,
+.planFill,
+.planFrame {
+  height: calc(100dvh - var(--fills-top, 0px) - var(--bottom-h, 0px));
+}
+/* The 3D view and the row of our settings under it: the map takes what the settings leave, and a window too short for
+   both scrolls here, inside the card, rather than pushing the page into a scroll. */
 .cloudFrame {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - var(--cloud-top, 0px) - var(--bottom-h, 0px));
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* The plan drawn and what goes under it (the scrubber, who is on it, the key): the same window's height as the map's,
+   with the plan taking what those rows leave. It scrolls here, inside the card, when the window is too short for both,
+   so the page never scrolls. */
+.planFill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* The plan is the only child that gives room up; the rows under it (the place's own bar, the scrubber, who is on it,
+   the key) keep their height, and past all of it the box scrolls. A plan drawn without paths (the machine's, to
+   compare) is the box's own child; with paths it is inside .drawingWrap. */
+.planFill > * {
+  flex: none;
+}
+.planFill > .drawing,
+.planFill > .drawingWrap {
+  flex: 1 1 auto;
+  min-height: 12rem;
 }
 
 /* One of the page's views that is the window's own height, to its bottom edge: the card's room under the view and the
