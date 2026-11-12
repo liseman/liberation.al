@@ -20,6 +20,7 @@ import {
   bendLine,
   fitLine,
   levelLine,
+  mapLine,
   pairLine,
   pictureLine,
   placedLine,
@@ -94,11 +95,13 @@ export function SceneLayers({
       <Stack gap={4} component="ul" m={0} p={0} style={{ listStyle: 'none' }} aria-label="Cameras in the scene">
         {cameras.map((camera, index) => {
           const name = viewName(camera.camera);
-          const state = placedState(camera.how, camera.track?.state);
+          const leftOut = camera.map?.state === 'refused' && camera.map.why === 'apart';
+          const state = placedState(camera.how, camera.track?.state, leftOut);
           const tracked = trackLine(camera);
           const shown = open.has(camera.camera);
           const way = wayBack(camera);
           const lines = [
+            mapLine(camera),
             camera.fit ? fitLine(camera.fit) : null,
             squareLine(camera),
             levelLine(camera.level, camera.tilt_deg, camera.roll_deg),
@@ -132,7 +135,17 @@ export function SceneLayers({
                 >
                   {state.label}
                 </Badge>
-                {!camera.placed && camera.how !== 'lost' && onEditPlan ? (
+                {camera.how === 'lost' && way ? (
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    flex="0 0 auto"
+                    loading={back.isPending && back.variables?.camera === camera.camera}
+                    onClick={() => back.mutate({ camera: camera.camera, use: way.use })}
+                  >
+                    {way.label}
+                  </Button>
+                ) : !camera.placed && camera.how !== 'lost' && onEditPlan ? (
                   <Button size="compact-xs" variant="subtle" flex="0 0 auto" onClick={onEditPlan}>
                     Set its spot
                   </Button>
@@ -185,11 +198,12 @@ export function SceneLayers({
                         : ''}
                     </Text>
                   )}
-                  {way && (
+                  {way && camera.how !== 'lost' && (
                     <Button
                       size="compact-xs"
                       variant="subtle"
                       w="fit-content"
+                      px={0}
                       loading={back.isPending && back.variables?.camera === camera.camera}
                       onClick={() => back.mutate({ camera: camera.camera, use: way.use })}
                     >
@@ -213,27 +227,18 @@ export function SceneLayers({
           );
         })}
       </Stack>
-      <Toast
-        text={
+      <Toast<Went>
+        message={
           went
             ? went.use === 'spot'
-              ? `${viewName(went.camera)} is back on your plan's spot.`
-              : `${viewName(went.camera)} is followed again.`
+              ? { text: `${viewName(went.camera)} is back on your plan's spot.`, undo: went }
+              : { text: `${viewName(went.camera)} is followed again.` }
             : failed
+              ? { err: failed }
+              : null
         }
-        error={!went && !!failed}
-        action={
-          went?.use === 'spot' ? (
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              disabled={back.isPending}
-              onClick={() => back.mutate({ camera: went.camera, use: 'cloud' })}
-            >
-              Undo
-            </Button>
-          ) : undefined
-        }
+        onUndo={was => back.mutate({ camera: was.camera, use: 'cloud' })}
+        busy={back.isPending}
         onClose={() => {
           setWent(null);
           setFailed(null);

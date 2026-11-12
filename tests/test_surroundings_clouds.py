@@ -170,6 +170,17 @@ def test_a_cloud_made_before_pictures_were_kept_is_made_again_once(clouds, made)
     assert len(made.asked) == 2
 
 
+def test_a_camera_asked_for_a_cloud_gets_one_though_its_view_looks_the_same_and_is_asked_once(clouds, made):
+    looks(clouds, [picture(1, noise=n) for n in range(5)])
+    soon = T + 60  # sooner than a cloud is otherwise made again, and of a view its thumbnail calls the same
+    assert looks(clouds, [picture(1, noise=n) for n in range(5, 10)], start=soon) == ["wait"] * 5
+    clouds.remake("hall")  # it was tracked as it moved and came to rest (spatial/camera_track.py)
+    assert looks(clouds, [picture(1, noise=n) for n in range(5)], start=soon + 60) == ["collecting"] * 4 + ["made"]
+    assert len(made.asked) == 2
+    later = soon + 60 + due.REFRESH_MIN_S + 60
+    assert looks(clouds, [picture(1, noise=n) for n in range(5)], start=later) == ["fine"] * 5  # and not again
+
+
 def test_a_changed_view_gets_a_new_cloud_in_place_of_the_old_one(clouds, made, store):
     looks(clouds, [picture(1, noise=n) for n in range(5)])
     first = store.current("hall")

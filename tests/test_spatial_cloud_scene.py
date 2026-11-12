@@ -563,10 +563,12 @@ def test_a_camera_turned_ninety_degrees_is_placed_again_by_its_walls_without_bei
     assert (hall.how, hall.fitted, (hall.follow or {})["by"]) == ("following", True, "turned")
     assert xyb(stands(found, "hall")) == pytest.approx(xyb(truth), abs=0.03)
     assert (hall.shift_m, hall.turn_deg) == (pytest.approx(0.0, abs=0.03), pytest.approx(90.0, abs=0.5))
-    # the wall it now faces is drawn on the plan's wall between the two rooms
+    # the wall it now faces is drawn on the plan's wall between the two rooms, and what it saw before it was
+    # turned (the hall's far wall) is still in the place's map
     rows = drawn(store, found)
-    ahead = rows[(rows["z"] > 0.3) & (rows["y"] > 0.3)]
-    assert ahead["x"] == pytest.approx(4.0, abs=0.03)
+    ahead = rows[(rows["z"] > 0.3) & (rows["y"] > 0.3) & (rows["y"] < 4.5) & (rows["x"] > 3.5)]
+    assert len(ahead) > 100 and ahead["x"] == pytest.approx(4.0, abs=0.03)
+    assert (rows["y"] > 4.9).sum() > 100
     # nothing but the camera's own folder was written: the owner's spots and plan are as they were
     assert [path.name for path in tmp_path.iterdir()] == ["camera_clouds"]
     assert spots["hall"].at == at(1.0, 1.0, 20.0)
@@ -636,12 +638,14 @@ def test_a_view_that_cant_be_placed_with_confidence_is_not_drawn_keeps_its_last_
     stood = at(1.0, 1.0, 110.0)
     looks_elsewhere(store, spots, "hall", stood)
     scenes.align(store, "hall", spots, two_rooms)  # followed once: that is its last good pose
+    mapped = len(drawn(store, scenes.scene(store, PLACE, spots, ROOMS)))
     looks_elsewhere(store, spots, "hall", truth, n=3, **view)
     scenes.align(store, "hall", spots, two_rooms)
     found = scenes.scene(store, PLACE, spots, ROOMS)
     hall = placed(found, "hall")
     assert (hall.how, hall.placed, hall.transform, (hall.follow or {})["lost"]) == ("lost", False, None, why)
-    assert set(drawn(store, found)["view"].tolist()) == {1}  # none of its points are drawn, anywhere
+    # none of this view's points are drawn anywhere: the map holds what the camera saw while it was placed
+    assert len(drawn(store, found)) == mapped and hall.map is None
     kept = scenes.following(store, "hall", spots["hall"].basis)
     assert kept is not None and kept.at == pytest.approx(xyb(stood), abs=0.03)
     assert store.current("hall") is not None  # its own cloud is still its own
