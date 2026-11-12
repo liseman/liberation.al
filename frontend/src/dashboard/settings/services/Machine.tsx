@@ -315,6 +315,7 @@ function Models({ s, inventory }: { s: Stats; inventory: ModelInventory }) {
                   <div className={classes.modelName}>
                     <b className={classes.mono}>{model.name}</b>
                     <span className={classes.modelPurpose}>{model.purpose}</span>
+                    {model.why && <span className={classes.modelWhy}>{model.why}</span>}
                   </div>
                   <div className={classes.modelState}>
                     <span>{deviceLabel(model.device)}</span>

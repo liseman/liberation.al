@@ -8,7 +8,7 @@
 import { useEditor } from '@pascal-app/editor';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 import { type Area, box, middleOf, newId, reshaped, translated } from './areas';
-import { isSelected, useAreasUi } from './areasUi';
+import { isSelected, kindName, markName, useAreasUi } from './areasUi';
 import { useSpotsUi } from './spotsUi';
 import { useAreas } from './useAreas';
 
@@ -22,6 +22,9 @@ const LABEL_M = 0.32;
 const ACCENT = 'var(--plan-accent)';
 const GROUND = 'var(--plan-ground)';
 const OUTLINE = 'var(--mantine-color-dimmed)';
+/** How solid an object's fill is: a fresh one has to read on the plan, and a picked one reads a little stronger. */
+const OBJECT_FILL = 0.12;
+const OBJECT_FILL_ON = 0.2;
 
 const arrow = (event: KeyboardEvent): [number, number] | null =>
   (
@@ -115,7 +118,9 @@ export function Marks({ locked = false }: { locked?: boolean }) {
         areas[kind].map(area => {
           const shown = shownOf(area);
           const on = isSelected(selected, kind, area.id);
-          const name = area.label || kind;
+          const name = markName(area);
+          // an object always says what it is: its label, or its kind while it has none
+          const written = area.kind === 'object' ? area.label || kindName(kind) : area.label;
           const [cx, cy] = middleOf(shown.poly);
           return (
             <g key={`${kind}:${area.id}`} data-area={`${kind}:${area.id}`}>
@@ -134,7 +139,7 @@ export function Marks({ locked = false }: { locked?: boolean }) {
                   fill: kind === 'unexplored' ? OUTLINE : ACCENT,
                   stroke: on ? ACCENT : OUTLINE,
                 }}
-                fillOpacity={kind === 'unexplored' ? (on ? 0.16 : 0.08) : 0}
+                fillOpacity={kind === 'unexplored' ? (on ? 0.16 : 0.08) : on ? OBJECT_FILL_ON : OBJECT_FILL}
                 onPointerDown={event => start(event, shown, null)}
                 onPointerMove={event => move(event, shown, null)}
                 onPointerUp={end}
@@ -144,7 +149,7 @@ export function Marks({ locked = false }: { locked?: boolean }) {
               >
                 <title>{name}</title>
               </polygon>
-              {area.label && (
+              {written && (
                 <text
                   x={cx}
                   y={cy}
@@ -153,7 +158,7 @@ export function Marks({ locked = false }: { locked?: boolean }) {
                   dominantBaseline="middle"
                   style={{ fill: OUTLINE, pointerEvents: 'none' }}
                 >
-                  {area.label}
+                  {written}
                 </text>
               )}
               {on &&

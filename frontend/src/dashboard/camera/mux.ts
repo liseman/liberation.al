@@ -21,6 +21,38 @@ const lastAt = new Map<string, number>(); // cam -> ms of its last drawn frame
 const watching = new Map<string, () => void>(); // cam -> stops its frames
 let ticker: ReturnType<typeof setInterval> | undefined;
 
+/** Something that also wants each decoded frame of a camera (Live's Enhance view): handed the picture before the
+ *  canvases' copy is closed, never kept. capturedAt is in seconds; flip as for draw. */
+export type FrameTap = (bitmap: ImageBitmap, capturedAt: number, flip: boolean) => void;
+const taps = new Map<string, Set<FrameTap>>();
+
+/** Hand cam's frames to tap as they're drawn; returns the function that stops. It never starts a camera on its own:
+ *  a canvas showing the camera (attach) does that. */
+export function tapFrames(cam: string, tap: FrameTap): () => void {
+  let set = taps.get(cam);
+  if (!set) {
+    set = new Set();
+    taps.set(cam, set);
+  }
+  const mine = set;
+  mine.add(tap);
+  return () => {
+    mine.delete(tap);
+    if (!mine.size && taps.get(cam) === mine) taps.delete(cam);
+  };
+}
+
+/** Hand a frame to cam's taps. The demo's still cameras (LiveCam.tsx) call it too. */
+export function feedTaps(cam: string, bitmap: ImageBitmap, capturedAt: number, flip = false): void {
+  for (const tap of taps.get(cam) ?? []) {
+    try {
+      tap(bitmap, capturedAt, flip);
+    } catch {
+      // a tap's failure is its own: the plain picture is drawn regardless
+    }
+  }
+}
+
 /** Draw a frame on each of cam's canvases. flip: the camera is mounted upside down (its video.flip) and this picture is
  *  as captured, so it is turned half way round here, as the Review player turns its frames (live JPEG; live video
  *  arrives already turned by the player worker). Overlay boxes come in upright coordinates either way. */
@@ -47,6 +79,7 @@ function draw(cam: string, bmp: ImageBitmap, capturedAt: number, metadata?: Fram
       if (metadata) c.dataset.frameMetadata = JSON.stringify(metadata);
       else delete c.dataset.frameMetadata;
     }
+    feedTaps(cam, bmp, capturedAt, flip);
   } finally {
     bmp.close();
   }

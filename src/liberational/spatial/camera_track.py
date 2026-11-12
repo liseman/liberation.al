@@ -24,18 +24,21 @@ was. Frames between keyframes are placed through the same lie.
 the next frame, where the camera was last placed, and held to the walls as a first keyframe is; after `RESTARTS` of
 those the track ends.
 
-**In the scene.** The last `KEEP` keyframes' clouds (thinned to `THIN` points) and the camera's path are kept
-beside its cloud (`track.json`, `track/<n>.ply`); spatial/cloud_scene.py draws them with the camera's own points and
-shows the camera where the track has it. Nothing here writes a spot or the plan.
+**In the scene.** The camera's pose and path are kept beside its cloud (`track.json`); spatial/cloud_scene.py
+shows the camera where the track has it. Each keyframe the walls held is offered to the place's map
+(spatial/cloud_map.py) as a camera's own cloud is: what it saw that the map lacks is added, so the map fills in as
+the camera moves; one the walls didn't hold is not offered (it would be a guess). Nothing here writes a spot or the
+plan.
 
 **When it starts and stops** (`Tracker`). The surroundings service samples each chosen camera every few seconds.
 A camera starts being tracked when two samples in a row are less than `MOVING` alike with nobody in view (someone
 walking past a still camera changes its picture too, so a start that sees no motion ends within `REST_S`), it has
 a place in the scene, the runtime is set up, and a GPU has the memory. One camera is tracked at a time. It ends when
 the camera has rested: its pose within `REST` of where it was `REST_S` ago. It also ends after `MAX_S`, and is then
-left alone for `COOLDOWN_S`. When the camera's view has held still long enough for a cloud, that cloud is placed
-from where the track left the camera (`cloud_scene.align`), the track's files go, and it is an ordinary camera
-again.
+left alone for `COOLDOWN_S`. A track that ends having gone nowhere (what changed the picture wasn't the camera
+moving) is forgotten there and then. Otherwise the camera is asked for a cloud of where it now rests (`rested`),
+whether or not its view looks changed; when its view has held still long enough for one, that cloud is placed from
+where the track left the camera (`cloud_scene.align`), the track goes, and it is an ordinary camera again.
 
 **What it costs**, measured on the Linux machine beside the other services: about 10 s to load the model at the
 start of a track, then 0.2 s of one GPU a frame at `TRACK_EVERY_S` (about two fifths of that GPU's time while a
@@ -54,15 +57,14 @@ import subprocess
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
 
 from liberational import json_state, logs
-from liberational.memory import places
-from liberational.spatial import camera_clouds, cloud_align, cloud_scene, ply
+from liberational.spatial import camera_clouds, cloud_align, cloud_map, cloud_merge, cloud_scene, ply
 
 LOG = logs.get("camera-track")
 
@@ -74,8 +76,7 @@ MAX_S = 600.0  # a track is ended after this long, moving or not
 COOLDOWN_S = 60.0  # and a camera whose track ended is not tracked again for this long
 LOST_FRAMES = 6  # frames in a row the tracker couldn't match before the track is begun again
 RESTARTS = 5  # times a track is begun again before it ends
-KEEP = 6  # keyframes whose clouds are kept for the scene
-THIN = 30000  # points of a keyframe's cloud that are kept
+KEEP = 12  # keyframes the track's record tells of
 PATH = 240  # poses of the path that are kept: two minutes at `TRACK_EVERY_S`
 WRITE_EVERY_S = 1.0  # how often the track is written while only its pose changes
 ANSWER_S = 30.0  # how long the runner may take over one frame
@@ -184,6 +185,11 @@ def open_runner() -> Session | None:
     return Runner(found, gpu[0])
 
 
+def _keyframe_cloud(cloud: camera_clouds.Cloud, n: int, since: float) -> camera_clouds.Cloud:
+    """A keyframe's cloud under a name of its own: its track's start and its number, so the map knows the shot."""
+    return replace(cloud, id=f"track{since:.0f}.{n}")
+
+
 def _floor_pose(matrix: np.ndarray) -> tuple[cloud_scene.At, float]:
     """Where a camera stands on the floor of the scene and how high, from its pose there (4 x 4, a similarity)."""
     ahead = matrix[:3, 2]
@@ -201,6 +207,7 @@ class Track:
 
     store: camera_clouds.Store
     camera: str
+    place: str
     basis: str  # the owner's spot it is beside (`cloud_scene.SpotAt.basis`)
     rooms: Sequence[cloud_scene.Ring]  # the plan's rooms
     at: cloud_scene.At  # where the camera is now: to begin with, where it stood
@@ -221,12 +228,7 @@ class Track:
     def __post_init__(self) -> None:
         self.start = self.at
         self.seen = self.since
-        shutil.rmtree(self.folder, ignore_errors=True)
         self.write(self.since, force=True)
-
-    @property
-    def folder(self) -> Path:
-        return self.store.folder / camera_clouds.slug(self.camera) / cloud_scene.TRACK_FOLDER
 
     @property
     def begin(self) -> bool:
@@ -268,7 +270,8 @@ class Track:
         rows = ply.vertices(made.ply)
         assert rows is not None
         points = np.c_[rows["x"], rows["y"], rows["z"]].astype(np.float64)
-        walls = cloud_align.lines(cloud_align.planes(points))
+        planes = cloud_align.planes(points)
+        walls = cloud_align.lines(planes)
         edges = cloud_align.edges_of(self.rooms)
         if self._onto is None:  # the first of a track: near where the camera stood, facing any way
             lie = _lie(self.at, 1.0)
@@ -283,17 +286,22 @@ class Track:
         # The track's frame lies on the plan so that this keyframe's camera is where its cloud was put.
         self._onto = lie @ level @ np.linalg.inv(step.pose)
         self._count += 1
-        self.folder.mkdir(parents=True, exist_ok=True)
-        rng = np.random.default_rng(self._count)
-        pick = rng.choice(len(points), min(len(points), THIN), replace=False)
-        colours = np.c_[rows["red"], rows["green"], rows["blue"]].astype(np.uint8)
-        places.write_whole(self.folder / f"{self._count}.ply", ply.dumps(points[pick], colours[pick]))
-        row = {"n": self._count, "at": now, "transform": [float(v) for v in lie.ravel()], "points": len(pick),
-               "held": found.state == "placed"}  # fmt: skip
+        added = 0
+        if found.state == "placed":  # held to the walls: what it saw that the place's map lacks goes into it
+            stand = cloud_merge.Stand(found.x, found.y, found.bearing, found.scale)
+            flat = cloud_align.fit(walls, found.x, found.y, found.bearing, edges)  # to lay its walls on the plan's
+            colours = np.c_[rows["red"], rows["green"], rows["blue"]].astype(np.uint8)
+            shot = cloud_scene.shot_of(
+                f"{self.camera}@track{self.since:.0f}.{self._count}", _keyframe_cloud(made.cloud, self._count, self.since),
+                stand, found.scale, True, found.score, points, colours, planes, flat,
+            )  # fmt: skip
+            try:
+                where = cloud_map.folder(self.store.folder, self.place)
+                added = cloud_map.offer(where, cloud_align.plan_key(self.rooms), shot).points
+            except (OSError, ValueError) as e:
+                LOG.warning("%s: a keyframe wasn't offered to the map: %s", self.camera, e)
+        row = {"n": self._count, "at": now, "held": found.state == "placed", "added": added}
         self.keyframes = [*self.keyframes, row][-KEEP:]
-        for old in self.folder.glob("*.ply"):
-            if old.stem not in {str(k["n"]) for k in self.keyframes}:
-                old.unlink(missing_ok=True)
         LOG.debug("%s: keyframe %d %s", self.camera, self._count, "held to the walls" if row["held"] else "unheld")
 
     def rested(self, now: float) -> bool:
@@ -324,7 +332,7 @@ class Track:
             "path": [[round(t, 2), round(x, 3), round(y, 3), round(b, 4)] for t, x, y, b in self.path],
             "restarts": self.restarts,
         }
-        json_state.write(self.folder.parent / cloud_scene.TRACK, record)
+        json_state.write(self.store.folder / camera_clouds.slug(self.camera) / cloud_scene.TRACK, record)
 
     def end(self, now: float) -> None:
         self.state = "ended"
@@ -359,7 +367,9 @@ class Tracker:
         detect: Callable[[np.ndarray], Sequence[Any]] | None,
         prepare: Prepare,
         open_session: Callable[[], Session | None] = open_runner,
+        rested: Callable[[str], None] | None = None,
     ) -> None:
+        self.rested = rested  # told a camera whose track ended somewhere else: it wants a cloud of where it rests
         self.state, self.store = state, store
         self.thumbnail, self.lit, self.detect, self.prepare = thumbnail, lit, detect, prepare
         self.open_session = open_session
@@ -369,12 +379,16 @@ class Tracker:
         self._last: dict[str, np.ndarray] = {}
         self._not_before: dict[str, float] = {}
         self._lock = threading.Lock()
-        for camera in store.cameras():  # a track left open by a service that stopped is over
-            was = cloud_scene.tracked(store, camera)
-            if was is not None and was.get("state") == "tracking":
-                json_state.write(
-                    store.folder / camera_clouds.slug(camera) / cloud_scene.TRACK, {**was, "state": "ended"}
-                )
+        for camera in store.cameras():
+            was, cloud = cloud_scene.tracked(store, camera), store.current(camera)
+            if was is None:
+                continue
+            if was.get("state") == "tracking":  # a track left open by a service that stopped is over
+                was = {**was, "state": "ended"}
+                json_state.write(store.folder / camera_clouds.slug(camera) / cloud_scene.TRACK, was)
+            # One that ended after the camera's cloud was made left it somewhere its cloud doesn't show.
+            if rested is not None and cloud is not None and float(was.get("at") or 0.0) > cloud.at:
+                rested(camera)
 
     def look(self, camera: str, pixels: np.ndarray, now: float) -> bool:
         """Take one of the service's samples of `camera`. Whether its tracking began with it."""
@@ -404,7 +418,7 @@ class Tracker:
                 self._not_before[camera] = now + COOLDOWN_S
                 return False
             self._session = session
-            self._track = Track(self.store, camera, spot.basis, rooms, stood, now)
+            self._track = Track(self.store, camera, spot.place, spot.basis, rooms, stood, now)
             self.active = camera
             LOG.info("%s: its view is moving; tracking it", camera)
             return True
@@ -435,8 +449,14 @@ class Tracker:
         if self._session is not None:
             self._session.close()
         if self._track is not None:
-            self._track.end(now)
-            self._not_before[self._track.camera] = now + COOLDOWN_S
+            track = self._track
+            track.end(now)
+            self._not_before[track.camera] = now + COOLDOWN_S
+            shift, turn = cloud_scene.moved_by(track.at, track.start)
+            if shift <= REST[0] and turn <= REST[1]:
+                cloud_scene.drop_track(self.store, track.camera)  # it went nowhere: its cloud still shows its view
+            elif self.rested is not None:
+                self.rested(track.camera)
         self.active, self._track, self._session = None, None, None
 
     def end(self, camera: str, now: float) -> None:
@@ -451,8 +471,10 @@ def for_service(
     detect: Callable[[np.ndarray], Sequence[Any]] | None,
     lit: Callable[[np.ndarray], bool],
     thumbnail: Callable[[np.ndarray], np.ndarray],
+    rested: Callable[[str], None] | None = None,
 ) -> Tracker:
-    """The service's `Tracker`: the pack's store, the configured runtime, and the cameras' lenses."""
+    """The service's `Tracker`: the pack's store, the configured runtime, and the cameras' lenses. `rested` is
+    told a camera that came to rest somewhere else (spatial/surroundings_clouds.py `Clouds.remake`)."""
     from liberational.spatial import lens as lenses
 
     def prepare(camera: str, pixels: np.ndarray) -> tuple[np.ndarray, np.ndarray | None]:
@@ -460,4 +482,4 @@ def for_service(
         return lenses.prepare(pixels, found, masks)
 
     store = camera_clouds.Store(camera_clouds.root(state))
-    return Tracker(state, store, thumbnail, lit, detect, prepare)
+    return Tracker(state, store, thumbnail, lit, detect, prepare, rested=rested)
