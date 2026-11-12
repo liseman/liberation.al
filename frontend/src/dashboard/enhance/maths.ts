@@ -349,6 +349,15 @@ export const FADE_IN_S = 1.0;
 export const REFRESH_S = 10;
 /** A gap longer than this between frames starts over. */
 export const GAP_S = 1.0;
+/** A camera within this of one place (luma-copy pixels) is at rest there. */
+export const REST_SLACK = 0.5;
+/** At rest at least this far from its reference (luma-copy pixels) for SETTLE_S, a camera has been nudged, not
+ *  wobbled: where it now sits becomes the reference. Without this the picture stayed pulled back to the old place for
+ *  good, with the frame's edge smeared across the gap. */
+export const REST_AWAY = 1.0;
+export const SETTLE_S = 1.0;
+/** A camera that went beyond MAX_SHIFT is on the move. It counts as stopped after this long at rest. */
+export const ARRIVE_S = 0.5;
 
 export interface Stabilised {
   /** Where to sample the current frame for each output position, as a fraction of the frame (upright). */
@@ -362,23 +371,48 @@ export interface Stabilised {
 
 /** Holds a reference frame and says, per frame, how far to shift the frame back onto it. A camera too far from its
  *  reference, or one that can't be placed, resets onto the current frame and fades the highlight, rather than letting
- *  the whole picture light up. */
+ *  the whole picture light up. A camera on the move (a pan, a camera being carried) is shown as it is until it stops:
+ *  holding each stretch of a pan still and then letting go turned smooth video into a run of jumps. */
 export class Stabiliser {
   private ref: Reference | null = null;
   private refAge = 0;
   private gain = 0;
+  /** Where the camera last sat still (against the reference, luma-copy pixels), and for how long it has. */
+  private rest = { dx: 0, dy: 0 };
+  private restFor = 0;
+  private moving = false;
 
   update(luma: Luma, dt: number): Stabilised {
     const restart = (): Stabilised => {
       this.ref = prepareReference(luma);
       this.refAge = 0;
       this.gain = 0;
+      this.rest = { dx: 0, dy: 0 };
+      this.restFor = 0;
       return { dx: 0, dy: 0, reset: true, gain: 0 };
     };
-    if (!this.ref || this.ref.width !== luma.width || this.ref.height !== luma.height || !(dt < GAP_S))
+    // A gap, or frame times running backwards (a stream that restarted): the frames before no longer line up
+    if (!this.ref || this.ref.width !== luma.width || this.ref.height !== luma.height || !(dt >= 0 && dt < GAP_S)) {
+      this.moving = false;
       return restart();
+    }
     const shift = estimateShift(this.ref, luma);
-    if (!shift || Math.hypot(shift.dx, shift.dy) > MAX_SHIFT * luma.width) return restart();
+    if (!shift) return restart();
+    if (Math.hypot(shift.dx, shift.dy) > MAX_SHIFT * luma.width) {
+      this.moving = true;
+      return restart();
+    }
+    if (Math.hypot(shift.dx - this.rest.dx, shift.dy - this.rest.dy) <= REST_SLACK) this.restFor += dt;
+    else {
+      this.rest = shift;
+      this.restFor = 0;
+    }
+    if (this.moving) {
+      if (this.restFor < ARRIVE_S) return { dx: 0, dy: 0, reset: true, gain: 0 };
+      this.moving = false;
+      return restart();
+    }
+    if (this.restFor >= SETTLE_S && Math.hypot(this.rest.dx, this.rest.dy) >= REST_AWAY) return restart();
     const shrink = (v: number) => (Math.abs(v) <= DEADBAND ? 0 : Math.sign(v) * (Math.abs(v) - DEADBAND));
     const dx = shrink(shift.dx);
     const dy = shrink(shift.dy);
@@ -394,5 +428,6 @@ export class Stabiliser {
 
   reset(): void {
     this.ref = null;
+    this.moving = false;
   }
 }
