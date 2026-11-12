@@ -3,7 +3,9 @@
 Settings come from a temp dir, set before any liberational module is imported: the developer's own PACK_* and
 OLLAMA_* variables are dropped, and PACK_CONFIG points at a temp pack.toml whose only settings move every directory
 under [paths] in config/defaults.toml (state, logs, faces, voices, calls, and so on) to an empty temp dir. Opening
-anything under the real ones fails the test that did it. On top of that, every attempt to install, restart, or remove
+anything under the real ones fails the test that did it, except reading the installed model files ([paths] models):
+those are inputs, not the owner's data, and the tests that run the real weights read them where they are installed.
+Writing one is refused like any other write. On top of that, every attempt to install, restart, or remove
 a service (pack-services, systemctl, launchctl) or to re-exec the process is refused and fails the test that caused
 it. In an earlier bug, a settings test's stand-in for the restart was removed the instant the reply landed, the handler
 thread then called the real one, and a suite run in a temporary worktree reinstalled six real services pointing at
@@ -115,13 +117,20 @@ def _guarded_execve(path: object, args: Iterable[object], env: object) -> NoRetu
     _refuse(f"execve {' '.join(map(str, args))}")
 
 
-# The real data directories ([paths] in defaults.toml, resolved the way config.path does). Models under data/models
-# are read-only inputs and stay readable. An empty path is a platform default outside the repo (paths.decoded), not
-# the repo root.
-REAL_DATA = tuple(
-    str(p if p.is_absolute() else _REPO / p) + os.sep
-    for p in (pathlib.Path(v).expanduser() for v in _PATHS.values() if v)
-)
+def _real(key: str) -> str:
+    """One of [paths] in defaults.toml as the real directory a test must not touch, resolved the way config.path
+    does. An empty path is a platform default outside the repo (paths.decoded), not the repo root."""
+    p = pathlib.Path(_PATHS[key]).expanduser()
+    return str(p if p.is_absolute() else _REPO / p) + os.sep
+
+
+# Downloaded model files are read-only inputs, not the owner's data: a test runs the real weights where they are
+# installed (tests/test_vision_backend.py, tests/test_speech.py), and one that finds none skips. Every other real data
+# directory is refused for a read too, and a write to a model directory is refused like any other write.
+READ_ONLY_INPUTS = frozenset({"models"})
+REAL_DATA = tuple(_real(key) for key in _PATHS if _PATHS[key])
+REAL_INPUTS = tuple(_real(key) for key in _PATHS if _PATHS[key] and key in READ_ONLY_INPUTS)
+
 FILE_EVENTS = frozenset(
     {
         "open",
@@ -135,11 +144,24 @@ FILE_EVENTS = frozenset(
         "os.scandir",
     }
 )
+READ_EVENTS = frozenset({"open", "os.listdir", "os.scandir"})
+
+
+def _read_only_open(args: tuple[Any, ...]) -> bool:
+    """Whether an `open` event only reads: its mode string when io.open made it, else the flags os.open gave (its mode
+    is None). Anything that could write, create, truncate, or append is not."""
+    mode, flags = args[1], args[2] if len(args) > 2 else None
+    if isinstance(mode, str):
+        return not any(write in mode for write in "wax+")
+    if isinstance(flags, int):
+        return not flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
+    return False
 
 
 def _guard_real_data(event: str, args: tuple[Any, ...]) -> None:
     if event not in FILE_EVENTS:
         return
+    reads = event in READ_EVENTS and (event != "open" or _read_only_open(args))
     # A rename or replace (os.replace raises os.rename too) writes its destination, the second argument.
     for arg in args[:2] if event in ("os.rename", "os.replace") else args[:1]:
         if not isinstance(arg, (str, bytes, os.PathLike)):
@@ -148,6 +170,8 @@ def _guard_real_data(event: str, args: tuple[Any, ...]) -> None:
         if event == "sqlite3.connect" and target.startswith("file:"):  # a URI: file:<path>?mode=ro
             target = target.removeprefix("file:").split("?", 1)[0]
         target = os.path.abspath(target) + os.sep
+        if reads and target.startswith(REAL_INPUTS):
+            continue
         if target.startswith(REAL_DATA):
             _refuse(f"{event} {target.rstrip(os.sep)} (a real data directory)")
 

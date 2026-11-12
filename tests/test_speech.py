@@ -63,7 +63,13 @@ def _models_ready():
 
 @pytest.fixture(scope="module")
 def models():
-    return kokoro.Kokoro(), sherpa.SherpaParakeet()
+    """The real weights, and the phonemizer backend they phonemize through released at the end: espeak keeps global
+    state, so phonemizer copies the library into a temp dir of its own and deletes it only when the backend goes. Left
+    to the interpreter's exit, that copy outlives the suite's own leak check."""
+    from phonemizer.phonemize import clear_backends_cache
+
+    yield kokoro.Kokoro(), sherpa.SherpaParakeet()
+    clear_backends_cache()
 
 
 # Loads the real models: catches wiring bugs the unit tests can't.
