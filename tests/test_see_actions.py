@@ -695,3 +695,49 @@ def test_a_released_track_ends_into_movement_with_only_its_path_after_it_left_th
         pipeline.feed(Decoded(frame_id(i), T + i * STEP))
     assert len(paths) == 1
     assert min(paths[0]) >= (T + 23 * STEP) / 1e9 - 1e-6, "nothing from before it left the screen"
+
+
+class HeartsRecorder:
+    """A heart-rate hook that keeps what the pipeline asked it to do."""
+
+    def __init__(self) -> None:
+        self.fed: list[tuple[int, int]] = []  # (capture_ns, tracks seen)
+        self.reads: list[int] = []
+        self.ended: list[int] = []
+        self.gaps = 0
+        self.flushes = 0
+
+    def feed(self, capture_ns: int, _width: int, _height: int, people: Any, _crop: Any) -> None:
+        self.fed.append((capture_ns, len(people)))
+
+    def due(self, capture_ns: int) -> None:
+        self.reads.append(capture_ns)
+
+    def end(self, track_id: int) -> None:
+        self.ended.append(track_id)
+
+    def gap(self) -> None:
+        self.gaps += 1
+
+    def flush(self) -> None:
+        self.flushes += 1
+
+
+def test_the_heart_rate_hook_sees_every_frame_of_a_counted_track_and_the_flushes_between():
+    hearts = HeartsRecorder()
+    frames = [person(0.1)] * 45 + [nobody()] * 20
+    pipeline = actions.ActionPipeline(
+        Script(frames), Rows(), Rows(), "test-model", hearts=cast(Any, hearts), camera="cam0"
+    )
+    for i in range(len(frames)):
+        pipeline.feed(Decoded(frame_id(i), T + i * STEP))
+    pipeline.flush()
+    assert len(hearts.fed) == len(hearts.reads)
+    # A track counts from its fifth frame, so frames 4 to 44 of the 45 with a person are fed; the frames with nobody
+    # in them feed nothing, and a track nobody is in is not ended by a short empty run.
+    assert len(hearts.fed) == 41
+    assert hearts.fed[0][0] == T + 4 * STEP
+    assert {tracks for _ns, tracks in hearts.fed} == {1}
+    assert hearts.ended == [1] or hearts.ended == []
+    assert hearts.gaps == 0, "a short run of empty frames is not a gap"
+    assert hearts.flushes >= 2
