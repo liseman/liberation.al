@@ -196,23 +196,24 @@
 }
 
 /* The 3D view: a canvas that fills the panel's width, a little shorter than wide. */
-/* The 3D view and the row of our settings under it: as tall as the window has left (CloudView sets the height). */
+/* The 3D view and the row of our settings under it: the window's height from where the view starts (CloudView measures
+   that) down to its bottom edge, less a phone's bottom bar. The map takes what the settings leave. A window too short
+   for both scrolls here, inside the card, rather than pushing the page into a scroll. */
 .cloudFrame {
   display: flex;
   flex-direction: column;
-  min-height: 360px;
-  height: var(--cloud-frame-height);
+  height: calc(100dvh - var(--cloud-top, 0px) - var(--bottom-h, 0px));
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-/* On a phone the settings under the canvas wrap to several lines, more than a frame of the window's height has
-   room for: the canvas keeps a height of its own, and the settings and the cameras' rows follow it down the page. */
-@media (max-width: 720px) {
-  .cloudFrame {
-    height: auto;
-  }
-  .cloudFrame .cloud {
-    flex: none;
-    height: clamp(240px, 55dvh, 420px);
-  }
+
+/* One of the page's views that is the window's own height, to its bottom edge: the card's room under the view and the
+   page's gutter would be the only things left over, and they would push the page into a scroll. The plan shows again
+   with them (the same, .planFrame). */
+.plan:has([data-fills-page]) {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 .cloud {
   position: relative;
@@ -245,9 +246,9 @@
 .planFrame {
   display: block;
   width: 100%;
-  /* as tall as the window has left under where it starts (PlanFrame measures that), so Save, above it, and the plan
-     are on one screen */
-  height: calc(100dvh - var(--plan-top, 0px) - var(--bottom-h, 0px) - var(--mantine-spacing-md));
+  /* the window's height from where the editor starts (PlanFrame measures that) to its bottom edge, less a phone's
+     bottom bar, so Save, above it, and the plan are on one screen without the page scrolling to reach them */
+  height: calc(100dvh - var(--plan-top, 0px) - var(--bottom-h, 0px));
   min-height: 26rem;
   border: 0;
   border-radius: var(--mantine-radius-md);

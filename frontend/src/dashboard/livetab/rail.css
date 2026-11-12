@@ -81,6 +81,9 @@
   .here-now .here-who {
     align-items: center;
   }
+  .here-now .here-title {
+    justify-content: center;
+  }
   .here-now .here-name {
     font-size: 14px;
   }
@@ -92,9 +95,20 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+/* The name and its heart rate on one line. The name gives up letters to an ellipsis rather than the item growing: on
+   the where line, a reading made the item wider (and, on a phone, a line taller) whenever one came or went. */
+.here-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
 .here-name {
   font-size: 15px;
   font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .here-now a:hover .here-name {
   text-decoration: underline;
@@ -102,6 +116,35 @@
 .here-where {
   font-size: 12px;
   color: var(--mantine-color-dimmed);
+}
+/* A measured heart rate, only while one can be trusted: nothing at all when there is none, so nothing shifts. It
+   keeps its own width (the name truncates instead), and fades in rather than blinking when a reading arrives. */
+.here-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+}
+.here-heart svg {
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .here-heart {
+    animation: here-heart-in 150ms ease-out;
+  }
+  @keyframes here-heart-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
 }
 .rail-all {
   padding: 0 4px;

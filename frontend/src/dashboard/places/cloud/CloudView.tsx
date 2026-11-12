@@ -396,18 +396,20 @@ function CloudMap({
   }, [draw, splatReady, size, colour, show, ready, combined, hiddenCameras, inside]);
 
   // The view takes what's left of the window under where it starts: measured, since what's above it (the place's
-  // header, the tabs) is the page's to decide, and measured again when the window changes.
+  // header, the tabs, the known row) is the page's to decide, and measured again after each render and when the window
+  // changes. Its frame reaches the window's bottom edge, so the page gives up the room it kept under it there
+  // (data-fills-page, places.module.css and page.module.css).
   const frame = useRef<HTMLDivElement>(null);
   const [top, setTop] = useState(0);
   useLayoutEffect(() => {
     const measure = () => {
       const el = frame.current;
-      if (el) setTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+      if (el) setTop(Math.ceil(el.getBoundingClientRect().top + window.scrollY));
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
+  });
 
   if (!webgl)
     return (
@@ -530,8 +532,8 @@ function CloudMap({
       <div
         ref={frame}
         className={classes.cloudFrame}
-        // as tall as the window has left (places.module.css: on a phone the canvas has a height of its own)
-        style={{ '--cloud-frame-height': `calc(100dvh - ${top}px - var(--mantine-spacing-md))` } as CSSProperties}
+        data-fills-page
+        style={{ '--cloud-top': `${top}px` } as CSSProperties}
       >
         {switchIn && all && !own && modes}
         {views.length > 0 && !(switchIn && all && !own) && (
@@ -717,8 +719,10 @@ function CloudMap({
             ))}
           </Group>
         )}
+        {/* the cameras' rows are under the map and its settings, inside the view's own height: the page never
+            scrolls for them, and a window too short for all of it scrolls here, inside the card */}
+        {layers}
       </div>
-      {layers}
     </>
   );
 }
