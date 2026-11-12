@@ -287,6 +287,21 @@ CANDIDATES = 300  # RF-DETR's global query/class top-k, before selecting person 
 LOW_SCORE = 0.6  # RF-DETR person floor, measured through the six-joint birth gate on the retained stills
 ANIMAL_SCORE = crossings.ANIMAL_SCORE
 NEIGHBOR_SCORE = 0.5
+# An RF-DETR export names its two raw tensors one of two ways: Roboflow's own exporter writes `dets` and `labels`, and
+# the community ONNX conversions of the same checkpoints write `pred_boxes` and `pred_logits`. Roles are matched by
+# name and never by shape: with three classes the logit width is 4, the same as a box's, so shape cannot tell them
+# apart (the export documentation warns about exactly this).
+BOX_OUTPUTS = ("dets", "pred_boxes")
+LOGIT_OUTPUTS = ("labels", "pred_logits")
+
+
+def rfdetr_outputs(names: Sequence[str]) -> tuple[int, int]:
+    """Which of a session's outputs carry the raw query boxes and the raw class logits, as (boxes, logits) indexes."""
+    boxes = next((index for index, name in enumerate(names) if name in BOX_OUTPUTS), None)
+    logits = next((index for index, name in enumerate(names) if name in LOGIT_OUTPUTS), None)
+    if boxes is None or logits is None:
+        raise DetectorUnavailable(f"RF-DETR needs a boxes output and a logits output; this model has {list(names)}")
+    return boxes, logits
 
 
 @functools.lru_cache(maxsize=8)
@@ -443,10 +458,7 @@ class GpuPose:
         size = model_input(detector)[0]  # the detector's square input, as the model declares it
         self.detector = session_for(detector, device, (1, 3, size, size))
         self.size = int(self.detector.input.shape[2])
-        if set(self.detector.output_names) != {"dets", "labels"}:
-            raise DetectorUnavailable("RF-DETR requires named dets and labels outputs")
-        self._boxes_output = self.detector.output_names.index("dets")
-        self._logits_output = self.detector.output_names.index("labels")
+        self._boxes_output, self._logits_output = rfdetr_outputs(self.detector.output_names)
         shape = model_input(pose)
         self.pose_size: pose_model.Size = (shape[1], shape[0])
         self.pose = {n: session_for(pose, device, (n, 3, shape[0], shape[1])) for n in POSE_BATCHES}

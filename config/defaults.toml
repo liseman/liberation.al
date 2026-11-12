@@ -817,13 +817,17 @@ url = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files
 path = "data/models/voices-v1.0.bin"
 skip_on = ["darwin-arm64"]
 
-# RF-DETR Small person/animal detector (Roboflow code/weights Apache-2.0), fixed 512x512 RGB ONNX.
-# Immutable third-party conversion, checked against the official Roboflow checkpoint.
-# Raw COCO boxes/logits; sigmoid/global top-300 decoding, without YOLOX grids or NMS.
+# RF-DETR Medium person/animal detector (Roboflow code/weights Apache-2.0), fixed 576x576 RGB ONNX, exported from
+# the official COCO checkpoint with Roboflow's own exporter (rfdetr 1.12.0, opset 17, batch 1, fp32) and published as
+# a third-party conversion pinned to one revision. It names its two raw tensors pred_boxes and pred_logits, which
+# see/gpu_pose reads by role alongside dets and labels. Raw COCO boxes/logits; sigmoid/global top-300 decoding,
+# without YOLOX grids or NMS. Chosen over Small by the six-stream bench (#423): +1.5 person AP, +0.8 on small people,
+# +2.3 animal AP, +5.0 screens AP, with the main camera's stream still at 30 fps. Large measured +3.7 person AP and
+# did not hold 30 fps under the same load, so it is not shipped.
 [models.files.person_detector]
-url = "https://huggingface.co/Deeds67/rfdetr-small/resolve/eb76679daa78e76b4b9ef358ef18bed7b65e383a/detection/model.onnx"
-path = "data/models/rfdetr-small.onnx"
-sha256 = "31fe724f8d5dbff5d09eb4c2c44d2d4083c086c167aec54e11e694e652307f9b"
+url = "https://huggingface.co/PierreMarieCurie/rf-detr-onnx/resolve/94f91976449c187be38e649863e3dadecc312437/rf-detr-medium.onnx"
+path = "data/models/rfdetr-medium.onnx"
+sha256 = "18250b5a3a9552ae117d592f8e8c27fe52438d70c914a77a8913fc45d8f29e69"
 
 # Pose model for see-actions' skeletons, action windows, and Live overlays: RTMPose-m, halpe26, 256x192,
 # Apache-2.0 (OpenMMLab), ONNX. A 52 MB zip; the 56 MB end2end.onnx inside it is kept. Run locally only.

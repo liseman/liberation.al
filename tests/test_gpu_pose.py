@@ -42,9 +42,23 @@ def cuda() -> torch.device:
 
 
 def models() -> pathlib.Path:
-    if (MODELS / "rfdetr-small.onnx").exists() and (MODELS / "rtmpose-m_halpe26_256x192.onnx").exists():
-        return MODELS
+    """The installed models' folder, skipped when this checkout has none (a fresh worktree has none until
+    mise run models)."""
+    detector, pose = cfg.model_path("person_detector"), cfg.model_path("pose_live")
+    if detector.exists() and pose.exists():
+        return detector.parent
     pytest.skip("worktree model weights are missing; run mise run models")
+
+
+def session_of(role: str, batch: int = 1) -> tuple[pathlib.Path, tuple[int, ...]]:
+    """The configured model for `role` ("person_detector" or "pose_live") and the fixed input it declares, with
+    `batch` on the first axis. Nothing here names a file or a resolution: a switched detector is a different file at
+    a different size, and these tests are about the path, not about which checkpoint is installed today."""
+    path = cfg.model_path(role)
+    if not path.exists():
+        pytest.skip(f"{path.name} is missing; run mise run models")
+    height, width = gpu_pose.model_input(path)
+    return path, (batch, 3, height, width)
 
 
 def smooth_frame(h: int = 720, w: int = 1280, seed: int = 0) -> np.ndarray:
@@ -322,17 +336,11 @@ def test_simcc_decodes_as_the_cpu_decode_does(device):
     )
 
 
-@pytest.mark.parametrize(
-    ("name", "shape"),
-    [
-        ("rfdetr-small.onnx", (1, 3, 512, 512)),
-        ("rtmpose-m_halpe26_256x192.onnx", (gpu_pose.POSE_BATCHES[-1], 3, 256, 192)),
-    ],
-)
-def test_a_graph_replay_runs_each_new_input_as_a_plain_session_does(name, shape, cuda):
+@pytest.mark.parametrize(("role", "batch"), [("person_detector", 1), ("pose_live", gpu_pose.POSE_BATCHES[-1])])
+def test_a_graph_replay_runs_each_new_input_as_a_plain_session_does(role, batch, cuda):
     import onnxruntime as ort
 
-    path = models() / name
+    path, shape = session_of(role, batch)
     session = gpu_pose.GraphSession(path, cuda, shape)
     plain = ort.InferenceSession(str(path), providers=[("CUDAExecutionProvider", {"device_id": cuda.index})])
     rng = np.random.default_rng(7)
@@ -347,17 +355,11 @@ def test_a_graph_replay_runs_each_new_input_as_a_plain_session_does(name, shape,
             np.testing.assert_allclose(g, np.asarray(w), atol=1e-4, rtol=1e-4)
 
 
-@pytest.mark.parametrize(
-    ("name", "shape"),
-    [
-        ("rfdetr-small.onnx", (1, 3, 512, 512)),
-        ("rtmpose-m_halpe26_256x192.onnx", (gpu_pose.POSE_BATCHES[-1], 3, 256, 192)),
-    ],
-)
-def test_on_its_own_stream_a_replay_is_queued_behind_torchs_work_without_a_host_wait(name, shape, cuda):
+@pytest.mark.parametrize(("role", "batch"), [("person_detector", 1), ("pose_live", gpu_pose.POSE_BATCHES[-1])])
+def test_on_its_own_stream_a_replay_is_queued_behind_torchs_work_without_a_host_wait(role, batch, cuda):
     import onnxruntime as ort
 
-    path = models() / name
+    path, shape = session_of(role, batch)
     plain = ort.InferenceSession(str(path), providers=[("CUDAExecutionProvider", {"device_id": cuda.index})])
     stream = torch.cuda.Stream(cuda)
     rng = np.random.default_rng(9)
@@ -386,7 +388,7 @@ def smooth_nv12(seed: int, h: int = 720, w: int = 1280) -> np.ndarray:
 
 @pytest.mark.parametrize("flip", [False, True])
 def test_a_cameras_frames_replayed_on_its_stream_find_exactly_what_eager_work_finds(flip, cuda):
-    detector, pose = models() / "rfdetr-small.onnx", models() / "rtmpose-m_halpe26_256x192.onnx"
+    detector, pose = session_of("person_detector")[0], session_of("pose_live")[0]
     frames = [
         Decoded(smooth_nv12(seed), {"capture": {"flip": flip}}, color_range="limited", color_matrix="bt709")
         for seed in (1, 2)
@@ -497,19 +499,16 @@ def test_people_go_down_to_the_low_pass_threshold_but_animals_keep_the_detectors
     assert animals.shape == (0, 6)
 
 
-SESSIONS = [
-    ("rfdetr-small.onnx", (1, 3, 512, 512)),
-    ("rtmpose-m_halpe26_256x192.onnx", (2, 3, 256, 192)),
-]
+SESSIONS = [("person_detector", 1), ("pose_live", 2)]
 
 
-@pytest.mark.parametrize(("name", "shape"), SESSIONS)
-def test_a_models_session_on_each_device_gives_the_cpu_runs_outputs(name, shape, device):
+@pytest.mark.parametrize(("role", "batch"), SESSIONS)
+def test_a_models_session_on_each_device_gives_the_cpu_runs_outputs(role, batch, device):
     import onnxruntime as ort
 
     if device.type == "cuda":
         pytest.skip("a CUDA graph is checked against a plain CUDA session (the graph replay test)")
-    path = models() / name
+    path, shape = session_of(role, batch)
     session = gpu_pose.session_for(path, device, shape)
     plain = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
     x = np.random.default_rng(7).normal(size=shape).astype(np.float32)
@@ -522,7 +521,8 @@ def test_a_models_session_on_each_device_gives_the_cpu_runs_outputs(name, shape,
 
 
 def test_a_model_runs_where_its_device_says(device):
-    session = gpu_pose.session_for(models() / "rfdetr-small.onnx", device, (1, 3, 512, 512))
+    path, shape = session_of("person_detector")
+    session = gpu_pose.session_for(path, device, shape)
     want = {"cpu": "CPUExecutionProvider", "mps": gpu_pose.COREML, "cuda": "CUDAExecutionProvider"}[device.type]
     assert getattr(session, "provider", "CUDAExecutionProvider") == want
 
@@ -531,7 +531,8 @@ def test_without_core_mls_provider_a_mac_session_runs_on_the_cpu_and_says_so(mon
     import onnxruntime as ort
 
     monkeypatch.setattr(ort, "get_available_providers", lambda: ["CPUExecutionProvider"])
-    session = gpu_pose.HostSession(models() / "rfdetr-small.onnx", torch.device("cpu"), (1, 3, 512, 512), coreml=True)
+    path, shape = session_of("person_detector")
+    session = gpu_pose.HostSession(path, torch.device("cpu"), shape, coreml=True)
     assert session.provider == "CPUExecutionProvider"
     assert "no Core ML provider" in caplog.text
 
@@ -581,8 +582,27 @@ def test_detector_rejects_mismatched_query_or_class_shapes(box_shape, logit_shap
         gpu_pose.rfdetr_candidates(torch.zeros(box_shape), torch.zeros(logit_shape))
 
 
+@pytest.mark.parametrize(
+    ("names", "want"),
+    [
+        (["dets", "labels"], (0, 1)),  # Roboflow's own exporter
+        (["pred_boxes", "pred_logits"], (0, 1)),  # the community conversions of the same checkpoints
+        (["pred_logits", "pred_boxes"], (1, 0)),  # order is not assumed
+    ],
+)
+def test_both_ways_an_rf_detr_export_names_its_raw_tensors_are_read(names, want):
+    assert gpu_pose.rfdetr_outputs(names) == want
+
+
+def test_a_detector_that_hands_back_decoded_outputs_is_refused():
+    # A model that has already decoded its boxes and scores is a different contract from this path, and running it
+    # would silently read one tensor as the other.
+    with pytest.raises(gpu_pose.DetectorUnavailable, match="boxes output and a logits output"):
+        gpu_pose.rfdetr_outputs(["boxes", "scores"])
+
+
 def test_a_backend_reports_its_detector_and_pose_on_the_device_onnx_runtime_bound(tmp_path, monkeypatch):
-    detector, pose = tmp_path / "rfdetr-small.onnx", tmp_path / "rtmpose-m_halpe26_256x192.onnx"
+    detector, pose = tmp_path / "detector.onnx", tmp_path / "pose.onnx"
     bound = SimpleNamespace(
         get_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
         get_provider_options=lambda: {"CUDAExecutionProvider": {"device_id": "1"}, "CPUExecutionProvider": {}},
@@ -602,8 +622,8 @@ def test_a_backend_reports_its_detector_and_pose_on_the_device_onnx_runtime_boun
         models = json.loads(report.read_text())["models"]
     assert backend is not None
     assert {(m["key"], m["name"], m["device"]) for m in models} == {
-        ("models.files.person_detector", "rfdetr-small.onnx", "GPU 1"),
-        ("models.files.pose_live", "rtmpose-m_halpe26_256x192.onnx", "GPU 1"),
+        ("models.files.person_detector", "detector.onnx", "GPU 1"),
+        ("models.files.pose_live", "pose.onnx", "GPU 1"),
     }
 
 
