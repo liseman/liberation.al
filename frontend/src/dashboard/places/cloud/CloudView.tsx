@@ -2,7 +2,8 @@
 // outline on the floor, and its splat when it has one. PlayCanvas's SuperSplat viewer draws it and moves through
 // it (scene.ts): orbit, fly, and walk modes, with its own mode bar, help, settings, and fullscreen. This chunk
 // loads only when the 3D view opens (PlacesTab lazy-loads it), since the viewer and its engine are most of its
-// weight. The view fills its pane down to the bottom of the window, with our own settings in a row under it.
+// weight. The view fills its pane down to the page's margin above the window's bottom edge, with our own settings in
+// a row under it.
 // A splat looks right only from where its frames were taken, so each camera has a button that flies the view
 // there.
 //
@@ -471,8 +472,8 @@ function CloudMap({
     }
   }, [draw, splatReady, size, colour, show, ready, combined, hiddenCameras, inside]);
 
-  // The view takes what's left of the window under where it starts (lib/fill.ts measures that), down to the window's
-  // bottom edge: data-fills-page has the page give up the room it kept under it there.
+  // The view takes what's left of the window under where it starts (lib/fill.ts measures that), down to the page
+  // frame's gutter above the window's bottom edge: data-fills-page has the page give up the room it kept under it.
   const frame = useRef<HTMLDivElement>(null);
   const fillsStyle = useFillsPage(frame);
 

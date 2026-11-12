@@ -202,12 +202,13 @@
   margin-bottom: 10px;
 }
 
-/* The page's views that are the window's own height, from where each starts (lib/fill.ts measures that) to its bottom
-   edge, less a phone's bottom bar: the map, the plan drawn in 2D, and the editor's page. */
+/* The page's views that are the window's own height: from where each starts (lib/fill.ts measures that) down to the
+   page frame's own gutter above the window's bottom edge (its --page-gutter, the room its sides keep), less a phone's
+   bottom bar. The map, the plan drawn in 2D, and the editor's page all end on that line, not on the window's edge. */
 .cloudFrame,
 .planFill,
 .planFrame {
-  height: calc(100dvh - var(--fills-top, 0px) - var(--bottom-h, 0px));
+  height: calc(100dvh - var(--fills-top, 0px) - var(--bottom-h, 0px) - var(--page-gutter, 0px));
 }
 /* The 3D view and the row of our settings under it: the map takes what the settings leave, and a window too short for
    both scrolls here, inside the card, rather than pushing the page into a scroll. */
@@ -241,9 +242,10 @@
   min-height: 12rem;
 }
 
-/* One of the page's views that is the window's own height, to its bottom edge: the card's room under the view and the
-   page's gutter would be the only things left over, and they would push the page into a scroll. The plan shows again
-   with them (the same, .planFrame). */
+/* One of the page's views that is the window's own height: the card's own room under the view would be left over under
+   it and would push the page into a scroll. The view's height already leaves the page frame's gutter below the card
+   (--page-gutter, above), so the card ends there, the page frame's gutter above the window's bottom edge. The plan
+   shows again with them (the same, .planFrame). */
 .plan:has([data-fills-page]) {
   padding-bottom: 0;
   border-bottom: 0;
@@ -275,9 +277,11 @@
   text-decoration: underline;
 }
 
-/* The plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame, tall enough to work in. Its
-   height is the one above, the window's under where it starts, so Save, above it, and the plan are on one screen
-   without the page scrolling to reach them; the minimum is the editor's own, for a window too short for it. */
+/* The plan editor and its 3D view (scene/PlanFrame.tsx): a page of its own in a frame. Its height is the rule above, the
+   window's under where it starts less the page frame's gutter, so Save, above it, and the plan are on one screen and the
+   card ends that gutter above the window's bottom edge. Its minimum is the editor's own, for a window too short to show
+   a plan in: the editor keeps it then, and the page scrolls to it with the same gutter under the card at the end of that
+   scroll (page.module.css). */
 .planFrame {
   display: block;
   width: 100%;
@@ -423,8 +427,9 @@
   color: var(--mantine-color-placeholder);
 }
 
-/* On a phone the editor takes the screen: its frame is the height between the page's bars, scrolled to, and
-   above it the hint shares its row with Versions, and Discard and Save share the next. */
+/* On a phone the editor takes the screen: its frame is the height between the page's bars, scrolled to, and the page
+   keeps the same gutter under its card at the end of that scroll. Above it the hint shares its row with Versions, and
+   Discard and Save share the next. */
 @media (max-width: 720px) {
   .planFrame {
     height: calc(100dvh - 9rem);

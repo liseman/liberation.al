@@ -9,10 +9,13 @@
   margin-inline: auto;
   padding: var(--page-top) var(--page-gutter) var(--page-bottom);
 }
-/* A view that is the window's own height, down to its bottom edge (Places' 3D view and plan editor, through
-   data-fills-page): the gutter under it would be the only thing left over, and it would push the page into a scroll. */
+/* A view that is the window's own height (Places' 3D view, drawn plan, and plan editor, through data-fills-page): its
+   own height already leaves the page frame's gutter between the card's bottom edge and the window's (places.module.css),
+   so the room the page keeps under the card is that same gutter, and the document still ends at the window's edge. A
+   view with a minimum of its own that the window is too short for (the plan editor) keeps it and scrolls the page
+   instead, with the same gutter under the card at the end of that scroll. */
 .frame:has([data-fills-page]) {
-  --page-bottom: 0;
+  --page-bottom: var(--page-gutter);
 }
 .frame[data-width="narrow"] {
   max-width: calc(880px + 2 * var(--page-gutter));
