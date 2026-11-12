@@ -146,23 +146,26 @@ export function lumaSize(width: number, height: number): { width: number; height
     : { width: round4((LUMA_SIZE * width) / Math.max(1, height)), height: LUMA_SIZE };
 }
 
-/** Half the size, by averaging each 2 by 2. */
-function halve(l: Luma): Luma {
+/** Half the size, by averaging each 2 by 2; into, when given, is filled and returned (it must be that size). */
+function halve(l: Luma, into?: Luma): Luma {
   const width = Math.max(1, l.width >> 1);
   const height = Math.max(1, l.height >> 1);
-  const data = new Float32Array(width * height);
+  const data = into?.data ?? new Float32Array(width * height);
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) {
       const i = 2 * y * l.width + 2 * x;
       data[y * width + x] =
         ((l.data[i] ?? 0) + (l.data[i + 1] ?? 0) + (l.data[i + l.width] ?? 0) + (l.data[i + l.width + 1] ?? 0)) / 4;
     }
-  return { data, width, height };
+  return into ?? { data, width, height };
 }
 
-function pyramid(l: Luma): Luma[] {
-  const levels = [l];
-  for (let i = 1; i < LEVELS; i++) levels.push(halve(levels[i - 1] as Luma));
+/** l and its halvings, finest first. work, when given, holds the halvings from an earlier call and is reused, so a
+ *  frame's estimate allocates nothing. */
+function pyramid(l: Luma, work?: Luma[]): Luma[] {
+  const levels = work ?? [];
+  levels[0] = l;
+  for (let i = 1; i < LEVELS; i++) levels[i] = halve(levels[i - 1] as Luma, work ? levels[i] : undefined);
   return levels;
 }
 
@@ -191,6 +194,8 @@ interface Template {
   gy: Float32Array;
   inv: [number, number, number]; // inverse of [[a, b], [b, c]] as (a, b, c)
   textured: boolean;
+  /** Room for the current frame's samples, reused every frame. */
+  current: Float32Array;
 }
 
 function template(l: Luma, bx: number, by: number, step: number): Template {
@@ -235,6 +240,7 @@ function template(l: Luma, bx: number, by: number, step: number): Template {
     gy,
     inv: textured ? [c / det, -b / det, a / det] : [0, 0, 0],
     textured,
+    current: new Float32Array(n),
   };
 }
 
@@ -243,6 +249,8 @@ export interface Reference {
   width: number;
   height: number;
   levels: Template[][];
+  /** The current frame's pyramid, reused every frame. */
+  work: Luma[];
 }
 
 export function prepareReference(l: Luma): Reference {
@@ -254,7 +262,7 @@ export function prepareReference(l: Luma): Reference {
       return blocks;
     })
     .reverse();
-  return { width: l.width, height: l.height, levels };
+  return { width: l.width, height: l.height, levels, work: [] };
 }
 
 /** Where the current frame sits against the reference, in luma-copy pixels: current(x + dx, y + dy) matches
@@ -262,7 +270,8 @@ export function prepareReference(l: Luma): Reference {
  *  on, someone filling the picture). */
 export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: number } | null {
   if (current.width !== ref.width || current.height !== ref.height) return null;
-  const levels = pyramid(current).reverse();
+  // Finest first; ref.levels is coarsest first
+  const pyr = pyramid(current, ref.work);
   const blocks = ref.levels[0]?.length ?? 0;
   const found: { dx: number; dy: number }[] = [];
   for (let k = 0; k < blocks; k++) {
@@ -270,9 +279,9 @@ export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: 
     let dy = 0;
     let ok = true;
     let residual = 0;
-    for (let li = 0; li < levels.length; li++) {
+    for (let li = 0; li < pyr.length; li++) {
       const t = ref.levels[li]?.[k];
-      const img = levels[li];
+      const img = pyr[pyr.length - 1 - li];
       if (!t || !img) break;
       if (li > 0) {
         dx *= 2;
@@ -287,7 +296,7 @@ export function estimateShift(ref: Reference, current: Luma): { dx: number; dy: 
         // Mean difference first: an exposure drift moves every sample, not the picture
         let mean = 0;
         const n = t.values.length;
-        const cur = new Float32Array(n);
+        const cur = t.current;
         for (let s = 0; s < n; s++) {
           const v = sample(img, (t.xs[s] ?? 0) + dx, (t.ys[s] ?? 0) + dy);
           cur[s] = v;

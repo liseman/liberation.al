@@ -243,12 +243,20 @@ function step(width: number, height: number, read = false): Step {
   return { canvas, context };
 }
 
+/** How the small copy is made: 'halves' (each copy half the one before, a true 2 by 2 average) or 'direct' (one
+ *  copy straight to SMALL_MAX). */
+export const smallCopy = { mode: 'halves' as 'halves' | 'direct' };
+
 /** The sizes of the small-copy chain for a frame: each half the one before, until the long side is SMALL_MAX or
  *  less. A frame already that small gets one copy at its own size. */
 export function smallSizes(width: number, height: number): { width: number; height: number }[] {
   const sizes: { width: number; height: number }[] = [];
   let w = width;
   let h = height;
+  if (smallCopy.mode === 'direct') {
+    const k = Math.min(1, SMALL_MAX / Math.max(w, h));
+    return [{ width: Math.round(w * k), height: Math.round(h * k) }];
+  }
   while (Math.max(w, h) > SMALL_MAX) {
     w = Math.ceil(w / 2);
     h = Math.ceil(h / 2);
@@ -256,6 +264,13 @@ export function smallSizes(width: number, height: number): { width: number; heig
   }
   if (!sizes.length) sizes.push({ width, height });
   return sizes;
+}
+
+/** Thrown by draw when the work takes too long even on one frame in EVERY_MOST: the plain picture is better. */
+export class TooSlow extends Error {
+  constructor() {
+    super("this computer can't keep up with this camera's video");
+  }
 }
 
 /** Draws the highlight for a camera's frames onto one canvas, and says how far to shift the plain picture. Throws
@@ -272,7 +287,7 @@ export class Enhancer {
   private steps: Step[] = [];
   private lumaStep: Step | null = null;
   private luma = { data: new Float32Array(0), width: 0, height: 0 };
-  private small: WebGLTexture | null = null;
+  private smallTexture: WebGLTexture | null = null;
   private smallMips = false;
   private targets: [Target, Target] | null = null;
   /** Each state sample's highlight strength, with four mip levels for the glow. */
@@ -297,6 +312,8 @@ export class Enhancer {
   /** Where to sample the current frame for each position shown, as a fraction of the frame: the plain picture is
    *  moved by minus this. */
   readonly shift = { x: 0, y: 0 };
+  /** Whether to work on fewer frames when they take too long. A measurement that waits inside draw turns it off. */
+  adapt = true;
   /** Called at the end of each stage of draw with its name, by a measurement that wants the split. */
   mark?: (name: string) => void;
 
@@ -390,7 +407,7 @@ export class Enhancer {
     const targets = this.targets;
     if (!targets) return;
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.small);
+    gl.bindTexture(gl.TEXTURE_2D, this.smallTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, small);
     if (this.smallMips) gl.generateMipmap(gl.TEXTURE_2D);
     this.mark?.('upload');
@@ -465,7 +482,7 @@ export class Enhancer {
       this.gapS += dt;
       this.gaps += 1;
     }
-    if (this.worked < REVIEW) return;
+    if (this.worked < REVIEW || !this.adapt) return;
     const each = this.workMs / this.worked;
     // dt spans `every` frames while frames are being passed over
     const between = this.gaps ? ((this.gapS / this.gaps) * 1000) / this.stats.every : 0;
@@ -475,8 +492,7 @@ export class Enhancer {
     this.gaps = 0;
     if (!(between > 0)) return;
     const wanted = Math.ceil(each / (BUDGET * between));
-    if (wanted > EVERY_MOST && this.stats.every === EVERY_MOST)
-      throw new Error("This computer can't keep up with this camera's video.");
+    if (wanted > EVERY_MOST && this.stats.every === EVERY_MOST) throw new TooSlow();
     this.stats.every = Math.min(EVERY_MOST, Math.max(1, wanted));
   }
 
@@ -510,11 +526,11 @@ export class Enhancer {
     const small = this.steps[this.steps.length - 1]?.canvas;
     if (!small) return;
     const mips = Math.max(small.width, small.height) > 2 * band.size;
-    if (this.small) gl.deleteTexture(this.small);
-    this.small = gl.createTexture();
+    if (this.smallTexture) gl.deleteTexture(this.smallTexture);
+    this.smallTexture = gl.createTexture();
     this.smallMips = mips;
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.small);
+    gl.bindTexture(gl.TEXTURE_2D, this.smallTexture);
     const levels = mips ? Math.floor(Math.log2(Math.max(small.width, small.height))) + 1 : 1;
     gl.texStorage2D(gl.TEXTURE_2D, levels, gl.RGBA8, small.width, small.height);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
@@ -606,7 +622,7 @@ export class Enhancer {
     for (const pass of Object.values(this.passes)) gl.deleteProgram(pass.program);
     gl.deleteBuffer(this.corners);
     if (this.pending) gl.deleteSync(this.pending);
-    if (this.small) gl.deleteTexture(this.small);
+    if (this.smallTexture) gl.deleteTexture(this.smallTexture);
     for (const t of this.targets ?? []) {
       gl.deleteTexture(t.fast);
       gl.deleteTexture(t.slow);
@@ -617,7 +633,7 @@ export class Enhancer {
       gl.deleteFramebuffer(this.strength.fbo);
     }
     this.pending = null;
-    this.small = null;
+    this.smallTexture = null;
     this.targets = null;
     this.strength = null;
     this.steps = [];
