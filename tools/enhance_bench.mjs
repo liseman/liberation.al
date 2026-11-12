@@ -401,7 +401,14 @@ async function benchPage() {
         plain2d.drawImage(m.bitmap, 0, 0);
         const t1 = performance.now();
         last = t1;
-        enhancer.draw(m.bitmap, m.t, false, m.small);
+        // As Live's layer does: a renderer that says it can't keep up is left alone, and the plain picture stays
+        if (!out.gaveUp) {
+          try {
+            enhancer.draw(m.bitmap, m.t, false, m.small);
+          } catch (error) {
+            out.gaveUp = `${error?.message ?? error} (after ${frames} frames)`;
+          }
+        }
         const t2 = performance.now();
         if (run.mode === 'paced') fences.push({ sync: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0), at: t2 });
         else wait(gl);

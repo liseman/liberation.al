@@ -225,6 +225,25 @@ describe('Enhancer.draw', () => {
     expect(paced(3, 200).stats).toMatchObject({ frames: 200, skipped: 0, every: 1 });
   });
 
+  it('rides out one slow stretch at the lowest rate without stopping', () => {
+    const { gl } = fakeGl();
+    const enhancer = new Enhancer(canvases(gl).canvas);
+    let now = 0;
+    let ending = false;
+    let ms = 40;
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      if (ending) now += ms;
+      ending = !ending;
+      return now;
+    });
+    // Slow for two looks at the load (the second at the lowest rate), then quick again
+    for (let i = 0; i < 400; i++) {
+      if (enhancer.stats.frames === 60) ms = 3;
+      enhancer.draw(FRAME, 1 + i / 60);
+    }
+    expect(enhancer.stats.every).toBe(1);
+  });
+
   it('works on fewer frames when each takes too much of the time between them', () => {
     // 10 ms of a 16.7 ms frame is over the budget; every other frame is within it
     const { stats } = paced(10, 300);
@@ -233,7 +252,7 @@ describe('Enhancer.draw', () => {
     expect(stats.frames + stats.skipped).toBe(300);
   });
 
-  it('stops, saying this computer cannot keep up, when even one frame in four takes too long', () => {
+  it('stops, saying this computer cannot keep up, when even every other frame takes longer than a frame lasts', () => {
     expect(() => paced(40, 400)).toThrow(TooSlow);
   });
 });

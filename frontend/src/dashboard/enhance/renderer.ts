@@ -75,8 +75,10 @@ const OVERLAY_MAX = 960;
 export const CONTRAST_SATURATION = 0.5;
 /** Enhance may hold the page's thread for this share of the time between frames. Above it, frames are passed over. */
 const BUDGET = 0.5;
-/** The most frames passed over between two worked on. If that is still too slow, Enhance stops and says so. */
-const EVERY_MOST = 4;
+/** The most frames passed over between two worked on: with BUDGET, a worked frame then takes no longer than the
+ *  time between two frames, so the frame after it is never held up. If that is still too slow, Enhance stops and
+ *  says so. */
+const EVERY_MOST = 2;
 /** Frames between two looks at the load. */
 const REVIEW = 30;
 
@@ -239,7 +241,7 @@ interface Target {
   fbo: WebGLFramebuffer;
 }
 
-/** Thrown by draw when the work takes too long even on one frame in EVERY_MOST: the plain picture is better. */
+/** Thrown by draw when the work takes too long even on every other frame: the plain picture is better. */
 export class TooSlow extends Error {
   constructor() {
     super("this computer can't keep up with this camera's video");
@@ -284,6 +286,7 @@ export class Enhancer {
   private worked = 0;
   private gapS = 0;
   private gaps = 0;
+  private over = 0;
   readonly stats: EnhanceStats = { frames: 0, ms: 0, resets: 0, late: 0, skipped: 0, every: 1 };
   /** Where to sample the current frame for each position shown, as a fraction of the frame: the plain picture is
    *  moved by minus this. */
@@ -464,8 +467,8 @@ export class Enhancer {
     this.mark?.('composite');
   }
 
-  /** Every REVIEW frames worked on: if they are taking more than BUDGET of the time between frames, work on fewer
-   *  of them. Past EVERY_MOST the picture is better off plain, and the caller is told. */
+  /** Every REVIEW frames worked on: if they are taking more than BUDGET of the time between frames, work on every
+   *  other one. If that is not enough either, the picture is better off plain, and the caller is told. */
   private review(ms: number, dt: number): void {
     this.workMs += ms;
     this.worked += 1;
@@ -483,7 +486,9 @@ export class Enhancer {
     this.gaps = 0;
     if (!(between > 0)) return;
     const wanted = Math.ceil(each / (BUDGET * between));
-    if (wanted > EVERY_MOST && this.stats.every === EVERY_MOST) throw new TooSlow();
+    // Too slow twice running, already at the lowest rate: not a passing hiccup
+    this.over = wanted > EVERY_MOST && this.stats.every === EVERY_MOST ? this.over + 1 : 0;
+    if (this.over >= 2) throw new TooSlow();
     this.stats.every = Math.min(EVERY_MOST, Math.max(1, wanted));
   }
 
