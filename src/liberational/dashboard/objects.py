@@ -8,10 +8,11 @@ GET  /objects/api/query?q=    where an object named in q was last seen
 GET  /objects/evidence/<ref>  a JPEG snapshot/template/sighting, or a transparent segmentation PNG
 POST /objects/api/capture     {camera, draft?, name?}: a snapshot of the camera's newest frame to crop from
 POST /objects/api/import      {camera, image, captured_at, kind?}: a Live crop or native Review full_frame JPEG
-POST /objects/api/segment     {snapshot, bbox|point, crop?, job?}: an EdgeTAM mask for the box or point the owner chose
-POST /objects/api/find        {snapshot, crop?, job?}: every object EdgeTAM finds in the crop (the view the owner is
+POST /objects/api/segment     {snapshot, bbox|point, crop?, job?}: a mask for the box or point the owner chose
+POST /objects/api/find        {snapshot, crop?, concept?, job?}: the objects found in the crop (the view the owner is
                               looking at), each a selection with its outline
-                              (never an automatic pass over the frame) and a snapshot-bound selection token
+                              (never an automatic pass over the frame) and a snapshot-bound selection token; `concept`
+                              is the name typed, which SAM 3 looks for, and the answer names the backend that ran
 POST /objects/api/cancel     {job}: stop only that owned EdgeTAM request before replacing the frozen view
 POST /objects/api/enroll      {name, camera, snapshot, selection?|full_crop?|direct_crop?, crop?, aliases, note}: remember explicitly
 POST /objects/api/rename      {id, name}: give a remembered object another name
@@ -62,6 +63,7 @@ class Selection:
 
 _selections: dict[str, Selection] = {}
 MAX_SELECTIONS = 64  # held at once: a Find objects run makes up to segmentation.FIND_MAX
+MAX_CONCEPT = 80  # the object name's own length limit: Find objects looks for that name
 OUTLINE_POINTS = 120  # an outline is simplified until it has at most about this many points
 
 
@@ -107,6 +109,8 @@ def status() -> dict[str, Any]:
         "observer": {"finished_at": max(r["ts_start"] for r in newest)} if newest else None,
         "observer_error": None,
         "recognition": "CPU SIFT + RANSAC; two distinct consistent frames; no person recognition",
+        # Which model Find objects uses and why, in plain words (the page shows it; Settings lists it too).
+        "find_objects": segmentation.describe(),
     }
 
 
@@ -286,23 +290,42 @@ def segment(data: dict[str, Any]) -> dict[str, Any]:
     return _remember_selection(token, result)
 
 
+def concept(data: dict[str, Any]) -> str:
+    """What the owner is looking for, in words: the object's name when they typed one. SAM 3 looks for this, and a
+    run without one uses the point grid."""
+    typed = data.get("concept", "")
+    if not isinstance(typed, str):
+        raise ValueError("concept must be text")
+    phrase = " ".join(typed.split())  # a name typed over several lines is still one phrase
+    if len(phrase) > MAX_CONCEPT:
+        raise ValueError(f"concept must be at most {MAX_CONCEPT} characters")
+    return phrase
+
+
 def find(data: dict[str, Any]) -> dict[str, Any]:
-    """Every object EdgeTAM finds in the snapshot's `crop` (the whole frame without one), best first: each a selection,
-    as /api/segment gives one, with its outline, and how long it took."""
+    """The objects found in the snapshot's `crop` (the whole frame without one), best first: each a selection, as
+    /api/segment gives one, with its outline, how long it took, and which model found them (see
+    segmentation.find_backend). The answer's `note` says why a fallback ran, in the model's own words."""
     token = str(data.get("snapshot", ""))
     snap = _snapshots.get(token)
     if snap is None:
         raise FileNotFoundError("snapshot")
     began = time.monotonic()
     crop = _crop(data, snap.image)
-    found = segmentation.find_all(crop.image if crop else snap.image, job=data.get("job"))
+    found = segmentation.find_all(crop.image if crop else snap.image, concept=concept(data), job=data.get("job"))
     out = []
-    for result in found:
+    for result in found.objects:
         if crop is not None:
             result = crop.restore(result)
         if np.any(result.mask):
             out.append({**_remember_selection(token, result), "outline": outline(result.mask)})
-    return {"snapshot": token, "objects": out, "ms": round(1000 * (time.monotonic() - began))}
+    return {
+        "snapshot": token,
+        "objects": out,
+        "ms": round(1000 * (time.monotonic() - began)),
+        "backend": found.backend.kind,
+        "note": found.note,
+    }
 
 
 def outline(mask: np.ndarray) -> list[list[list[float]]]:

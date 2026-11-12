@@ -50,9 +50,9 @@ the plan's spot (`use_spot`), which holds until its view next changes, and take 
 
 *While a camera is being carried* no cloud of its own is made: one is made only from a view that has held still
 with nobody in it (spatial/surroundings_clouds.py). Meanwhile spatial/camera_track.py tracks it from its live frames
-(#516) and keeps its pose, its path, and its last keyframes' clouds beside its cloud (`tracked`). The scene shows the
-camera where the track has it, draws those keyframes' points with its own, and says how long ago the track was held
-to the plan's walls. When the camera rests and gets a cloud, that cloud is placed from where the track left it
+(#516) and keeps its pose and its path beside its cloud (`tracked`). The scene shows the camera where the track has
+it and says how long ago the track was held to the plan's walls; the keyframes the walls held go into the place's
+map as the camera's own clouds do. When the camera rests and gets a cloud, that cloud is placed from where the track left it
 ("tracking", then squared and fitted as any cloud is), and the track's files go.
 
 **Square to the house** (`align`, spatial/cloud_align.py). Between 1 and 2: a cloud's own walls say how its camera
@@ -61,6 +61,10 @@ clear counterparts slid, so its walls run along the plan's (bounded; a rigid mov
 the plan is the reference, so a pair's measurement no longer moves it, only a partner that couldn't be squared, and
 between two squared cameras the measurement is a check that says how far off it is ("checked"). The squaring is
 kept beside the cloud and used only while it is of the same cloud, spot, and plan.
+
+**One map, not a cloud a camera** (spatial/cloud_map.py, #546). What the scene draws is the place's map: every
+placed cloud is offered to it (`align`), agrees with what it holds or is refused, and is added up to a density, so
+a surface two shots saw is there once. The rows say what the map took of each camera's latest shot.
 
 What a scene is good for: reliefs standing in the right places, not a whole room. Clouds that overlap meet with a seam
 (the pair above is right to tens of centimetres), and cameras that share no space are only as right as their spots.
@@ -83,7 +87,7 @@ import numpy as np
 
 from liberational import json_state, logs
 from liberational.memory import places
-from liberational.spatial import camera_clouds, cloud_align, ply
+from liberational.spatial import camera_clouds, cloud_align, cloud_map, cloud_merge, ply
 
 LOG = logs.get("camera-clouds")
 
@@ -274,7 +278,7 @@ def unsettled(store: camera_clouds.Store, camera: str, cloud: str, basis: str | 
 
 
 TRACK = "track.json"  # a moving camera's track (spatial/camera_track.py `Track.write`), beside its cloud
-TRACK_FOLDER = "track"  # and its keyframes' clouds, `<n>.ply`
+TRACK_FOLDER = "track"  # where a track kept its keyframes' clouds before the place had a map: removed with it
 TRACK_FRESH_S = 180.0  # a cloud whose picture was taken this long after a track's last pose is placed from it
 
 
@@ -285,7 +289,7 @@ def tracked(store: camera_clouds.Store, camera: str) -> dict[str, Any] | None:
 
 
 def drop_track(store: camera_clouds.Store, camera: str) -> None:
-    """Forget `camera`'s track: its record and its keyframes' clouds."""
+    """Forget `camera`'s track."""
     _camera_file(store, camera, TRACK).unlink(missing_ok=True)
     shutil.rmtree(_camera_file(store, camera, TRACK_FOLDER), ignore_errors=True)
 
@@ -378,6 +382,7 @@ def _working(told: Follow | None, spot: SpotAt) -> tuple[At, str]:
 @dataclass(frozen=True)
 class _Stood:
     told: Follow | None
+    basis: str  # what a squaring from where it stands is of (`_working`)
     at: At  # where the camera stands: its spot or working pose, squared and fitted where that holds
     sized: tuple[float, float] | None  # a fitted cloud's size across and upwards
     firm: bool  # placed by the plan's walls
@@ -392,14 +397,14 @@ def _stood(store: camera_clouds.Store, camera: str, cloud: camera_clouds.Cloud, 
     base, basis = _working(told, spot)
     have = cloud_align.kept(_camera_file(store, camera, cloud_align.ALIGN).parent)
     if have is None or not have.holds(cloud.id, basis, plan):
-        return _Stood(told, base, None, False, None, None)
+        return _Stood(told, basis, base, None, False, None, None)
     fitted = have.fit
     if fitted is not None and fitted.state == "fitted":  # the rooms' walls say more than a slide does
         at = At(base.x + fitted.dx, base.y + fitted.dy, base.bearing + math.radians(fitted.turn_deg))
-        return _Stood(told, at, (fitted.scale, fitted.up), True, have.square, fitted)
+        return _Stood(told, basis, at, (fitted.scale, fitted.up), True, have.square, fitted)
     if have.square.state == "squared":
-        return _Stood(told, base.step(*have.square.rel), None, True, have.square, fitted)
-    return _Stood(told, base, None, False, have.square, fitted)
+        return _Stood(told, basis, base.step(*have.square.rel), None, True, have.square, fitted)
+    return _Stood(told, basis, base, None, False, have.square, fitted)
 
 
 def _set_anchor(store: camera_clouds.Store, cloud: camera_clouds.Cloud, basis: str) -> None:
@@ -516,6 +521,55 @@ def _place_again(
     )
 
 
+def shot_of(
+    shot: str,
+    cloud: camera_clouds.Cloud,
+    stand: cloud_merge.Stand,
+    up: float,
+    held: bool,
+    score: float,
+    points: np.ndarray,
+    colours: np.ndarray | None,
+    planes: Sequence[cloud_align.Plane],
+    fit: cloud_align.Fit | None,
+) -> cloud_map.Offer:
+    """A levelled cloud standing at `stand`, as a shot to offer a place's map (spatial/cloud_map.py)."""
+    fill = np.full((len(points), 3), 160, dtype=np.uint8) if colours is None else colours
+    pose = np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4)
+    return cloud_map.Offer(shot, cloud.id, cloud.camera, cloud.at, held, score, points, fill,
+                           cloud_merge.surfaces(planes), stand, up, pose, cloud.focal, cloud.width, cloud.height, fit)  # fmt: skip
+
+
+def _offer(
+    charted: Path,
+    plan: str,
+    cloud: camera_clouds.Cloud,
+    basis: str,
+    base: At,
+    placed: cloud_align.Align,
+    points: np.ndarray,
+    colours: np.ndarray | None,
+    planes: Sequence[cloud_align.Plane],
+) -> None:
+    """Offer a camera's placed cloud to its place's map: held where its fit puts it, or, when the plan's walls
+    don't hold it, loose where it stands (the map may bring it into agreement with what it holds)."""
+    fitted = placed.fit
+    if fitted is not None and fitted.state == "fitted":
+        stand = cloud_merge.Stand(base.x + fitted.dx, base.y + fitted.dy, base.bearing + math.radians(fitted.turn_deg),
+                                  fitted.scale)  # fmt: skip
+        shot = shot_of(
+            f"{cloud.id}@{basis}", cloud, stand, fitted.up, True, fitted.share, points, colours, planes, fitted
+        )
+    else:
+        at = base.step(*placed.square.rel) if placed.square.state == "squared" else base
+        shot = shot_of(f"{cloud.id}@{basis}", cloud, cloud_merge.Stand(at.x, at.y, at.bearing), 1.0, False, 0.0,
+                       points, colours, planes, None)  # fmt: skip
+    try:
+        cloud_map.offer(charted, plan, shot)
+    except (OSError, ValueError) as e:  # the camera is placed; only the map misses its shot
+        LOG.warning("%s: its shot wasn't offered to the map: %s", cloud.camera, e)
+
+
 def align(
     store: camera_clouds.Store,
     camera: str,
@@ -542,10 +596,17 @@ def align(
     gone = tracked(store, camera)
     if gone is not None and not due and gone.get("state") != "tracking" and float(gone.get("at") or 0.0) <= cloud.at:
         drop_track(store, camera)  # a track that ended before this cloud, which shows the camera where it was
+    charted = cloud_map.folder(store.folder, spot.place)
+    lost = told is not None and bool(told.lost) and told.cloud == cloud.id
     if not due and have is not None and have.holds(cloud.id, basis, plan):
-        return False
-    points, _, _ = ply.read(store.file(cloud))
-    walls = cloud_align.lines(cloud_align.planes(points))
+        if lost or cloud_map.answered(cloud_map.record(charted), f"{cloud.id}@{basis}") is not None:
+            return False
+        points, colours, _ = ply.read(store.file(cloud))  # placed before the place had a map: it is offered now
+        _offer(charted, plan, cloud, basis, base, have, points, colours, cloud_align.planes(points))
+        return True
+    points, colours, _ = ply.read(store.file(cloud))
+    flat_surfaces = cloud_align.planes(points)
+    walls = cloud_align.lines(flat_surfaces)
     if was is not None and due:
         told = _place_again(store, cloud, spots, was, walls, ring, points)
         base, basis = _working(told, spot)
@@ -571,6 +632,8 @@ def align(
             LOG.info("%s: its walls fit the plan %.0f degrees from its facing; it is placed by them", camera,
                      moved_by(base, spot.at)[1])  # fmt: skip
     cloud_align.keep(folder, found)
+    if not (told is not None and told.lost and told.cloud == cloud.id):  # a view that isn't placed isn't mapped
+        _offer(charted, plan, cloud, basis, base, found, points, colours, flat_surfaces)
     fitted = found.fit or cloud_align.Fit("no_walls")
     LOG.info("%s: squared to the plan: %s, turned %.1f degrees; fitted to its rooms: %s, resized %.3f, slid %.2f m "
              "(%d of %d walls matched)", camera, found.square.state, found.square.turn_deg, fitted.state, fitted.scale,
@@ -761,9 +824,17 @@ class Placed:
     #: While the camera is being tracked as it moves, or has just stopped (spatial/camera_track.py): `state`
     #: ("tracking" or "ended"), `since` and `at` (when the track began and when it last placed the camera), `held`
     #: (when a keyframe was last held to the plan's walls, or None), `pose` (the camera in the scene now, 4 x 4),
-    #: `went_m` (how far its path ran), `from_m` and `from_deg` (how far it is from where its cloud has it), and
-    #: `keyframes` (each one's `n` and `transform`: its cloud's frame to the scene). None otherwise.
+    #: `went_m` (how far its path ran), and `from_m` and `from_deg` (how far it is from where its cloud has it).
+    #: None otherwise.
     track: Mapping[str, Any] | None = None
+    #: What the place's map (spatial/cloud_map.py) holds of the camera, once its cloud was offered: `points` (of the
+    #: map's, from this camera's shots), `state` of its latest shot ("added" or "refused"), `why` ("apart": as a
+    #: whole it stands somewhere else than the map's shots; "full"), `added` (points of that shot that went in),
+    #: `left_out` (points of it that better-placed shots looked through, which were not added), `off_m` (how far
+    #: a shot the plan's walls don't hold stayed from the map's surfaces when it couldn't be lined up with them),
+    #: and `moved_m`, `turned_deg`, `resized` (how such a shot was moved when it could: then the camera is drawn
+    #: where that put it). None before it was offered.
+    map: Mapping[str, Any] | None = None
     level: str = "none"  # what its cloud was levelled by: "floor", "walls", or "none"
     tilt_deg: float = 0.0  # the camera's tilt (down) and roll, by that
     roll_deg: float = 0.0
@@ -844,6 +915,7 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
     fits: dict[str, cloud_align.Fit] = {}  # and its fit to the rooms
     sized: dict[str, tuple[float, float]] = {}  # the cameras placed by their fit: resized across and upwards
     poses: dict[str, Follow] = {}  # the cameras with a working pose, or a view that can't be placed
+    shots: dict[str, str] = {}  # each camera's cloud as a shot offered to the place's map
     firm: set[str] = set()
     start: dict[str, At] = {}  # where each placed camera stands by itself
     how: dict[str, str] = {}
@@ -857,6 +929,7 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
             how[camera] = "no_facing"
             continue
         stood = _stood(store, camera, cloud, spot, plan)
+        shots[camera] = f"{cloud.id}@{stood.basis}"
         if stood.told is not None:
             poses[camera] = stood.told
         settled = stood.told is not None and stood.told.cloud == cloud.id
@@ -934,6 +1007,34 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
     for a, b, _ in edges:
         partners.setdefault(a, []).append(b)
         partners.setdefault(b, []).append(a)
+    # What the place's map says of each camera's cloud. A cloud the plan's walls don't hold that the map brought
+    # into agreement with what it holds stands where that put it.
+    charted = cloud_map.record(cloud_map.folder(store.folder, place))
+    if charted is not None and charted.get("plan") != plan:
+        charted = None
+    mapped: dict[str, dict[str, Any]] = {}
+    for camera, shot in shots.items():
+        said = cloud_map.answered(charted, shot)
+        if said is None:
+            continue
+        total = sum(
+            int(row.get("points", 0)) for row in (charted or {}).get("shots", ()) if row.get("camera") == camera
+        )
+        mapped[camera] = {
+            "state": said.get("state"),
+            "why": said.get("why", ""),
+            "added": int(said.get("points", 0)),
+            "points": total,
+            "off_m": said.get("off_m", 0.0),
+            "moved_m": said.get("moved_m", 0.0),
+            "turned_deg": said.get("turned_deg", 0.0),
+            "resized": said.get("resized", 1.0),
+            "left_out": int(said.get("left_out", 0)),
+        }
+        stand = said.get("stand")
+        if camera in at and not said.get("held") and stand and (said.get("moved_m") or said.get("turned_deg")):
+            at[camera] = At(float(stand[0]), float(stand[1]), float(stand[2]))
+            sized[camera] = (float(stand[3]), float(stand[3]))
 
     out = []
     for camera in sorted(mine):
@@ -964,10 +1065,9 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
                 "went_m": round(sum(math.hypot(b[1] - a[1], b[2] - a[2]) for a, b in itertools.pairwise(went)), 2),
                 "from_m": round(from_m, 2),
                 "from_deg": round(from_deg, 1),
-                "keyframes": [
-                    {"n": int(k["n"]), "transform": list(k["transform"])} for k in moving.get("keyframes") or ()
-                ],
             }
+        if camera in mapped:
+            about["map"] = mapped[camera]
         if camera in poses or camera in lost:
             kept_pose = poses.get(camera)
             about["follow"] = {
@@ -1002,8 +1102,8 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
         )
     mirrored = next((spots[c].mirrored for c in mine if spots.get(c) is not None), False)
     kept = tuple(tuple((float(x), float(y)) for x, y in ring) for ring in rooms)
-    trails = [[p.camera, (p.track or {}).get("keyframes")] for p in out if p.placed and p.track]
-    drawn = json.dumps([[[p.camera, p.cloud, p.transform] for p in out if p.placed], kept, trails])
+    revision = None if charted is None else charted.get("rev")
+    drawn = json.dumps([[[p.camera, p.cloud, p.transform] for p in out if p.placed], kept, revision])
     return Scene(place, tuple(out), tuple(told), mirrored, kept, hashlib.sha256(drawn.encode()).hexdigest()[:32])
 
 
@@ -1015,15 +1115,24 @@ def _fit_of(placed: Placed) -> cloud_align.Fit | None:
 
 
 def points(store: camera_clouds.Store, found: Scene, flat: bool = True) -> bytes:
-    """The scene's placed clouds as one PLY for the 3D view: every cloud's points moved by its transform, each with
-    its camera's place in `found.cameras` as `view`, so the view can show, hide, and tint a camera's points, and
-    with `outside` 1 for a point more than `cloud_align.MARGIN_M` outside every room of the plan, which the view leaves out
-    unless asked (a relief's depth is the model's estimate, and can run through a wall). With `flat`, a fitted
-    cloud's floor and matched walls are drawn on the plan's (spatial/cloud_align.py `flatten`); without, every point
-    is where its cloud has it. The clouds themselves aren't touched: this is the drawing, made when asked for."""
+    """What the 3D view draws of the scene, as one PLY: the place's map (spatial/cloud_map.py: every well-placed
+    shot added up, each surface once), and beside it the cloud of any placed camera the map hasn't been offered
+    yet. Each point has its camera's place in `found.cameras` as `view`, so the view can show, hide, and tint a
+    camera's points, and `outside` 1 for a point more than `cloud_align.MARGIN_M` outside every room of the plan,
+    which the view leaves out unless asked (a relief's depth is the model's estimate, and can run through a wall).
+    With `flat`, the floor and matched walls of fitted clouds are drawn on the plan's (spatial/cloud_align.py
+    `flatten`); without, every point is where its cloud has it. A cloud the map refused is not drawn: it would be
+    a second copy of what the map holds. Nothing is changed: this is the drawing, made when asked for."""
     xyz, rgb, view = [], [], []
+    held = cloud_map.read(cloud_map.folder(store.folder, found.place))
+    if held is not None and held.meta.get("plan") == cloud_align.plan_key(found.rooms) and len(held.xyz):
+        whose = cloud_map.cameras_of(held, [p.camera for p in found.cameras])
+        known = whose != 65535  # a camera that is no longer in the place isn't drawn
+        xyz.append((held.flat if flat else held.xyz)[known].astype(np.float64))
+        rgb.append(held.rgb[known])
+        view.append(whose[known])
     for index, placed in enumerate(found.cameras):
-        if placed.transform is None:
+        if placed.transform is None or placed.map is not None:
             continue
         cloud = store.current(placed.camera)
         if cloud is None or cloud.id != placed.cloud:
@@ -1034,15 +1143,6 @@ def points(store: camera_clouds.Store, found: Scene, flat: bool = True) -> bytes
         xyz.append(own @ move[:3, :3].T + move[:3, 3] if fitted is None else cloud_align.flatten(own, move, fitted)[0])
         rgb.append(colours if colours is not None else np.full((len(own), 3), 160, dtype=np.uint8))
         view.append(np.full(len(own), index, dtype=np.uint16))
-        for keyframe in (placed.track or {}).get("keyframes") or ():  # what it saw on the way, where it saw it
-            try:
-                seen, tint, _ = ply.read(_camera_file(store, placed.camera, TRACK_FOLDER) / f"{int(keyframe['n'])}.ply")
-            except OSError, ValueError:
-                continue  # replaced by a newer keyframe since the scene was read
-            lie = np.asarray(keyframe["transform"], dtype=np.float64).reshape(4, 4)
-            xyz.append(seen @ lie[:3, :3].T + lie[:3, 3])
-            rgb.append(tint if tint is not None else np.full((len(seen), 3), 160, dtype=np.uint8))
-            view.append(np.full(len(seen), index, dtype=np.uint16))
     none = np.zeros(0, dtype=np.uint16)
     if not xyz:
         return ply.dumps(np.zeros((0, 3)), np.zeros((0, 3), dtype=np.uint8), {"view": none, "outside": none})

@@ -4,7 +4,7 @@
 // cloud yet, and what would make one. What it says about one camera's own cloud (`viewNote`, `viewWhy`): how it was
 // sized, when it was made, and why a camera has none or no newer one. And what it says about the owner's plan: why it
 // isn't drawn on a map that isn't lined up with it. Nothing here draws, so it's tested as text.
-import { ago, dayWords, hm, isoDay } from '../../lib/format';
+import { ago, capitalize, dayWords, hm, isoDay, plural } from '../../lib/format';
 import type { CameraView, CloudLevel, Scene, SceneFit, ScenePair, ScenePlaced, ViewWhy } from '../api';
 
 const when = (at: number) =>
@@ -150,10 +150,14 @@ export function placedLine(
         camera.turn_deg >= 0.5 ? `turned ${degrees(camera.turn_deg)}` : null,
         camera.shift_m >= 0.01 ? `moved ${metres(camera.shift_m)}` : null,
       ].filter(Boolean);
-      const what = moves.length ? `${moves.join(', ')} from your plan's spot` : "where your plan's spot has it";
+      const what = moves.length
+        ? `${moves.join(', ')} from your plan's spot`
+        : "it stands where your plan's spot has it";
       const when = camera.follow?.since ? `, ${since(camera.follow.since, now)}` : '';
       const by = PLACED_BY[camera.follow?.by ?? ''];
-      return `Following: ${what}${when}.${by ? ` ${by}` : ''} Your plan is unchanged.`;
+      // While it is being tracked, where its cloud stands is background to where the camera is now.
+      const lead = camera.track ? `Before it began to move: ${what}` : capitalize(what);
+      return `${lead}${when}.${by ? ` ${by}` : ''} Your plan is unchanged.`;
     }
     case 'no_spot':
       return 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.';
@@ -162,7 +166,7 @@ export function placedLine(
     case 'lost': {
       const why = LOST[camera.follow?.lost ?? ''];
       if (!why) return 'Its view changed. It is being placed again.';
-      return `Not placed: its view changed, and ${why}. It isn't drawn, keeps where it last stood, and is tried again with each new picture.`;
+      return `Its view changed, and ${why}. It isn't drawn, keeps where it last stood, and is tried again with each new picture.`;
     }
   }
 }
@@ -173,13 +177,13 @@ export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string 
   const track = camera.track;
   if (!track) return null;
   const moves = [
-    track.from_m >= 0.01 ? metres(track.from_m) : null,
+    track.from_m >= 0.01 ? `${metres(track.from_m)} away` : null,
     track.from_deg >= 0.5 ? `turned ${degrees(track.from_deg)}` : null,
   ].filter(Boolean);
   const where = moves.length ? `${moves.join(' and ')} from where its points were made` : 'where its points were made';
   if (track.state === 'ended')
-    return `It moved and came to rest ${since(track.at, now)}, ${where}. It is placed for good once it has had about 20 seconds with nobody in view.`;
-  if (!track.pose) return 'Tracking: it began to move. Its first frames are being placed.';
+    return `It came to rest ${since(track.at, now)}, ${where}. It's placed for good after about 20 seconds with nobody in view.`;
+  if (!track.pose) return 'It began to move. Its first frames are being placed.';
   const unheld = track.held === null ? null : Math.round(track.at - track.held);
   const held =
     unheld === null
@@ -187,7 +191,35 @@ export function trackLine(camera: ScenePlaced, now = Date.now() / 1000): string 
       : unheld < 5
         ? "Held to your plan's walls."
         : `Last held to your plan's walls ${unheld} s before, so it may have drifted since.`;
-  return `Tracking: it is moving, now ${where}, ${since(track.at, now)}. ${held}`;
+  return `It is moving, now ${where}, ${since(track.at, now)}. ${held}`;
+}
+
+/** What the place's map took of a camera's latest picture, in plain words; null before it was offered one. */
+export function mapLine(camera: ScenePlaced): string | null {
+  const map = camera.map;
+  if (!map) return null;
+  const count = plural(map.points, 'point').replace(String(map.points), map.points.toLocaleString());
+  const holds = `The map holds ${count} from this camera`;
+  if (map.state === 'refused')
+    return map.why === 'full'
+      ? `Its latest picture isn't in the map: the map is full. ${holds}.`
+      : `Its latest picture isn't in the map or drawn: it stands somewhere else than the pictures the map is made of, so it would be a second copy. ${holds}.`;
+  const moves = [
+    map.moved_m >= 0.01 ? `moved ${metres(map.moved_m)}` : null,
+    map.turned_deg >= 0.5 ? `turned ${degrees(map.turned_deg)}` : null,
+  ].filter(Boolean);
+  const lined = moves.length
+    ? ` It was ${moves.join(' and ')} to line up with what the map holds there.`
+    : map.off_m > 0.15
+      ? ` It couldn't be lined up with what the map holds there (${metres(map.off_m)} out).`
+      : '';
+  const out = map.left_out
+    ? ` ${plural(map.left_out, 'point').replace(String(map.left_out), map.left_out.toLocaleString())} of it ${map.left_out === 1 ? 'is' : 'are'} left out: better-placed pictures saw nothing there.`
+    : '';
+  const latest = map.added
+    ? `${map.added.toLocaleString()} from its latest picture`
+    : 'its latest picture showed nothing new';
+  return `${holds}: ${latest}.${lined}${out}`;
 }
 
 /** The one way back a followed or unplaced camera's row offers, or null: put it on the plan's spot, or, once that
@@ -304,15 +336,19 @@ export function pairLine(pair: ScenePair, name: (camera: string) => string = c =
 }
 
 /** What the scene is, and isn't, said once over its cameras. */
-export const SCENE_LIMITS = 'Each camera shows only what it sees, so expect gaps and seams.';
+export const SCENE_LIMITS =
+  'One map of what the cameras have seen, each surface once. It fills in as they look around, so expect gaps.';
 
 /** A camera's state in the scene, in a word or two, and whether it wants the owner ("warn"). A camera that is
  *  tracked as it moves (`track`) says that before how its cloud is placed. */
 export function placedState(
   how: ScenePlaced['how'],
   track?: 'tracking' | 'ended' | null,
+  leftOut = false,
 ): { label: string; tone: 'plain' | 'warn' } {
   if (track) return { label: track === 'tracking' ? 'Tracking' : 'Moved', tone: 'plain' };
+  // Its latest picture disagrees with the place's map and isn't drawn: that wants the owner more than how it stands.
+  if (leftOut && how !== 'lost') return { label: 'Left out', tone: 'warn' };
   switch (how) {
     case 'spot':
       return { label: 'Placed', tone: 'plain' };

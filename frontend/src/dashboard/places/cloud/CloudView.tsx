@@ -28,6 +28,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   type ChangeEvent,
   Component,
+  type CSSProperties,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -35,7 +36,9 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { messageOf } from '../../../shared/http';
+import { readPrefs, writePrefs } from '../../../shared/prefs';
 import { PageError } from '../../lib/page';
 import { viewName } from '../../review/views';
 import { linkClick } from '../../router';
@@ -155,11 +158,20 @@ class MapCrash extends Component<{ children: ReactNode; onRetry: () => void }, {
   }
 }
 
-export default function CloudView({ place, onEditPlan }: { place: string; onEditPlan?: () => void }) {
+export default function CloudView({
+  place,
+  onEditPlan,
+  switchIn,
+}: {
+  place: string;
+  onEditPlan?: () => void;
+  /** Where the One camera / All cameras switch is put (the card's top row, beside Plan / 3D); here when absent. */
+  switchIn?: HTMLElement | null;
+}) {
   const [generation, setGeneration] = useState(0);
   return (
     <MapCrash key={generation} onRetry={() => setGeneration(n => n + 1)}>
-      <CloudMap place={place} onEditPlan={onEditPlan} />
+      <CloudMap place={place} onEditPlan={onEditPlan} switchIn={switchIn} />
     </MapCrash>
   );
 }
@@ -212,12 +224,31 @@ function Words({ text }: { text: string }) {
   );
 }
 
-function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => void }) {
+function CloudMap({
+  place,
+  onEditPlan,
+  switchIn,
+}: {
+  place: string;
+  onEditPlan?: () => void;
+  switchIn?: HTMLElement | null;
+}) {
   const webgl = useMemo(hasWebGL, []);
   // The camera picked; until one is, the scene is the place's map, or the first camera's cloud when it has none.
   const [picked, setPicked] = useState<string | null>(null);
   // One camera's own cloud, or every camera's placed in the place (#445).
-  const [mode, setMode] = useState<Mode>('one');
+  // Which scene is shown. The owner's last choice in this browser holds; before there is one, a place with more
+  // than one camera's cloud opens on all of them (the place's map), and a place with one opens on that camera.
+  const [asked, setAsked] = useState<Mode | null>(() => {
+    const kept = readPrefs().places3d;
+    return kept === 'one' || kept === 'all' ? kept : null;
+  });
+  const setMode = (next: Mode) => {
+    setAsked(next);
+    writePrefs({ ...readPrefs(), places3d: next });
+  };
+  const [several, setSeveral] = useState(false);
+  const mode: Mode = asked ?? (several ? 'all' : 'one');
   const all = mode === 'all';
   // Whether the floor and matched walls of clouds fitted to their rooms are drawn flat (#471).
   const [flat, setFlat] = useState(true);
@@ -225,6 +256,7 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
   // While the other mode's scene is on its way, the one before it stays on screen; its controls wait for the new one.
   const read = scene.data && !!scene.data.combined === all ? scene.data : undefined;
   const views = read?.views ?? scene.data?.views ?? [];
+  if (!several && (scene.data?.views ?? []).filter(view => view.cloud).length > 1) setSeveral(true);
   const camera = read?.view?.camera ?? null;
   const combined = read?.combined;
   // The cameras whose points are hidden in the scene of all of them, and whether points outside the plan are left out.
@@ -397,7 +429,7 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
         }}
       />
     );
-  const modes = views.length > 0 && (
+  const switcher = views.length > 0 && (
     <SegmentedControl
       size="xs"
       value={mode}
@@ -409,6 +441,8 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
       aria-label="Show"
     />
   );
+  // In the card's top row when the page gives a place for it there; else at the head of the view itself.
+  const modes = switcher && switchIn ? createPortal(switcher, switchIn) : switcher;
   const layers = combined && (
     <SceneLayers
       place={place}
@@ -495,9 +529,11 @@ function CloudMap({ place, onEditPlan }: { place: string; onEditPlan?: () => voi
       <div
         ref={frame}
         className={classes.cloudFrame}
-        style={{ height: `calc(100dvh - ${top}px - var(--mantine-spacing-md))` }}
+        // as tall as the window has left (places.module.css: on a phone the canvas has a height of its own)
+        style={{ '--cloud-frame-height': `calc(100dvh - ${top}px - var(--mantine-spacing-md))` } as CSSProperties}
       >
-        {views.length > 0 && (
+        {switchIn && all && !own && modes}
+        {views.length > 0 && !(switchIn && all && !own) && (
           <Group gap="md" mb="sm" align="flex-end" wrap="wrap">
             {modes}
             {!all && <CameraPicker views={views} camera={camera} onPick={setPicked} />}

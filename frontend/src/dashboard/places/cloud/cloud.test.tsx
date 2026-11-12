@@ -27,6 +27,7 @@ import {
   learningNote,
   levelLine,
   loadingText,
+  mapLine,
   pairLine,
   pictureLine,
   placedLine,
@@ -515,15 +516,15 @@ it.each([
   ],
   [
     placedAs('following', { shift_m: 0.004, turn_deg: 90.2, follow: followed() }),
-    "Following: turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
+    "Turned 90° from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
   ],
   [
     placedAs('following', { shift_m: 4.53, turn_deg: 20, follow: followed({ by: 'walls', since: NOW - 240 }) }),
-    "Following: turned 20°, moved 4.5 m from your plan's spot, 4 min ago. Placed by the walls it now sees, where they fit your plan. Your plan is unchanged.",
+    "Turned 20°, moved 4.5 m from your plan's spot, 4 min ago. Placed by the walls it now sees, where they fit your plan. Your plan is unchanged.",
   ],
   [
     placedAs('following', { shift_m: 0.5, turn_deg: 0.2, follow: followed({ by: 'pictures', since: NOW - 7200 }) }),
-    "Following: moved 50 cm from your plan's spot, 2.0 h ago. Placed by what its new picture shares with an earlier one or another camera's. Your plan is unchanged.",
+    "Moved 50 cm from your plan's spot, 2.0 h ago. Placed by what its new picture shares with an earlier one or another camera's. Your plan is unchanged.",
   ],
   [
     placedAs('spot', { follow: followed({ by: '', pinned: true }) }),
@@ -531,20 +532,20 @@ it.each([
   ],
   [
     placedAs('following', { shift_m: 0.8, turn_deg: 54, follow: followed({ by: 'tracking' }) }),
-    "Following: turned 54°, moved 80 cm from your plan's spot, a moment ago. Placed where it was tracked to as it moved. Your plan is unchanged.",
+    "Turned 54°, moved 80 cm from your plan's spot, a moment ago. Placed where it was tracked to as it moved. Your plan is unchanged.",
   ],
   [placedAs('no_spot'), 'Not in the scene: it has no spot on your plan. Give it one in the plan editor.'],
   [
     placedAs('lost', { follow: followed({ by: '', lost: 'no_walls' }) }),
-    "Not placed: its view changed, and there is no wall in view to place it by. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
+    "Its view changed, and there is no wall in view to place it by. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
   ],
   [
     placedAs('lost', { follow: followed({ lost: 'ambiguous' }) }),
-    "Not placed: its view changed, and the walls it sees fit your plan in more than one place. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
+    "Its view changed, and the walls it sees fit your plan in more than one place. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
   ],
   [
     placedAs('lost', { follow: followed({ lost: 'no_match' }) }),
-    "Not placed: its view changed, and the walls it sees don't fit your plan anywhere well enough. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
+    "Its view changed, and the walls it sees don't fit your plan anywhere well enough. It isn't drawn, keeps where it last stood, and is tried again with each new picture.",
   ],
   [placedAs('lost', { follow: followed({ lost: 'pending' }) }), 'Its view changed. It is being placed again.'],
 ])('says how a camera is placed in the scene, or why it is not in it', (camera, text) => {
@@ -560,30 +561,79 @@ const tracked = (more: Partial<NonNullable<ScenePlaced['track']>> = {}): ScenePl
   went_m: 0.9,
   from_m: 0.62,
   from_deg: 41.2,
-  keyframes: [],
   ...more,
 });
 
 it.each([
   [
     tracked(),
-    "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
+    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
   ],
   [
     tracked({ held: NOW - 13 }),
-    "Tracking: it is moving, now 62 cm and turned 41° from where its points were made, a moment ago. Last held to your plan's walls 12 s before, so it may have drifted since.",
+    "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Last held to your plan's walls 12 s before, so it may have drifted since.",
   ],
   [
     tracked({ held: null, from_m: 0, from_deg: 12 }),
-    'Tracking: it is moving, now turned 12° from where its points were made, a moment ago. No wall has held it to your plan yet, so it may be off.',
+    'It is moving, now turned 12° from where its points were made, a moment ago. No wall has held it to your plan yet, so it may be off.',
   ],
-  [tracked({ pose: null, held: null }), 'Tracking: it began to move. Its first frames are being placed.'],
+  [tracked({ pose: null, held: null }), 'It began to move. Its first frames are being placed.'],
   [
     tracked({ state: 'ended', at: NOW - 300 }),
-    'It moved and came to rest 5 min ago, 62 cm and turned 41° from where its points were made. It is placed for good once it has had about 20 seconds with nobody in view.',
+    "It came to rest 5 min ago, 62 cm away and turned 41° from where its points were made. It's placed for good after about 20 seconds with nobody in view.",
   ],
 ])('says where a moving camera is now and how far that can be trusted', (track, text) => {
   expect(trackLine(placedAs('spot', { track }), NOW)).toBe(text);
+});
+
+it("reads a tracked camera's own placement as background to where it is now", () => {
+  const camera = placedAs('following', { shift_m: 0.07, turn_deg: 0.2, follow: followed(), track: tracked() });
+  expect(placedLine(camera, c => c, NOW)).toBe(
+    "Before it began to move: moved 7 cm from your plan's spot, a moment ago. Placed where it stood, by the walls it now sees. Your plan is unchanged.",
+  );
+});
+
+const mapped = (more: Partial<NonNullable<ScenePlaced['map']>> = {}): ScenePlaced['map'] => ({
+  points: 18204,
+  state: 'added',
+  why: '',
+  added: 3100,
+  left_out: 0,
+  off_m: 0.03,
+  moved_m: 0,
+  turned_deg: 0,
+  resized: 1,
+  ...more,
+});
+
+it.each([
+  [mapped(), 'The map holds 18,204 points from this camera: 3,100 from its latest picture.'],
+  [mapped({ added: 0 }), 'The map holds 18,204 points from this camera: its latest picture showed nothing new.'],
+  [
+    mapped({ moved_m: 0.98, turned_deg: 14.2, added: 5200 }),
+    'The map holds 18,204 points from this camera: 5,200 from its latest picture. It was moved 98 cm and turned 14° to line up with what the map holds there.',
+  ],
+  [
+    mapped({ off_m: 0.2, added: 900, left_out: 4200 }),
+    "The map holds 18,204 points from this camera: 900 from its latest picture. It couldn't be lined up with what the map holds there (20 cm out). 4,200 points of it are left out: better-placed pictures saw nothing there.",
+  ],
+  [
+    mapped({ state: 'refused', why: 'apart', added: 0, points: 1 }),
+    "Its latest picture isn't in the map or drawn: it stands somewhere else than the pictures the map is made of, so it would be a second copy. The map holds 1 point from this camera.",
+  ],
+  [
+    mapped({ state: 'refused', why: 'full', added: 0 }),
+    "Its latest picture isn't in the map: the map is full. The map holds 18,204 points from this camera.",
+  ],
+])("says what the place's map took of a camera's latest picture", (map, text) => {
+  expect(mapLine(placedAs('spot', { map }))).toBe(text);
+});
+
+it("says nothing of the map before a camera's cloud was offered to it, and marks one that was left out", () => {
+  expect(mapLine(placedAs('spot'))).toBeNull();
+  expect(placedState('spot', null, true)).toEqual({ label: 'Left out', tone: 'warn' });
+  expect(placedState('lost', null, true)).toEqual({ label: 'Not placed', tone: 'warn' });
+  expect(placedState('spot', 'tracking', true)).toEqual({ label: 'Tracking', tone: 'plain' });
 });
 
 it('says nothing of tracking for a camera that is not moving, and names a moving one first', () => {

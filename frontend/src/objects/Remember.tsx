@@ -31,7 +31,7 @@ import {
   segment,
 } from './api';
 import { FrameEditor } from './FrameEditor';
-import { timestamp } from './format';
+import { backendName, timestamp } from './format';
 import { normalized } from './geometry';
 import type { ObjectDraft } from './handoff';
 import { loadImage } from './image';
@@ -46,20 +46,24 @@ const SLOW_FIND_MS = 4000;
 /** What EdgeTAM is asked to outline: a box or a point the owner chose, normalized to the frozen frame. */
 type Prompt = { bbox: Box } | { point: [number, number] };
 
-/** Freeze a camera view, then outline the object the owner points at with EdgeTAM (a clicked Live box, a click, or a
- *  drawn box), or ask EdgeTAM for every object in view (Find objects) and pick one, and save it. EdgeTAM runs only
- *  when the owner asks. */
+/** Freeze a camera view, then outline the object the owner points at (a clicked Live box, a click, or a drawn box),
+ *  or find objects in view and pick one, and save it. Find objects looks for the name typed when SAM 3 is installed
+ *  (it has one concept prompt), and otherwise takes the point grid's list of everything in view. The object models run
+ *  only when the owner asks. */
 export function Remember({
   cameras,
   cameraNames = {},
   onSaved,
   draft = null,
+  findBackend = '',
 }: {
   cameras: string[];
   /** Each camera's name (vision.camera_names), by id: what the select and captions show. */
   cameraNames?: Record<string, string>;
   onSaved: () => void;
   draft?: ObjectDraft | null;
+  /** Which model Find objects uses (`/objects/api/status`): with SAM 3 it looks for the name typed. */
+  findBackend?: string;
 }) {
   const [camera, setCamera] = useState(cameras[0] ?? 'cam0');
   const [message, setMessage] = useState({ text: '', error: false });
@@ -183,7 +187,8 @@ export function Remember({
     }
   }
 
-  /** Every object EdgeTAM finds in `region` (the part of the frame in view), shown as outlines to pick from. */
+  /** The objects found in `region` (the part of the frame in view), shown as outlines to pick from: SAM 3 looks for
+   *  the name typed when it is installed, the point grid otherwise. */
   async function findAll(view: Frozen, expected: number, region: Box) {
     let ownedJob: string | null = null;
     pickSeq.current++; // a new outline or search: a pick from before it that's still loading is stale
@@ -206,16 +211,19 @@ export function Remember({
         byte.toString(16).padStart(2, '0'),
       ).join('');
       job.current = ownedJob;
-      const result = await findObjects(view.snapshot.token, region, ownedJob, controller.signal);
+      const result = await findObjects(view.snapshot.token, region, ownedJob, name.trim(), controller.signal);
       if (job.current === ownedJob) job.current = null;
       if (revision.current !== expected) return;
       if (result.snapshot !== view.snapshot.token) throw new Error('The objects belong to another camera view.');
       setFound(result.objects);
       const seconds = (result.ms / 1000).toFixed(1);
+      const model = backendName(result.backend);
+      // The server's note explains a fallback in words ("SAM 3 had no room on the GPU ... so EdgeTAM looked instead").
+      const note = result.note ? ` ${result.note}` : '';
       say(
         result.objects.length
-          ? `Found ${result.objects.length} object${result.objects.length === 1 ? '' : 's'} in ${seconds} s. Click one to select it.`
-          : 'No objects found in view. Zoom in, or click an object to outline it.',
+          ? `Found ${result.objects.length} object${result.objects.length === 1 ? '' : 's'} in ${seconds} s with ${model}.${note} Click one to select it.`
+          : `No objects found in view with ${model}.${note || ' Zoom in, or click an object to outline it.'}`,
       );
     } catch (e) {
       if (revision.current !== expected) return;
@@ -546,6 +554,7 @@ export function Remember({
                 <Stack gap="sm">
                   <TextInput
                     label="Object name"
+                    description={findBackend === 'sam3' ? 'With SAM 3, Find objects looks for this name.' : undefined}
                     required
                     maxLength={80}
                     placeholder="my SSD"

@@ -18,6 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type FormEvent, useEffect, useState } from 'react';
 import { confirm } from '../dashboard/lib/confirm';
 import { Disclosure } from '../dashboard/lib/Disclosure';
+import { momentWords } from '../dashboard/lib/format';
 import type { Message } from '../dashboard/lib/message';
 import { LoadError, PageEmpty, PageHeader, PageLoading } from '../dashboard/lib/page';
 import { Toast } from '../dashboard/lib/Toast';
@@ -86,7 +87,11 @@ function Answer({ found }: { found: QueryResult }) {
   );
 }
 
-/** One remembered object's row. The name is edited in place (Enter saves, Escape drops it); removal asks first. */
+/** One remembered object's row. The name is edited in place (Enter saves, Escape drops it); removal asks first.
+ *  The row's controls sit in a cluster on the right, beside Last seen, so a narrow column leaves the name and its
+ *  rename box the whole middle of the row. In the page's 320 px column the thumbnail, a readable name, and that
+ *  cluster still can't share one line (measured: 33 px of name either way, which breaks a name every word), so the
+ *  cluster takes the line under the name and stays right-aligned there; a wider card keeps it on the name's line. */
 function Item({
   o,
   onFind,
@@ -95,91 +100,108 @@ function Item({
 }: {
   o: MemoryObject;
   onFind: (name: string) => void;
-  onRename: (id: string, name: string) => Promise<boolean>; // false keeps the box open, its error said in the toast
+  onRename: (id: string, name: string) => Promise<string | null>; // the store's reason, keeping the box open; null once saved
   onRemove: (o: MemoryObject) => void;
 }) {
   const [typed, setTyped] = useState<string | null>(null); // the name being edited, or null when not renaming
+  const [refused, setRefused] = useState<string | null>(null); // why the store turned the name down, on the input
+  const form = `rename-object-${o.id}`;
+  const stop = () => {
+    setTyped(null);
+    setRefused(null);
+  };
   const save = async (e: FormEvent) => {
     e.preventDefault();
     const name = (typed ?? '').trim();
     if (!name) return;
-    if (await onRename(o.id, name)) setTyped(null);
+    const why = await onRename(o.id, name);
+    if (why === null) stop();
+    else setRefused(why);
   };
   return (
-    <Group wrap="nowrap" py="sm" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
+    <Group wrap="wrap" gap="sm" py="sm" style={{ borderTop: '1px solid var(--mantine-color-default-border)' }}>
       <SafeImage className={classes.thumb} src={evidenceUrl(o.template)} alt={`Reference crop for ${o.name}`} />
-      <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
-        <Group gap={4} wrap="nowrap" align="center">
-          {typed === null ? (
-            <>
-              <Text fw={700} style={{ flex: 1, minWidth: 0 }}>
-                {o.name}
-              </Text>
-              <Tooltip label="Rename this object">
-                <ActionIcon
-                  size="sm"
-                  variant="subtle"
-                  color="gray"
-                  aria-label={`Rename ${o.name}`}
-                  onClick={() => setTyped(o.name)}
-                >
-                  <IconPencil size={14} aria-hidden />
-                </ActionIcon>
-              </Tooltip>
-              <Tooltip label="Remove this object">
-                <ActionIcon
-                  size="sm"
-                  variant="subtle"
-                  color="gray"
-                  aria-label={`Remove ${o.name}`}
-                  onClick={() => onRemove(o)}
-                >
-                  <IconTrash size={14} aria-hidden />
-                </ActionIcon>
-              </Tooltip>
-            </>
-          ) : (
-            <form onSubmit={save} style={{ flex: 1, minWidth: 0 }}>
-              <Group gap={4} wrap="nowrap" align="center">
-                <TextInput
-                  size="xs"
-                  style={{ flex: 1, minWidth: 0 }}
-                  aria-label={`New name for ${o.name}`}
-                  value={typed}
-                  maxLength={80}
-                  autoFocus
-                  onChange={e => setTyped(e.currentTarget.value)}
-                  onKeyDown={e => {
-                    if (e.key !== 'Escape') return;
-                    e.stopPropagation();
-                    setTyped(null);
-                  }}
-                />
-                <ActionIcon type="submit" size="sm" variant="default" aria-label="Save name" disabled={!typed.trim()}>
-                  <IconCheck size={14} aria-hidden />
-                </ActionIcon>
-                <ActionIcon
-                  size="sm"
-                  variant="subtle"
-                  color="gray"
-                  aria-label="Cancel rename"
-                  onClick={() => setTyped(null)}
-                >
-                  <IconX size={14} aria-hidden />
-                </ActionIcon>
-              </Group>
-            </form>
-          )}
-        </Group>
+      <Stack gap={0} style={{ flex: '1 1 140px', minWidth: 0 }}>
+        {typed === null ? (
+          <Text fw={700} style={{ minWidth: 0 }}>
+            {o.name}
+          </Text>
+        ) : (
+          <form id={form} onSubmit={save} style={{ minWidth: 0 }}>
+            <TextInput
+              size="xs"
+              aria-label={`New name for ${o.name}`}
+              value={typed}
+              maxLength={80}
+              autoFocus
+              error={refused ?? undefined}
+              onChange={e => {
+                setRefused(null);
+                setTyped(e.currentTarget.value);
+              }}
+              onKeyDown={e => {
+                if (e.key !== 'Escape') return;
+                e.stopPropagation();
+                stop();
+              }}
+            />
+          </form>
+        )}
         <Text size="sm" c="dimmed">
           {o.mode.replace('_', ' ')}
-          {o.last_seen && ` · ${timestamp(o.last_seen.captured_at)}`}
+          {o.last_seen && ` · ${momentWords(o.last_seen.captured_at)}`}
         </Text>
         {o.note && <Text size="sm">{`Your note: ${o.note}`}</Text>}
       </Stack>
-      <Button variant="default" onClick={() => onFind(o.name)}>
-        Last seen
-      </Button>
+      <Group gap={4} wrap="nowrap" align="center" style={{ marginLeft: 'auto' }}>
+        {typed === null ? (
+          <>
+            <Tooltip label="Rename this object">
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label={`Rename ${o.name}`}
+                onClick={() => setTyped(o.name)}
+              >
+                <IconPencil size={14} aria-hidden />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="Remove this object">
+              <ActionIcon
+                size="sm"
+                variant="subtle"
+                color="gray"
+                aria-label={`Remove ${o.name}`}
+                onClick={() => onRemove(o)}
+              >
+                <IconTrash size={14} aria-hidden />
+              </ActionIcon>
+            </Tooltip>
+          </>
+        ) : (
+          <>
+            <ActionIcon
+              type="submit"
+              form={form}
+              size="sm"
+              variant="default"
+              aria-label="Save name"
+              disabled={!typed.trim()}
+            >
+              <IconCheck size={14} aria-hidden />
+            </ActionIcon>
+            <Tooltip label="Keep the name it has">
+              <ActionIcon size="sm" variant="subtle" color="gray" aria-label="Cancel rename" onClick={stop}>
+                <IconX size={14} aria-hidden />
+              </ActionIcon>
+            </Tooltip>
+          </>
+        )}
+        <Button variant="default" onClick={() => onFind(o.name)}>
+          Last seen
+        </Button>
+      </Group>
     </Group>
   );
 }
@@ -211,23 +233,22 @@ export function ObjectMemoryPage() {
     onError: error => setMsg({ err: `Could not put it back: ${messageOf(error)}` }),
     onSettled: () => client.invalidateQueries({ queryKey: OVERVIEW_KEY }),
   });
-  // A name the store refuses (one another object already goes by) keeps the box open, so it can be fixed as typed.
-  const renameTo = async (id: string, name: string): Promise<boolean> => {
+  // A name the store refuses (one another object already goes by) keeps the box open, its reason on the input.
+  const renameTo = async (id: string, name: string): Promise<string | null> => {
     try {
       const { object } = await rename.mutateAsync({ id, name });
       setMsg({ text: `Renamed to ${object.name}.` });
-      return true;
+      return null;
     } catch (error) {
-      setMsg({ err: `Could not rename it: ${messageOf(error)}` });
-      return false;
+      return messageOf(error);
     }
   };
   // Asked first, as deleting a pet or a person is; the toast then offers Undo, which remembers it again.
   const remove = async (o: MemoryObject) => {
     const sure = await confirm({
       id: `remove-object-${o.id}`,
-      title: `Remove ${o.name}`,
-      body: `Remove ${o.name}? It stops being matched, and its recorded sightings stay.`,
+      title: `Remove “${o.name}”?`,
+      body: 'It stops being matched. Its recorded sightings stay, and you can undo this from the message that follows.',
       confirm: 'Remove',
       danger: true,
     });
@@ -340,6 +361,7 @@ export function ObjectMemoryPage() {
           draft={objectDraft}
           cameras={cameras}
           cameraNames={cameraNames}
+          findBackend={data.data?.status.find_objects?.backend ?? ''}
           onSaved={() => client.invalidateQueries({ queryKey: OVERVIEW_KEY })}
         />
       </div>

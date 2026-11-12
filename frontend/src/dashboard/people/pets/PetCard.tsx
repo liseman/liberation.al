@@ -6,7 +6,7 @@
 import { ActionIcon, Button, Group, Menu, Text, Title } from '@mantine/core';
 import { IconDots, IconUserMinus } from '@tabler/icons-react';
 import { ProcessingImages } from '../../../shared/ProcessingImages';
-import { capitalize } from '../../lib/format';
+import { capitalize, plural } from '../../lib/format';
 import { MainPhoto, PhotoGrid } from '../entity';
 import { Empty, ItemActions, type MenuAction, Section } from '../profile/parts';
 import classes from '../profile/profile.module.css';
@@ -30,7 +30,7 @@ import {
 export function checkText(check: Check): string {
   const tally = `${check.right} right, ${check.wrong} wrong, ${check.unknown} unsure`;
   return check.on
-    ? `recognized by appearance. Checked on ${check.tested ?? check.labeled} labeled sightings: ${tally}.`
+    ? `recognized by appearance. Checked on ${plural(check.tested ?? check.labeled, 'labeled sighting')}: ${tally}.`
     : `not recognized yet (${check.reason}).${check.labeled ? ` Checked so far: ${tally}.` : ''}`;
 }
 
@@ -42,13 +42,18 @@ function CheckLine({ check }: { check: Check }) {
 export function learningText(learning: Learning): string {
   const measured =
     learning.automatic_percent == null
-      ? `No time-separated check is available within the last ${learning.days} days.`
-      : `Checked ${span(learning.start ?? 0, learning.end ?? 0)}: ${learning.automatic_percent}% correctly named automatically in ${learning.tested} held-out sightings: ${learning.wrong} wrong, ${learning.unknown} unsure.`;
-  const stranded = learning.stranded ? ` ${learning.stranded} earlier taught sightings have no usable reference.` : '';
-  // A taught sighting whose picture was never saved keeps its label and example, but only the picture would let a
-  // change of embedding model rebuild the example (tools/restore_pet_references.py).
-  const unphotographed = learning.no_photo ? ` ${learning.no_photo} taught sightings keep no saved picture.` : '';
-  return `${measured} ${learning.references} usable teaching examples.${stranded}${unphotographed}`;
+      ? `No time-separated check is available within the last ${plural(learning.days, 'day')}.`
+      : `Checked ${span(learning.start ?? 0, learning.end ?? 0)}: ${learning.automatic_percent}% correctly named automatically in ${plural(learning.tested, 'held-out sighting')}: ${learning.wrong} wrong, ${learning.unknown} unsure.`;
+  const stranded = learning.stranded
+    ? ` ${plural(learning.stranded, 'earlier taught sighting')} ${learning.stranded === 1 ? 'has' : 'have'} no usable reference.`
+    : '';
+  // A taught sighting whose picture was never saved keeps its label and example, but only the picture lets a change of
+  // embedding model rebuild the example (tools/restore_pet_references.py), so the line says what the count costs. It
+  // stays in this paragraph rather than becoming a call to action: the way back is a developer tool.
+  const unphotographed = learning.no_photo
+    ? ` ${plural(learning.no_photo, 'taught sighting')} ${learning.no_photo === 1 ? 'has' : 'have'} no saved picture, so ${learning.no_photo === 1 ? "it can't" : "they can't"} be relearned if the recognition model changes.`
+    : '';
+  return `${measured} ${plural(learning.references, 'usable teaching example')}.${stranded}${unphotographed}`;
 }
 
 export function PetCard({

@@ -20,6 +20,7 @@ from liberational import config as cfg
 from liberational import model_runtime, ollama_health, services
 from liberational.dashboard import machine_usage, routes
 from liberational.dashboard.context import LOG, SSE_CLIENTS
+from liberational.vision import segmentation
 
 try:
     import psutil
@@ -232,6 +233,8 @@ class Stats:
         with self.lock:
             if self.last is not None and time.time() - self.last["ts"] < STATS_MIN_S:
                 return self.last
+            # Which model finds objects, and why: listed with the configured models (Settings), not as a loaded one.
+            extra = [segmentation.mask_backend_row()]
             out = {
                 "ts": time.time(),
                 "procs": [],
@@ -241,13 +244,14 @@ class Stats:
                 "model_runtime": {"processes": [], "configured": [], "errors": []},
             }
             if psutil is None:
-                out["model_runtime"] = model_runtime.snapshot(ollama=out["ollama"])
+                out["model_runtime"] = model_runtime.snapshot(ollama=out["ollama"], extra=extra)
                 out["error"] = "psutil not installed"
                 return out
             self.scan()
             out["model_runtime"] = model_runtime.snapshot(
                 {pid: role for pid, (role, _process, _blob) in self.procs.items()} if self.model_scan_known else None,
                 out["ollama"],
+                extra,
             )
             vm = psutil.virtual_memory()
             out.update(

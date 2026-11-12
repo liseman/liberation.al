@@ -2,13 +2,12 @@
 view resamples what that view would see, and joints map back to where the lens put them. With no fisheye here, the
 frames are synthetic renders through a known lens."""
 
-import pathlib
-
 import cv2
 import numpy as np
 import pytest
 import torch
 
+from liberational import config as cfg
 from liberational.see import fisheye, gpu_pose
 from liberational.vision import pose_model
 
@@ -151,19 +150,11 @@ def test_lens_for_reads_the_camera_from_the_manifest(tmp_path):
     assert fisheye.lens_for(tmp_path / "missing.toml", "fish0") is None
 
 
-MODELS = pathlib.Path(__file__).resolve().parents[1] / "data" / "models"
-
-
 def test_pose_through_a_lens_gives_frame_joints_and_their_view_joints():
-    root = next(
-        (r for r in (MODELS,) if (r / "rfdetr-small.onnx").exists()),
-        None,
-    )
-    if root is None:
+    detector, pose_path = cfg.model_path("person_detector"), cfg.model_path("pose_live")
+    if not (detector.exists() and pose_path.exists()):
         pytest.skip("model weights are missing; run mise run models")
-    pose = gpu_pose.GpuPose(
-        root / "rfdetr-small.onnx", root / "rtmpose-m_halpe26_256x192.onnx", torch.device("cpu"), lens=LENS
-    )
+    pose = gpu_pose.GpuPose(detector, pose_path, torch.device("cpu"), lens=LENS)
     frame = torch.from_numpy(render_fisheye(HALF))  # a half-size frame through a full-size calibration: it scales
     boxes = np.array([[40, 175, 150, 400], [430, 150, 530, 450]], np.float32)
     joints, view_joints = pose.skeletons(frame, boxes, views=True)
