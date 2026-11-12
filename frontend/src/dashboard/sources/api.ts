@@ -139,6 +139,7 @@ export interface ConfiguredModel {
   key: string;
   name: string;
   purpose: string;
+  why?: string; // in plain words, why this one is in use, dimmed under the purpose
   device: string;
   state: 'unloaded' | 'unknown';
 }

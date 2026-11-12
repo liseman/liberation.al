@@ -291,6 +291,7 @@ allowed-unresolved-imports = [
     "torch.**",
     "torchaudio.**",
     "transformers.**",
+    "safetensors.**",
     "faster_qwen3_tts.**",
     "huggingface_hub.**",
 ]
