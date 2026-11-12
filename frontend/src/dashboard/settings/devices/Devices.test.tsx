@@ -401,7 +401,10 @@ describe('Settings: Cameras and microphones', () => {
     const slider = await screen.findByRole('slider', { name: 'Sensitivity for Desk Mic' });
     slider.focus();
     await userEvent.keyboard('{ArrowRight}');
-    expect(await screen.findByText('Saved, in use now')).toBeInTheDocument();
+    // Said by the mark in the card's heading (a screen reader hears the same words), never by a line that moves it.
+    const said = await screen.findByText('Saved, in use now');
+    expect(said.closest('[aria-live="polite"]')).toHaveAttribute('data-phase', 'saved');
+    expect(within(screen.getByRole('region', { name: 'Microphones' })).getByText('Saved, in use now')).toBe(said);
     expect(posted).toEqual([{ mic: 'Desk Mic', sensitivity: 90 }]);
   });
 
@@ -528,7 +531,9 @@ describe('camera video controls', () => {
     expect(screen.getByText('Resolution: 1280×720 at 30 fps')).toBeInTheDocument();
     await userEvent.selectOptions(select, '640x480@60');
     await waitFor(() => expect(posted).toEqual([{ index: 0, width: 640, height: 480, fps: 60 }]));
-    expect(await screen.findByText(/restarting cam0/i)).toBeInTheDocument();
+    const said = await screen.findByText(/restarting cam0/i);
+    expect(said.closest('[aria-live="polite"]')).toHaveAttribute('data-phase', 'saved');
+    expect(within(screen.getByRole('region', { name: 'Cameras' })).getByText(/restarting cam0/i)).toBe(said);
     expect(select).toHaveValue('640x480@60');
   });
 

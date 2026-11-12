@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { type CSSProperties, useEffect, useId, useRef, useState } from 'react';
 import { messageOf } from '../../../shared/http';
 import { mirrored, setMirrored, usePrefs } from '../../lib/prefs';
+import { failed, SAVE_IDLE, SaveState, type SaveStatus, saved, saving } from '../../lib/SaveState';
 import { useLive } from '../../live/hooks';
 import type { AmbientDevice } from '../../live/types';
 import { micName } from '../../livetab/Mics';
@@ -189,32 +190,35 @@ function CameraSettings({
   );
 }
 
-function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
+function Cameras({ view, off, onStatus }: { view: DeviceView; off: boolean; onStatus: (status: SaveStatus) => void }) {
   const d = useDraft();
   const states = useCameraStates();
   const prefs = usePrefs();
   const client = useQueryClient();
-  const [note, setNote] = useState('');
   const [zonesOf, setZonesOf] = useState<string | null>(null); // the camera whose zone editor is open
   const [restartFailed, setRestartFailed] = useState(false);
   const receive = (r: DeviceView) => {
-    if (r.ok === false) return setNote(r.error || 'Not saved');
+    if (r.ok === false) return onStatus(failed(r.error || 'Not saved'));
     client.setQueryData(DEVICES_KEY, r);
     const restart = r.restart;
     if (restart && restart.status !== 'restarting') {
-      setNote(
-        restart.device === 'all'
-          ? `Couldn't restart all capture. ${restart.message}`
-          : `Couldn't restart ${restart.device}. Settings saved. ${restart.message}`,
+      onStatus(
+        failed(
+          restart.device === 'all'
+            ? `Couldn't restart all capture. ${restart.message}`
+            : `Couldn't restart ${restart.device}. Settings saved. ${restart.message}`,
+        ),
       );
       setRestartFailed(!!r.restart_all_available);
     } else {
-      setNote(
-        restart
-          ? restart.device === 'all'
-            ? 'Restarting all capture.'
-            : `Settings saved; restarting ${restart.device}.`
-          : '',
+      onStatus(
+        saved(
+          restart
+            ? restart.device === 'all'
+              ? 'Restarting all capture.'
+              : `Settings saved; restarting ${restart.device}.`
+            : 'Settings saved.',
+        ),
       );
       setRestartFailed(false);
     }
@@ -224,16 +228,18 @@ function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
       'on' in change ? saveCamera(change.index, change.on) : saveCameraVideo(change),
     onMutate: change => {
       setRestartFailed(false);
-      setNote('on' in change ? 'Saving; all cameras pause while capture restarts.' : 'Saving camera settings.');
+      onStatus(
+        saving('on' in change ? 'Saving; all cameras pause while capture restarts.' : 'Saving camera settings.'),
+      );
     },
     onSuccess: receive,
-    onError: e => setNote(`Couldn't confirm the save: ${messageOf(e)}`),
+    onError: e => onStatus(failed(`Couldn't confirm the save: ${messageOf(e)}`)),
   });
   const restartAll = useMutation({
     mutationFn: restartCapture,
-    onMutate: () => setNote('Restarting all capture; all cameras pause for a few seconds.'),
+    onMutate: () => onStatus(saving('Restarting all capture; all cameras pause for a few seconds.')),
     onSuccess: receive,
-    onError: e => setNote(`Couldn't restart all capture: ${messageOf(e)}`),
+    onError: e => onStatus(failed(`Couldn't restart all capture: ${messageOf(e)}`)),
   });
   const pending = save.isPending || restartAll.isPending;
   const places = parsePlaces(d.value('vision.camera_names'), shell().cams);
@@ -247,13 +253,6 @@ function Cameras({ view, off }: { view: DeviceView; off: boolean }) {
     );
   return (
     <>
-      {note && (
-        <SettingsRow>
-          <Text size="sm" c="dimmed" role="status">
-            {note}
-          </Text>
-        </SettingsRow>
-      )}
       {restartFailed && (
         <SettingsRow>
           <Stack gap="xs" className={classes.restartFallback}>
@@ -357,6 +356,7 @@ function SensitivitySlider({
   save,
   off,
   reset,
+  onStatus,
 }: {
   label: string;
   thumb: string;
@@ -364,6 +364,7 @@ function SensitivitySlider({
   save: (v: number) => Promise<DeviceView>;
   off: boolean;
   reset?: () => Promise<DeviceView>; // back to the default, for a mic with its own
+  onStatus: (status: SaveStatus) => void;
 }) {
   const client = useQueryClient();
   const [shown, setShown] = useState(value ?? 70);
@@ -372,21 +373,20 @@ function SensitivitySlider({
     setWas(value); // changed elsewhere (a new default): show it
     setShown(value ?? 70);
   }
-  const [note, setNote] = useState('');
   const mutation = useMutation({
     mutationFn: (v: number | null) => (v == null && reset ? reset() : save(v ?? 70)),
-    onMutate: () => setNote('Saving'),
+    onMutate: () => onStatus(saving('Saving the sensitivity.')),
     onSuccess: r => {
       if (r.ok === false) {
-        setNote(r.error || 'Not saved');
+        onStatus(failed(r.error || 'Not saved'));
         return;
       }
       client.setQueryData(DEVICES_KEY, r);
       void client.invalidateQueries({ queryKey: CONFIG_KEY });
-      setNote(r.note || 'Saved, in use now');
+      onStatus(saved(r.note || 'Saved, in use now'));
     },
     onError: e => {
-      setNote(`Not saved: ${messageOf(e)}`);
+      onStatus(failed(`Not saved: ${messageOf(e)}`));
       setShown(value ?? 70);
     },
   });
@@ -413,17 +413,18 @@ function SensitivitySlider({
           </Button>
         )}
       </div>
-      {note && (
-        <Text span size="xs" c="dimmed" role="status" className={classes.saveNote}>
-          {note}
-        </Text>
-      )}
     </div>
   );
 }
 
-/** Default microphone sensitivity in Devices: live, outside the draft. Its caller supplies the shared row. */
-export function DefaultSensitivity({ row, id, disabled }: ControlProps) {
+/** Default microphone sensitivity in Devices: live, outside the draft. Its caller supplies the shared row, and the
+ *  mark in the section's heading that says how its last save went. */
+export function DefaultSensitivity({
+  row,
+  id,
+  disabled,
+  onStatus,
+}: ControlProps & { onStatus: (status: SaveStatus) => void }) {
   const d = useDraft();
   const view = useDeviceView();
   const saved = view.data?.default_sensitivity ?? Number(d.value(row.key) ?? 70);
@@ -435,6 +436,7 @@ export function DefaultSensitivity({ row, id, disabled }: ControlProps) {
         value={saved}
         save={saveDefaultSensitivity}
         off={disabled || !d.view.control}
+        onStatus={onStatus}
       />
     </div>
   );
@@ -442,18 +444,27 @@ export function DefaultSensitivity({ row, id, disabled }: ControlProps) {
 
 /** Auto gain for one mic: on or off at once, live, outside the draft. Under it, which gain moves and where it
  *  is now, from the microphone service's status ("Hardware gain +12.5 dB": the mic's own capture volume). */
-function AutoGain({ mic, live, off }: { mic: MicRow; live: MicGain | undefined; off: boolean }) {
+function AutoGain({
+  mic,
+  live,
+  off,
+  onStatus,
+}: {
+  mic: MicRow;
+  live: MicGain | undefined;
+  off: boolean;
+  onStatus: (status: SaveStatus) => void;
+}) {
   const client = useQueryClient();
-  const [note, setNote] = useState('');
   const save = useMutation({
     mutationFn: (on: boolean) => saveAutoGain(mic.id, on),
-    onMutate: () => setNote('Saving'),
+    onMutate: () => onStatus(saving('Saving the auto gain.')),
     onSuccess: r => {
-      if (r.ok === false) return setNote(r.error || 'Not saved');
+      if (r.ok === false) return onStatus(failed(r.error || 'Not saved'));
       client.setQueryData(DEVICES_KEY, r);
-      setNote('');
+      onStatus(saved('Auto gain saved.'));
     },
-    onError: e => setNote(`Not saved: ${messageOf(e)}`),
+    onError: e => onStatus(failed(`Not saved: ${messageOf(e)}`)),
   });
   const now = gainText(live ?? mic.gain);
   return (
@@ -470,29 +481,31 @@ function AutoGain({ mic, live, off }: { mic: MicRow; live: MicGain | undefined; 
       <Text size="sm" c="dimmed" mt={4}>
         Can change how voices are recognized. Record your voice sample again after turning it on.
       </Text>
-      {note && (
-        <Text size="xs" c="dimmed" role="status">
-          {note}
-        </Text>
-      )}
     </SettingsRow>
   );
 }
 
-function Microphones({ view, off }: { view: DeviceView; off: boolean }) {
+function Microphones({
+  view,
+  off,
+  onStatus,
+}: {
+  view: DeviceView;
+  off: boolean;
+  onStatus: (status: SaveStatus) => void;
+}) {
   const ambient = useLive('ambient');
   const root = useRef<HTMLDivElement>(null);
   const client = useQueryClient();
-  const [note, setNote] = useState('');
   const save = useMutation({
     mutationFn: ({ id, on }: { id: string; on: boolean }) => saveMic(id, on),
-    onMutate: () => setNote('Saving, and restarting capture'),
+    onMutate: () => onStatus(saving('Saving, and restarting capture.')),
     onSuccess: r => {
-      if (r.ok === false) return setNote(r.error || 'Not saved');
+      if (r.ok === false) return onStatus(failed(r.error || 'Not saved'));
       client.setQueryData(DEVICES_KEY, r);
-      setNote('');
+      onStatus(saved('Microphone saved.'));
     },
-    onError: e => setNote(`Not saved: ${messageOf(e)}`),
+    onError: e => onStatus(failed(`Not saved: ${messageOf(e)}`)),
   });
   useLiveLevels(root); // the meters move with the live levels
   // The live status is keyed by each microphone's stream name (wave3), as capture's manifest names it
@@ -508,13 +521,6 @@ function Microphones({ view, off }: { view: DeviceView; off: boolean }) {
     );
   return (
     <div ref={root}>
-      {note && (
-        <SettingsRow>
-          <Text size="sm" c="dimmed" role="status">
-            {note}
-          </Text>
-        </SettingsRow>
-      )}
       {view.mics.map(m => {
         const name = micName(m.id, known);
         const dev = m.stream ? status[m.stream] : undefined;
@@ -571,10 +577,11 @@ function Microphones({ view, off }: { view: DeviceView; off: boolean }) {
                   save={v => saveSensitivity(m.id, v)}
                   off={off}
                   reset={m.sensitivity_custom ? () => saveSensitivity(m.id, null) : undefined}
+                  onStatus={onStatus}
                 />
               </div>
             </SettingsRow>
-            <AutoGain mic={m} live={dev?.gain} off={off || !m.present} />
+            <AutoGain mic={m} live={dev?.gain} off={off || !m.present} onStatus={onStatus} />
           </SourceItem>
         );
       })}
@@ -587,6 +594,10 @@ export function Devices() {
   const sensitivityRow = d.all.find(row => row.key === 'audio.sensitivity');
   const view = useDeviceView();
   const off = !d.view.control || d.busy;
+  // Each card says how its last save went in its heading, in a slot that is always there: a spinner while it saves
+  // and capture restarts, a check once it has, and an error mark with the reason when it failed.
+  const [camerasStatus, setCamerasStatus] = useState<SaveStatus>(SAVE_IDLE);
+  const [micsStatus, setMicsStatus] = useState<SaveStatus>(SAVE_IDLE);
   return (
     <>
       <Text size="sm" c="dimmed">
@@ -596,9 +607,14 @@ export function Devices() {
         <Anchor href={`#${DEVICE_CARD.microphones}`}>Microphones</Anchor> ·{' '}
         <Anchor href={`#${DEVICE_CARD.bluetooth}`}>Bluetooth</Anchor>
       </Text>
-      <SettingsSection title="Cameras" id={DEVICE_CARD.cameras} tabIndex={-1}>
+      <SettingsSection
+        title="Cameras"
+        id={DEVICE_CARD.cameras}
+        tabIndex={-1}
+        trailing={<SaveState status={camerasStatus} />}
+      >
         {view.data ? (
-          <Cameras view={view.data} off={off} />
+          <Cameras view={view.data} off={off} onStatus={setCamerasStatus} />
         ) : (
           <SettingsRow>
             <Text c="dimmed">
@@ -615,7 +631,12 @@ export function Devices() {
           disabled: off,
         }}
       />
-      <SettingsSection title="Microphones" id={DEVICE_CARD.microphones} tabIndex={-1}>
+      <SettingsSection
+        title="Microphones"
+        id={DEVICE_CARD.microphones}
+        tabIndex={-1}
+        trailing={<SaveState status={micsStatus} />}
+      >
         {sensitivityRow && (
           <SettingsRow>
             <DefaultSensitivity
@@ -623,6 +644,7 @@ export function Devices() {
               id="set-audio.sensitivity"
               labelled="default-sensitivity-label"
               disabled={off}
+              onStatus={setMicsStatus}
             />
           </SettingsRow>
         )}
@@ -632,7 +654,7 @@ export function Devices() {
             <SettingRow key={row.key} row={row} />
           ))}
         {view.data ? (
-          <Microphones view={view.data} off={off} />
+          <Microphones view={view.data} off={off} onStatus={setMicsStatus} />
         ) : (
           <SettingsRow>
             <Text c="dimmed">

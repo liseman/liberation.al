@@ -171,10 +171,6 @@
   flex: 1;
   min-width: 0;
 }
-.saveNote {
-  grid-column: 1 / -1;
-}
-
 .value {
   flex: none;
   width: 2.5em;
