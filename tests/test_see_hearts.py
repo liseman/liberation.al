@@ -132,7 +132,7 @@ def test_a_monochrome_picture_is_stored_as_no_reading():
 def test_a_gap_starts_the_window_again():
     writers = Writers()
     subject = hearts.Hearts("cam0", FPS, writers)
-    last = feed(subject, seconds=8.0)
+    last = feed(subject, seconds=10.0)  # the window fills at 7.2 s, so readings at 8.0 and 9.0 s
     subject.gap()
     feed(subject, seconds=2.0, from_ns=last + 6_000_000_000)  # a 6 s gap, then two more seconds of frames
     subject.flush()
