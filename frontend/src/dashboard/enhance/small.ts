@@ -98,3 +98,45 @@ export class SmallCopier {
     return { canvas: small.canvas, luma: { data, width: lw, height: lh } };
   }
 }
+
+/** A frame's source may spend this share of the time between frames on the frame and its small copy together. */
+const ROOM = 0.6;
+/** Without room, the copy is tried again this often (sooner the first few times, while its cost is still being
+ *  learnt: the first copy also pays for its canvases). */
+const RETRY_MS = 10_000;
+const RETRY_FIRST_MS = 1000;
+
+/** Decides, frame by frame, whether a frame's source has room to make the small copy as well as the frame. The
+ *  video comes first: where drawing a frame and handing it over already takes most of the time between frames (a
+ *  1920 by 1080 stream at 60 a second in a browser whose canvases live on the processor), the copy would make the
+ *  source miss frames, so it is left to the page's thread, which has the room there. */
+export class CopyRoom {
+  private base = Number.NaN; // ms a frame takes without the copy
+  private copy = Number.NaN; // ms the copy takes
+  private gap = Number.NaN; // ms between frames
+  private lastUs = Number.NaN;
+  private retryAt = 0;
+  private trials = 0;
+
+  /** Whether to make the copy with the frame being drawn now (now in ms). */
+  wanted(now: number): boolean {
+    // Until its cost and the frame rate are known, make it: that is how they are learnt
+    if (Number.isNaN(this.copy) || Number.isNaN(this.gap) || Number.isNaN(this.base)) return true;
+    if (this.base + this.copy <= ROOM * this.gap) return true;
+    if (now < this.retryAt) return false;
+    // One try, to see whether there is room now
+    this.trials += 1;
+    this.retryAt = now + (this.trials <= 3 ? RETRY_FIRST_MS : RETRY_MS);
+    return true;
+  }
+
+  /** After a frame: its capture time in microseconds, how long it took without the copy, and how long the copy
+   *  took when one was made (both in ms). */
+  took(capturedUs: number, baseMs: number, copyMs?: number): void {
+    const gap = (capturedUs - this.lastUs) / 1000;
+    this.lastUs = capturedUs;
+    if (gap > 0 && gap < 1000) this.gap = Number.isNaN(this.gap) ? gap : this.gap + 0.1 * (gap - this.gap);
+    this.base = Number.isNaN(this.base) ? baseMs : this.base + 0.1 * (baseMs - this.base);
+    if (copyMs !== undefined) this.copy = Number.isNaN(this.copy) ? copyMs : this.copy + 0.5 * (copyMs - this.copy);
+  }
+}

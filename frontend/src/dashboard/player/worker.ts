@@ -9,7 +9,7 @@
 // their playhead before reporting the request ID and actual capture time.
 
 import { type FrameMetadata, sourceBoxToDecoded, sourceContentRect } from '../camera/geometry';
-import { SmallCopier, type SmallCopy } from '../enhance/small';
+import { CopyRoom, SmallCopier, type SmallCopy } from '../enhance/small';
 import { BONES, MIN_CONF } from '../pose/skeleton';
 import { av1Sequence, looksLikeAv1 } from './av1';
 import { avcParameterSets } from './avc';
@@ -93,6 +93,8 @@ class Pipeline {
   private returnBitmap = false;
   private small = false;
   private copier: SmallCopier | null = null;
+  /** Whether there is room to make the small copy without holding the video up. */
+  private room = new CopyRoom();
   private ctx: OffscreenCanvasRenderingContext2D | null = null;
   private decoder: VideoDecoder | null = null;
   private codec: Codec | null = null;
@@ -131,6 +133,7 @@ class Pipeline {
   /** Whether to hand a small copy over with each returned frame. */
   setSmall(on: boolean): void {
     this.small = on;
+    this.room = new CopyRoom();
     if (!on) this.copier = null;
   }
 
@@ -431,6 +434,7 @@ class Pipeline {
     const frame = this.frames.get(best);
     if (!frame) return;
     const { picture, flip, media, epoch } = frame;
+    const began = performance.now();
     this.shownUs = best;
     const w = picture instanceof ImageBitmap ? picture.width : picture.displayWidth;
     const h = picture instanceof ImageBitmap ? picture.height : picture.displayHeight;
@@ -460,8 +464,14 @@ class Pipeline {
     const pick = this.overlays.pick(best);
     if (pick.kind !== 'none') draw(this.ctx, media ? projectedOverlay(pick.overlay, metadata) : pick.overlay, w, h);
     if (this.returnBitmap) {
-      // Before the canvas's picture leaves with the frame
-      const small = this.small ? this.smallCopy(w, h) : undefined;
+      // The small copy, where there is room for it, before the canvas's picture leaves with the frame
+      let small: SmallCopy | undefined;
+      let copyMs: number | undefined;
+      if (this.small && this.room.wanted(performance.now())) {
+        const from = performance.now();
+        small = this.smallCopy(w, h);
+        copyMs = performance.now() - from;
+      }
       this.post({
         type: 'frame',
         bitmap: this.canvas.transferToImageBitmap(),
@@ -470,6 +480,7 @@ class Pipeline {
         metadata,
         epoch,
       });
+      if (this.small) this.room.took(best, performance.now() - began - (copyMs ?? 0), copyMs);
     }
     this.post({
       type: 'drawn',

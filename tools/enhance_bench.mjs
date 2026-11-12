@@ -56,8 +56,8 @@ const sizes = option('sizes', '960x540@30,1280x720@30,1920x1080@30,1920x1080@60'
 const looks = option('looks', 'subtle,contrast,colour').split(',');
 const seconds = Number(option('seconds', '6'));
 const firefoxBinary = option('firefox', '/usr/lib/firefox/firefox');
-// 'worker' (the frame's source hands over its small copy and luma, as live video does) or 'page' (the renderer
-// makes them)
+// 'worker' (the frame's source hands over its small copy and luma while it has room, as live video's player
+// worker does) or 'page' (the renderer always makes them)
 const workerCopy = option('copy', 'worker') === 'worker';
 // 'fine' (the scene has hairlines and fine stripes, which is hard on any stabiliser) or 'plain' (blocks and lines)
 const fine = option('detail', 'fine') === 'fine';
@@ -106,6 +106,7 @@ function frameWorker() {
   let context;
   let run;
   let copier = null;
+  let room = null;
   try {
     importScripts('/small.js');
   } catch {
@@ -178,6 +179,8 @@ function frameWorker() {
     // A renderer without a small.ts beside it (an older one) takes the frame alone
     const maker = run.workerCopy && self.EnhanceSmall?.SmallCopier;
     copier = maker ? new maker((cw, ch) => new OffscreenCanvas(cw, ch)) : null;
+    // As the player worker does: only while there is room for the copy in the time between frames
+    room = copier ? new self.EnhanceSmall.CopyRoom() : null;
   }
 
   /** How far the camera has moved at t seconds, in frame pixels. */
@@ -192,8 +195,11 @@ function frameWorker() {
   }
 
   function frame(i) {
+    const began = performance.now();
     const t = i / run.fps;
-    const [ox, oy] = offset(t);
+    // Timing runs move the scene by whole pixels: a part-pixel move makes the 2D canvas resample the whole scene,
+    // which costs this worker more than a frame's time at 1920 by 1080 and says nothing about the renderer
+    const [ox, oy] = run.mode === 'behaviour' ? offset(t) : offset(t).map(Math.round);
     context.drawImage(base, -MARGIN - ox, -MARGIN - oy);
     if (run.travel) {
       const g = ground();
@@ -204,15 +210,20 @@ function frameWorker() {
     // The small copy and its luma, as the player worker makes them for live video (enhance/small.ts), before the
     // canvas's picture leaves with the frame
     let small;
-    if (copier) {
+    const copyBegan = performance.now();
+    const wanted = copier && room.wanted(copyBegan);
+    if (wanted) {
       const made = copier.copy(canvas, run.width, run.height, false, true);
       const picture = made.canvas.transferToImageBitmap();
       small = { picture, luma: made.luma.data, width: made.luma.width, height: made.luma.height };
     }
+    const copyMs = performance.now() - copyBegan;
     const bitmap = canvas.transferToImageBitmap();
+    const makeMs = performance.now() - began;
+    if (copier) room.took(t * 1e6, makeMs - (wanted ? copyMs : 0), wanted ? copyMs : undefined);
     const sent = performance.timeOrigin + performance.now();
     const moved = small ? [bitmap, small.picture, small.luma.buffer] : [bitmap];
-    self.postMessage({ type: 'frame', bitmap, small, i, t, ox, oy, sent }, moved);
+    self.postMessage({ type: 'frame', bitmap, small, i, t, ox, oy, sent, makeMs, copyMs }, moved);
   }
 
   self.onmessage = e => {
@@ -337,6 +348,9 @@ async function benchPage() {
     const lit = [];
     const litGround = [];
     const off = [];
+    const workerMs = [];
+    const copyMs = [];
+    let withCopy = 0;
     const fences = [];
     const gpuMs = [];
     let frames = 0;
@@ -375,6 +389,9 @@ async function benchPage() {
       worker.onmessage = e => {
         const m = e.data;
         const arrived = performance.now();
+        workerMs.push(m.makeMs);
+        copyMs.push(m.copyMs);
+        if (m.small) withCopy += 1;
         if (!frames) firstArrival = arrived;
         lastArrival = arrived;
         if (run.mode === 'paced') {
@@ -449,6 +466,10 @@ async function benchPage() {
       out.worstAnimationGapMs = round(worstGap);
     }
     out.frames = frames;
+    // What the frame's source spent making each frame, and of that, making the small copy and luma
+    out.sourceMs = { median: round(median(workerMs)), p95: round(centile(workerMs, 0.95)) };
+    out.sourceCopies = withCopy;
+    out.sourceCopyMs = { median: round(median(copyMs)), p95: round(centile(copyMs, 0.95)) };
     out.heldMs = { median: round(median(held)), p95: round(centile(held, 0.95)) };
     out.plainMs = { median: round(median(plainMs)), p95: round(centile(plainMs, 0.95)) };
     if (run.mode !== 'paced') {

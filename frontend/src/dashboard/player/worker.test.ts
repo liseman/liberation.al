@@ -389,7 +389,8 @@ describe('Pipeline', () => {
     p.reset();
   });
 
-  it('hands a small copy and its luma over with each returned frame while asked to, made before the picture leaves', async () => {
+  /** Worker canvases that record what is drawn on them and what leaves them. */
+  function smallCanvases() {
     const order: string[] = [];
     const made: { width: number; height: number; drawn: unknown[] }[] = [];
     vi.stubGlobal(
@@ -422,6 +423,11 @@ describe('Pipeline', () => {
         }
       },
     );
+    return { order, made };
+  }
+
+  it('hands a small copy and its luma over with each returned frame while asked to, made before the picture leaves', async () => {
+    const { order, made } = smallCanvases();
     const p = new Pipeline(m => posted.push(m));
     const { ctx } = fakeContext();
     const canvas = {
@@ -453,6 +459,37 @@ describe('Pipeline', () => {
     p.setSmall(false);
     await p.take(jpegMessage(3_000_000));
     expect(posted.filter(m => m.type === 'frame').at(-1)).not.toHaveProperty('small');
+    p.reset();
+  });
+
+  it('stops making small copies when they would hold the video up, and leaves them to the page', async () => {
+    smallCanvases();
+    // Every look at the clock is 6 ms later: a frame takes 18 ms and its copy 6, at 60 frames a second
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      now += 6;
+      return now;
+    });
+    const p = new Pipeline(m => posted.push(m));
+    const { ctx } = fakeContext();
+    p.setCanvas(
+      {
+        width: 0,
+        height: 0,
+        getContext: () => ctx,
+        transferToImageBitmap: () => new FakeBitmap(),
+      } as unknown as OffscreenCanvas,
+      true,
+    );
+    p.setSmall(true);
+    p.show('live');
+    for (let i = 1; i <= 30; i++) await p.take(jpegMessage(i * 16_667));
+    const frames = posted.filter(m => m.type === 'frame');
+    expect(frames).toHaveLength(30);
+    // The first frames carry one (that is how its cost is learnt), then only the odd retry does
+    expect(frames[0]).toHaveProperty('small');
+    expect(frames.filter(m => 'small' in m).length).toBeLessThan(8);
+    expect(frames.at(-1)).not.toHaveProperty('small');
     p.reset();
   });
 
