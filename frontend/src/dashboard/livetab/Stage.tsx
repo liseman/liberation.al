@@ -2,7 +2,7 @@
 // A selected exact camera ID gets the full video and
 // face/object controls; the #camera hash preserves that selection across reloads. The caption sits below pixels.
 import { Anchor, Button, NativeSelect, Switch, Text, Tooltip, UnstyledButton } from '@mantine/core';
-import { useMergedRef } from '@mantine/hooks';
+import { useMediaQuery, useMergedRef } from '@mantine/hooks';
 import { IconEqual } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { type RefObject, useEffect, useRef, useState } from 'react';
@@ -13,7 +13,9 @@ import { currentBoxes } from '../camera/gateway';
 import { LiveBoxes } from '../camera/LiveBoxes';
 import { LiveCam, useCameraAspect } from '../camera/LiveCam';
 import { PreviewCam } from '../camera/PreviewCam';
+import { EnhanceButton, EnhanceLayer, EnhanceLook, useEnhanceUnsupported } from '../enhance/Enhance';
 import { hm } from '../lib/format';
+import { PHONE_WIDTH } from '../lib/page';
 import { mirrored, setMirrored, setPref, usePrefs } from '../lib/prefs';
 import { rememberedHeight, useRememberHeight } from '../lib/rememberedHeight';
 import { useLive } from '../live/hooks';
@@ -112,6 +114,11 @@ function Large({
 }) {
   const mirror = usePrefs(s => mirrored(s, cam));
   const skeletons = useSkeletons();
+  const enhanceOn = usePrefs(s => !!s.enhance);
+  const unsupported = useEnhanceUnsupported(s => s.reason);
+  const enhance = enhanceOn && !unsupported;
+  // On a phone the look picker would cover much of the picture: it goes in a row under it instead
+  const phone = useMediaQuery(PHONE_WIDTH, undefined, { getInitialValueInEffect: false });
   const name = viewName(cam);
   const figure = useCameraAspect<HTMLElement>(cam);
   const [error, setError] = useState('');
@@ -135,6 +142,7 @@ function Large({
         {state === 'live' ? (
           <>
             <LiveCam cam={cam} alt={last?.caption || `Live video from ${name}`} />
+            {enhance && <EnhanceLayer cam={cam} />}
             <LiveBoxes cam={cam} mirror={mirror} onPick={pick} pickObjects relabel={relabel} skeletons={skeletons} />
           </>
         ) : (
@@ -145,9 +153,22 @@ function Large({
           <span className="cam-name-text">{name}</span>
           <CameraControls camera={cam} name={name} />
         </span>
-        {state === 'live' && <FlipButton cam={cam} />}
-        {state === 'live' && <SkeletonButton />}
+        {state === 'live' && (
+          <div className="cam-tools">
+            <div className="cam-tools-row">
+              <EnhanceButton />
+              <SkeletonButton />
+              <FlipButton cam={cam} />
+            </div>
+            {enhance && !phone && <EnhanceLook />}
+          </div>
+        )}
       </div>
+      {state === 'live' && enhance && phone && (
+        <div className="cam-enhance-row">
+          <EnhanceLook />
+        </div>
+      )}
       {error && <Text role="alert">{error}</Text>}
       {state === 'live' && last?.caption && (
         <figcaption className="cam-caption">
