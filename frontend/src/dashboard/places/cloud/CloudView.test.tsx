@@ -760,17 +760,21 @@ it('shows a moving camera as Tracking, with where it is now, and asks for the sc
     went_m: 0.9,
     from_m: 0.62,
     from_deg: 41.2,
+    added: 4200,
+    added_at: at - 1,
   };
   serveAll([placedRow('hall', { track }), placedRow('porch')]);
   renderPage(<CloudView place="p1" />);
   await toAll();
   const [hall, porch] = (await screen.findAllByRole('listitem')) as [HTMLElement, HTMLElement];
   expect(await within(hall).findByText('Tracking')).toBeTruthy();
-  expect(
-    await within(hall).findByText(
-      "It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago. Held to your plan's walls.",
-    ),
-  ).toBeTruthy();
+  // the seconds since the last points went in are whatever the clock makes them by the time the row is drawn
+  const said = /This move has added 4,200 points to the map, the last \d+ s ago\.$/;
+  const line = await within(hall).findByText(said);
+  expect(line.textContent).toMatch(
+    /^It is moving, now 62 cm away and turned 41° from where its points were made, a moment ago\. Held to your plan's walls\. /,
+  );
+  expect(within(hall).getByLabelText(said)).toBeTruthy(); // and its row says so without being opened
   expect(within(porch).getByText('Placed')).toBeTruthy();
   expect(within(porch).queryByText(/^It is moving/)).toBeNull();
 });

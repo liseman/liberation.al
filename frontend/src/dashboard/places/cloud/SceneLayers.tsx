@@ -6,7 +6,7 @@
 // out open under the row on demand.
 // A camera that was turned or carried is placed again by itself (#509): nothing is asked. Its detail says what was
 // done and offers the one way back, to the plan's spot, which changes nothing of the owner's plan and can be undone.
-import { ActionIcon, Badge, Button, Checkbox, Collapse, ColorSwatch, Group, Stack, Text } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Collapse, ColorSwatch, Group, Stack, Text } from '@mantine/core';
 import { IconChevronDown } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -17,6 +17,7 @@ import { followCamera, type ScenePair, type ScenePlaced } from '../api';
 import { tintCss } from './layers';
 import {
   APPROXIMATE,
+  addedNote,
   bendLine,
   coveredLine,
   fitLine,
@@ -102,6 +103,7 @@ export function SceneLayers({
           const leftOut = camera.map?.state === 'refused' && camera.map.why === 'apart';
           const state = placedState(camera.how, camera.track?.state, leftOut);
           const tracked = trackLine(camera);
+          const added = addedNote(camera);
           const shown = open.has(camera.camera);
           const way = wayBack(camera);
           const lines = [
@@ -129,6 +131,16 @@ export function SceneLayers({
                 <Text size="sm" truncate flex={1} miw={0}>
                   {name}
                 </Text>
+                {added && (
+                  <Text size="xs" c="dimmed" flex="0 0 auto" aria-label={added.label}>
+                    <Box component="span" visibleFrom="xs" aria-hidden>
+                      {added.wide}
+                    </Box>
+                    <Box component="span" hiddenFrom="xs" aria-hidden>
+                      {added.narrow}
+                    </Box>
+                  </Text>
+                )}
                 <Badge
                   variant="light"
                   tt="none"

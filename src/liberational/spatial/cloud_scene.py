@@ -326,6 +326,29 @@ def standing(store: camera_clouds.Store, camera: str, spots: Mapping[str, SpotAt
     return stood.at
 
 
+def resting(
+    store: camera_clouds.Store, camera: str, spots: Mapping[str, SpotAt], rooms: Sequence[Ring]
+) -> tuple[At, np.ndarray, Callable[[], np.ndarray | None]] | None:
+    """What a track of `camera` begins on (spatial/camera_track.py): where it stands (`standing`), its camera in
+    the scene as its cloud has it (4 x 4, carrying the cloud's fitted size), and a reader of the picture that cloud
+    was made from (None when it isn't kept). None when the camera isn't placed."""
+    at = standing(store, camera, spots, rooms)
+    cloud, spot = store.current(camera), spots.get(camera)
+    if at is None or cloud is None or spot is None:
+        return None
+    stood = _stood(store, camera, cloud, spot, cloud_align.plan_key(rooms))
+    across, upward = stood.sized or (1.0, 1.0)
+    lie = _transform(stood.at) @ np.diag([across, across, upward, 1.0])
+    picture = store.picture(cloud)
+
+    def read() -> np.ndarray | None:
+        import cv2
+
+        return cv2.imread(str(picture)) if picture.is_file() else None
+
+    return at, lie @ np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4), read
+
+
 FOLLOW = "follow.json"
 #: Why a view can't be placed (`Follow.lost`): spatial/cloud_align.py `Located.state`'s, and "pending" in a scene
 #: read before the camera was placed again.
@@ -532,12 +555,16 @@ def shot_of(
     colours: np.ndarray | None,
     planes: Sequence[cloud_align.Plane],
     fit: cloud_align.Fit | None,
+    lie: np.ndarray | None = None,
 ) -> cloud_map.Offer:
-    """A levelled cloud standing at `stand`, as a shot to offer a place's map (spatial/cloud_map.py)."""
+    """A levelled cloud standing at `stand`, as a shot to offer a place's map (spatial/cloud_map.py). With `lie`
+    (the cloud's frame in the scene, 4 x 4), it is offered exactly there: a tracked keyframe, whose camera's tilt
+    the track knows better than the keyframe's own cloud does."""
     fill = np.full((len(points), 3), 160, dtype=np.uint8) if colours is None else colours
     pose = np.asarray(cloud.pose, dtype=np.float64).reshape(4, 4)
     return cloud_map.Offer(shot, cloud.id, cloud.camera, cloud.at, held, score, points, fill,
-                           cloud_merge.surfaces(planes), stand, up, pose, cloud.focal, cloud.width, cloud.height, fit)  # fmt: skip
+                           cloud_merge.surfaces(planes), stand, up, pose, cloud.focal, cloud.width, cloud.height, fit,
+                           lie)  # fmt: skip
 
 
 def _offer(
@@ -829,7 +856,8 @@ class Placed:
     #: While the camera is being tracked as it moves, or has just stopped (spatial/camera_track.py): `state`
     #: ("tracking" or "ended"), `since` and `at` (when the track began and when it last placed the camera), `held`
     #: (when a keyframe was last held to the plan's walls, or None), `pose` (the camera in the scene now, 4 x 4),
-    #: `went_m` (how far its path ran), and `from_m` and `from_deg` (how far it is from where its cloud has it).
+    #: `went_m` (how far its path ran), `from_m` and `from_deg` (how far it is from where its cloud has it), and
+    #: `added` and `added_at` (how many points this move has put into the place's map, and when the last went in).
     #: None otherwise.
     track: Mapping[str, Any] | None = None
     #: What the place's map (spatial/cloud_map.py) holds of the camera, once its cloud was offered: `points` (of the
@@ -1073,6 +1101,8 @@ def scene(store: camera_clouds.Store, place: str, spots: Mapping[str, SpotAt], r
                 "went_m": round(sum(math.hypot(b[1] - a[1], b[2] - a[2]) for a, b in itertools.pairwise(went)), 2),
                 "from_m": round(from_m, 2),
                 "from_deg": round(from_deg, 1),
+                "added": int(moving.get("added") or 0),
+                "added_at": moving.get("added_at"),
             }
         if camera in mapped:
             about["map"] = mapped[camera]

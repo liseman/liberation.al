@@ -458,7 +458,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, stop.set)
         own = clouds.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail)
-        tracker = camera_track.for_service(cfg.path("paths.state"), detect, cameras.daylight, thumbnail, own.remake)
+        tracker = camera_track.for_service(cfg.path("paths.state"), detect, cameras.daylight, own.remake)
         await Service(sampler, on_idle=idle, clouds=own, tracker=tracker).run(stop)
 
     asyncio.run(run())

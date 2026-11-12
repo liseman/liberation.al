@@ -41,28 +41,29 @@ def camera_in_scene(where: scenes.At) -> np.ndarray:
 
 def seen_from(where: scenes.At, walls: bool = True) -> clouds.Pointmap:
     """What a camera standing at `where` in ROOMS sees, as a point for every pixel in its own frame: each pixel's
-    ray as far as the floor, the ceiling, or the first wall (without `walls`, a floor that never ends)."""
+    ray as far as the floor, the ceiling, or the first wall. Without `walls` the model is sure only of the floor
+    (a view with no wall to go by: the walls and ceiling give no point)."""
     pose = camera_in_scene(where)
     v, u = np.mgrid[0:H, 0:W]
     rays = np.stack([(u - W / 2) / FOCAL, (v - H / 2) / FOCAL, np.ones((H, W))], axis=2)
     out = rays @ pose[:3, :3].T  # each ray in the scene
     with np.errstate(divide="ignore", invalid="ignore"):
-        reach = np.where(out[..., 2] < 0, -HEIGHT / out[..., 2], np.inf)
-        if walls:
-            reach = np.minimum(reach, np.where(out[..., 2] > 0, (CEILING - HEIGHT) / out[..., 2], np.inf))
-            for ring in ROOMS:
-                for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
-                    run = np.array(b) - np.array(a)
-                    gap = np.array(a) - pose[:2, 3]
-                    cross = out[..., 0] * run[1] - out[..., 1] * run[0]
-                    along_ray = (gap[0] * run[1] - gap[1] * run[0]) / cross
-                    along_wall = (gap[0] * out[..., 1] - gap[1] * out[..., 0]) / cross
-                    met = (np.abs(cross) > 1e-12) & (along_ray > 1e-6) & (along_wall >= 0) & (along_wall <= 1)
-                    reach = np.minimum(reach, np.where(met, along_ray, np.inf))
+        to_floor = np.where(out[..., 2] < 0, -HEIGHT / out[..., 2], np.inf)
+        reach = np.minimum(to_floor, np.where(out[..., 2] > 0, (CEILING - HEIGHT) / out[..., 2], np.inf))
+        for ring in ROOMS:
+            for a, b in zip(ring, ring[1:] + ring[:1], strict=True):
+                run = np.array(b) - np.array(a)
+                gap = np.array(a) - pose[:2, 3]
+                cross = out[..., 0] * run[1] - out[..., 1] * run[0]
+                along_ray = (gap[0] * run[1] - gap[1] * run[0]) / cross
+                along_wall = (gap[0] * out[..., 1] - gap[1] * out[..., 0]) / cross
+                met = (np.abs(cross) > 1e-12) & (along_ray > 1e-6) & (along_wall >= 0) & (along_wall <= 1)
+                reach = np.minimum(reach, np.where(met, along_ray, np.inf))
+    on_floor = np.isfinite(reach) & (reach >= to_floor - 1e-9)
     reach = np.where(np.isfinite(reach), reach, 30.0)
     return clouds.Pointmap(
         points=(rays * reach[..., None]).astype(np.float32),
-        confidence=np.full((H, W), 3.0, dtype=np.float32),
+        confidence=np.where(walls | on_floor, 3.0, 0.0).astype(np.float32),
         colour=np.full((H, W, 3), 150, dtype=np.uint8),
         covered=np.zeros((H, W), dtype=bool),
     )
@@ -76,33 +77,52 @@ def turned(degrees: float) -> np.ndarray:
     return out
 
 
+def tipped(degrees: float) -> np.ndarray:
+    """A turn about the camera's own sideways axis: what a tracker's drift in pitch looks like."""
+    a = math.radians(degrees)
+    out = np.eye(4)
+    out[:3, :3] = [[1.0, 0.0, 0.0], [0.0, math.cos(a), -math.sin(a)], [0.0, math.sin(a), math.cos(a)]]
+    return out
+
+
 class Moves:
     """A made-up tracker (`camera_track.Session`): the camera really goes through `truth`, a pose a frame. Its
-    answers are the camera in the first frame's camera frame, off by `drift` degrees of facing more with every
-    frame; every `every`th frame is a keyframe. Frames numbered in `blind` can't be matched, and a keyframe numbered
-    in `floor_only` sees no wall."""
+    answers are the camera in the frame of the track's first keyframe (the first frame, or with `stood` the resting
+    picture taken there, when the track begins on it), off by `drift` degrees of facing and `tip` degrees of pitch more with every frame;
+    every `every`th frame is a keyframe. Frames numbered in `blind` match no keyframe; one numbered in `found`
+    lost the current keyframe and was found again among the earlier ones; a keyframe numbered in `floor_only` sees
+    no wall."""
 
-    def __init__(self, truth, drift=0.0, every=3, blind=(), floor_only=()):
-        self.truth, self.drift, self.every = list(truth), drift, every
-        self.blind, self.floor_only = set(blind), set(floor_only)
+    def __init__(self, truth, drift=0.0, every=3, blind=(), floor_only=(), stood=None, found=(), tip=0.0):
+        self.truth, self.drift, self.tip, self.every = list(truth), drift, tip, every
+        self.blind, self.floor_only, self.found = set(blind), set(floor_only), set(found)
+        self.stood = stood
         self.sent = 0
         self.resets: list[int] = []
+        self.anchors = 0
         self.closed = False
         self._first = 0
+        self._origin = camera_in_scene(self.truth[0])
 
-    def step(self, picture, overlay, reset):
+    def step(self, picture, overlay, reset, anchor=False):
+        if anchor:
+            self.anchors += 1
+            if self.stood is None:
+                return tracks.Step(False, anchor=True)  # no resting picture to begin on
+            self._first, self._origin = 0, camera_in_scene(self.stood)
+            return tracks.Step(True, np.eye(4), True, None, anchor=True)
         i = min(self.sent, len(self.truth) - 1)
         self.sent += 1
         if reset:
             self.resets.append(i)
-            self._first = i
+            self._first, self._origin = i, camera_in_scene(self.truth[i])
         elif i in self.blind:
             return tracks.Step(False)
-        own = np.linalg.inv(camera_in_scene(self.truth[self._first])) @ camera_in_scene(self.truth[i])
-        pose = own @ turned(self.drift * (i - self._first))
+        own = np.linalg.inv(self._origin) @ camera_in_scene(self.truth[i])
+        pose = own @ turned(self.drift * (i - self._first)) @ tipped(self.tip * (i - self._first))
         key = reset or (i - self._first) % self.every == 0
         points = seen_from(self.truth[i], walls=i not in self.floor_only) if key else None
-        return tracks.Step(True, pose, reset, points)
+        return tracks.Step(True, pose, reset, points, recovered=i in self.found)
 
     def close(self):
         self.closed = True
@@ -121,10 +141,17 @@ def walk(start: scenes.At, steps: int, ahead: float = 0.0, turn: float = 0.0) ->
     return out
 
 
-def follow(store, session: Moves, stood: scenes.At, frames: int) -> tracks.Track:
-    track = tracks.Track(store, "desk", PLACE, "desk-spot", ROOMS, stood, T)
+def follow(store, session: Moves, stood: scenes.At, frames: int, each=None) -> tracks.Track:
+    """Track `frames` frames of `session`, half a second apart, for a camera that stood at `stood`; `each` is
+    called with the track after every frame."""
+    rest = None if session.stood is None else camera_in_scene(session.stood)
+    track = tracks.Track(store, "desk", PLACE, "desk-spot", ROOMS, stood, T, rest)
+    if track.anchored:
+        track.take(session.step(None, None, True, True), T)
     for n in range(frames):
         track.take(session.step(None, None, track.begin), T + 0.5 * (n + 1))
+        if each is not None:
+            each(track)
     return track
 
 
@@ -161,16 +188,79 @@ def test_a_keyframe_with_no_wall_in_view_stays_where_the_track_puts_it_and_the_t
     assert [row["held"] for row in track.keyframes] == [True, False, False]
 
 
-def test_a_stretch_the_tracker_cant_match_begins_the_track_again_where_it_was_last_placed(store):
+def test_a_stretch_the_tracker_cant_match_begins_the_track_again_from_what_it_then_sees(store):
     truth = walk(at(1.0, 1.0, 20.0), 14, ahead=0.05, turn=3.0)
-    session = Moves(truth, blind=range(3, 9))  # six frames in a row
+    session = Moves(truth, blind=range(3, 9))  # six frames in a row: three seconds
     track = follow(store, session, stood=at(1.0, 1.0, 20.0), frames=15)
-    assert session.resets == [0, 9] and track.restarts == 1
-    # Its facing is the walls' again. Where it stands is not: it went 0.3 m unseen, and the two walls in view
+    # two seconds without a match and it begins again, on the frame after: the fifth blind one
+    assert session.resets == [0, 8] and track.restarts == 1
+    # Its facing is the walls' again. Where it stands is not: it went 0.25 m unseen, and the two walls in view
     # can't tell a camera that far along from a cloud that much too big.
     shift, turn = off(track, truth[-1])
-    assert turn == pytest.approx(0.0, abs=1.0) and shift <= 0.35
-    assert len(track.path) == 9  # the frames that couldn't be matched have no pose: none was made up
+    assert turn == pytest.approx(0.0, abs=1.0) and shift <= 0.3
+    assert len(track.path) == 10  # the frames that matched nothing have no pose: none was made up
+
+
+def test_a_jerk_that_loses_the_keyframe_and_finds_an_earlier_one_goes_on_in_the_same_track(store):
+    stood = at(1.0, 1.0, 20.0)
+    there = walk(stood, 6, turn=6.0)
+    truth = there + [there[-1].step(0.0, 0.0, math.radians(40.0))] * 2 + there[::-1]  # swung away, and back
+    session = Moves(truth, stood=stood, blind={7, 8}, found={9})
+    track = follow(store, session, stood, frames=len(truth))
+    assert (session.resets, track.restarts, track.recovered) == ([], 0, 1)  # one second lost, found, never begun again
+    assert off(track, truth[-1]) == (pytest.approx(0.0, abs=0.05), pytest.approx(0.0, abs=1.0))
+    assert len(track.path) == len(truth) - 2
+
+
+def test_a_track_begun_on_the_cameras_resting_picture_stands_on_the_plan_from_its_first_frame_wall_or_no_wall(store):
+    stood = at(1.0, 1.0, 20.0)
+    # by the time the move is noticed it has turned 70 degrees and looks at the floor: nothing to place it by
+    truth = [at(1.0, 1.0, 90.0)] + walk(at(1.0, 1.0, 90.0), 5, turn=4.0)
+    session = Moves(truth, stood=stood, floor_only=range(len(truth)))
+    track = follow(store, session, stood, frames=len(truth))
+    assert session.anchors == 1 and session.resets == []
+    assert off(track, truth[-1]) == (pytest.approx(0.0, abs=0.02), pytest.approx(0.0, abs=0.5))
+    assert track.held is None and len(track.path) == len(truth)
+
+
+def test_a_slow_pan_adds_to_the_map_as_it_goes_frame_by_frame_and_not_only_at_the_end(store):
+    stood = at(2.0, 1.5, -40.0)
+    truth = walk(stood, 30, turn=3.0)  # panned through 90 degrees in 15 seconds
+    where = cloud_map.folder(store.folder, PLACE)
+    seen: list[tuple[int, int, float]] = []  # after each frame: the track's count, the map's points, its floor
+
+    def look(track):
+        meta = cloud_map.record(where) or {"shots": [], "floor_m2": 0.0}
+        seen.append((track.added, sum(row["points"] for row in meta["shots"]), meta.get("floor_m2", 0.0)))
+
+    track = follow(store, Moves(truth, stood=stood, every=5), stood, frames=31, each=look)
+    added = [count for count, _, _ in seen]
+    assert added == sorted(added) and len(set(added)) >= 5  # it grew at keyframe after keyframe
+    assert added[10] > 0 and added[20] > added[10] and added[30] > added[20]  # a third, two thirds, all the way
+    held = [points for _, points, _ in seen]
+    assert held[10] > 0 and held[20] > held[10] and held[30] > held[20]  # and the map itself held more each time
+    floor = [covered for _, _, covered in seen]
+    assert floor[30] > floor[10] > 0  # the floor it covers moved with it
+    assert track.added_at == T + 0.5 * 31 and (scenes.tracked(store, "desk") or {})["added"] == track.added
+
+
+def test_a_keyframe_no_wall_holds_is_added_where_the_track_puts_it_and_one_that_stands_elsewhere_is_refused(
+    store, tmp_path
+):
+    stood = at(2.0, 1.5, 0.0)
+    where = cloud_map.folder(store.folder, PLACE)
+    truth = walk(stood, 6, ahead=0.1)
+    track = follow(store, Moves(truth, stood=stood, floor_only={3, 6}), stood, frames=7)
+    rows = {row["id"].split(".")[-1]: row for row in (cloud_map.record(where) or {})["shots"]}
+    assert [row["held"] for row in track.keyframes] == [True, False, False]
+    assert not rows["2"]["held"] and rows["2"]["points"] > 0  # the floor it saw past what the first keyframe did
+    # the same move in a house of its own, with the tracker's pitch running off 3 degrees a frame and no wall to
+    # hold it: its floor lies tilted through the floor the map's first shot saw, and the map refuses it
+    other = clouds.Store(clouds.root(tmp_path / "other"))
+    wild = follow(other, Moves(truth, stood=stood, floor_only={3, 6}, tip=3.0), stood, frames=7)
+    refused = [row for row in (cloud_map.record(cloud_map.folder(other.folder, PLACE)) or {})["refused"]]
+    assert [row["added"] for row in wild.keyframes[1:]] == [0, 0]
+    assert [row["why"] for row in refused if row["state"] == "refused"] == ["apart", "apart"]
 
 
 def test_the_keyframes_the_walls_hold_fill_in_the_places_map_and_a_wall_seen_in_several_is_one_wall(store):
@@ -191,34 +281,25 @@ def test_the_keyframes_the_walls_hold_fill_in_the_places_map_and_a_wall_seen_in_
     assert count.max() <= cloud_map.CAP
 
 
-def test_a_keyframe_the_walls_dont_hold_is_not_added_to_the_map(store):
-    truth = walk(at(1.0, 1.0, 20.0), 6, ahead=0.1)
-    follow(store, Moves(truth, floor_only={3, 6}), stood=at(1.0, 1.0, 20.0), frames=7)
-    held = cloud_map.read(cloud_map.folder(store.folder, PLACE))
-    assert held is not None and len(held.meta["shots"]) == 1  # the first keyframe; the two that saw no wall are not
-
-
-# ---- when a camera is tracked, and when it stops
-
-
 def tracker_of(store, tmp_path, monkeypatch, session, stood=None, people=False):
     stood = stood or at(1.0, 1.0, 20.0)
     spot = scenes.SpotAt("desk", PLACE, stood, (stood.x, -stood.y), False, "desk-spot")
     monkeypatch.setattr(scenes, "spots_of", lambda state: {"desk": spot, "shelf": spot})
     monkeypatch.setattr(scenes, "plan_rooms", lambda state, place, mirrored: ROOMS)
-    monkeypatch.setattr(scenes, "standing", lambda store, camera, spots, rooms: stood)
+    rest = (stood, camera_in_scene(stood), lambda: np.zeros((4, 4, 3), np.uint8))
+    monkeypatch.setattr(scenes, "resting", lambda store, camera, spots, rooms: rest)
     return tracks.Tracker(
         tmp_path,
         store,
-        thumbnail=lambda pixels: np.asarray(pixels, dtype=np.float64),
         lit=lambda pixels: True,
         detect=lambda pixels: [(0.1, 0.1, 0.5, 0.9)] if people else [],
         prepare=lambda camera, pixels: (pixels, None),
         open_session=lambda: session,
+        structure=lambda pixels: np.asarray(pixels, dtype=np.float64),
     )
 
 
-STILL_VIEW, OTHER_VIEW = np.array([1.0, 0.0]), np.array([0.0, 1.0])  # two thumbnails nothing alike
+STILL_VIEW, OTHER_VIEW = np.array([1.0, 0.0]), np.array([0.0, 1.0])  # two pictures whose edges are nothing alike
 
 
 def test_a_camera_is_tracked_from_the_sample_that_shows_its_view_moving_and_one_camera_at_a_time(
@@ -242,6 +323,59 @@ def test_a_view_that_changes_with_someone_in_it_or_with_no_tracker_to_be_had_is_
     none = tracker_of(store, tmp_path, monkeypatch, None)  # no runtime set up, or no GPU memory to spare
     none.look("desk", STILL_VIEW, T)
     assert not none.look("desk", OTHER_VIEW, T + 5) and none.active is None
+
+
+def room_picture(shift: int = 0, light=None, seed: int = 11) -> np.ndarray:
+    """A made-up picture of a room, 320 x 180: blocks of furniture against a wall. `shift` moves the camera (the
+    picture slides that many pixels); `light` multiplies its brightness, a number or a map of them."""
+    rng = np.random.default_rng(seed)
+    picture = np.full((180, 320 + 80), 150.0)
+    for _ in range(14):
+        x, y, w, h = rng.integers(0, 360), rng.integers(20, 150), rng.integers(15, 60), rng.integers(15, 50)
+        picture[y : y + h, x : x + w] = rng.integers(40, 230)
+    picture = picture[:, 40 + shift : 360 + shift]
+    lit = picture * (1.0 if light is None else light)
+    return np.repeat(np.clip(lit, 0, 255).astype(np.uint8)[..., None], 3, axis=2)
+
+
+def real_tracker(store, tmp_path, monkeypatch, people=()):
+    """A tracker that looks at pictures as the service's does (`structure`), with a tracker always to be had."""
+    made = tracker_of(store, tmp_path, monkeypatch, Moves([at(1.0, 1.0, 20.0)] * 3))
+    made.structure = tracks.structure
+    made.detect = lambda pixels: [(0.3, 0.2, 0.6, 1.0)] if pixels[0, 0, 0] in people else []
+    return made
+
+
+@pytest.mark.parametrize(
+    "light",
+    [
+        pytest.param(0.45, id="the-room-dimmed"),
+        pytest.param(np.where(np.arange(320) < 160, 1.7, 0.8)[None, :], id="a-lamp-on-one-side"),
+        pytest.param(0.6 + 0.9 * np.exp(-(((np.arange(320) - 230) / 70.0) ** 2))[None, :], id="a-pool-of-light"),
+    ],
+)
+def test_a_change_of_light_with_the_camera_still_starts_no_track(store, tmp_path, monkeypatch, light):
+    tracker = real_tracker(store, tmp_path, monkeypatch)
+    assert not tracker.look("desk", room_picture(), T)
+    assert not tracker.look("desk", room_picture(light=light), T + 5)
+    assert not tracker.look("desk", room_picture(), T + 10) and tracker.active is None  # nor does the light going back
+
+
+@pytest.mark.parametrize("pixels", [6, 20, 60])
+def test_a_camera_that_turned_starts_a_track_however_the_light_is(store, tmp_path, monkeypatch, pixels):
+    tracker = real_tracker(store, tmp_path, monkeypatch)
+    tracker.look("desk", room_picture(), T)
+    assert tracker.look("desk", room_picture(shift=pixels, light=0.8), T + 5) and tracker.active == "desk"
+
+
+def test_someone_coming_into_or_leaving_the_picture_starts_no_track(store, tmp_path, monkeypatch):
+    empty, sat = room_picture(), room_picture(seed=12)  # another picture altogether: someone fills it
+    sat[0, 0] = 7  # the made-up detector finds someone in a picture whose first pixel is 7
+    tracker = real_tracker(store, tmp_path, monkeypatch, people={7})
+    tracker.look("desk", empty, T)
+    assert not tracker.look("desk", sat, T + 5)  # they sat down
+    assert not tracker.look("desk", sat, T + 10)
+    assert not tracker.look("desk", empty, T + 15) and tracker.active is None  # and left again
 
 
 def test_a_track_ends_once_the_camera_has_rested_and_the_camera_is_left_alone_for_a_while(store, tmp_path, monkeypatch):
@@ -288,7 +422,7 @@ def test_a_camera_that_came_to_rest_somewhere_else_is_asked_for_a_cloud_and_one_
 
 def test_a_tracker_that_stops_answering_ends_the_track_and_says_so(store, tmp_path, monkeypatch):
     class Broken(Moves):
-        def step(self, picture, overlay, reset):
+        def step(self, picture, overlay, reset, anchor=False):
             raise RuntimeError("the tracker stopped")
 
     session = Broken([at(1.0, 1.0, 20.0)])

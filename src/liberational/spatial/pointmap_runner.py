@@ -33,16 +33,21 @@ picture, and 0.35 s and 2.9 GB a pair.
 
 **Tracking a camera that moves** (a job with `"track": true`; spatial/camera_track.py runs it). The process stays up
 and keeps the model loaded: it prints one JSON line when it is ready ({"ready": true, "load_seconds"}), then reads
-one JSON line a frame on its standard input ({"image": path, "mask": path or null, "out": path, "reset": bool}) and
-answers each with one line. The frames go through MASt3R-SLAM's own frame tracker (`FrameTracker`): each is matched
+one JSON line a frame on its standard input ({"image": path, "mask": path or null, "out": path, "reset": bool,
+"anchor": bool}) and answers each with one line. The frames go through MASt3R-SLAM's own frame tracker (`FrameTracker`): each is matched
 to the current keyframe and its pose solved against that keyframe's points, and a frame that shares too little with
 the keyframe becomes the next one. Nothing else of MASt3R-SLAM runs: no second process, no loop closing, no
 relocalising (the pack anchors the keyframes to the plan's walls instead, and starts the track again when it is
-lost). The answer: `ok` (false when the frame couldn't be tracked: too little of it matched the keyframe), `pose`
+lost). A frame sent with `anchor` begins a track as its first keyframe without its points being written: the
+picture a camera's own cloud was made from, so the track stands on that cloud's place from its first frame. When a
+frame doesn't match the current keyframe it is looked for among the last `KEYFRAMES` keyframes of the track, the
+newest first, and tracked from the one it matches (`recovered`): a camera that swings back, or comes out of a
+blurred stretch, is found again in the same frame. The answer: `ok` (false when the frame matched none of them),
+`pose`
 (16 numbers, row by row: the frame's camera in the track's frame, which is the first keyframe's camera frame, as a
 similarity: its rotation block carries the frame's scale), `started` (this frame began a track: the first, or one
 sent with `reset`), `keyframe` (this frame is a keyframe, and its points were written to `out` as a view's are),
-and `seconds`. Only the current keyframe is held, so memory doesn't grow with the length of the track.
+and `seconds`. Only the last `KEYFRAMES` keyframes are held, so memory doesn't grow with the length of the track.
 """
 
 from __future__ import annotations
@@ -55,6 +60,7 @@ import time
 SIZE = 512  # the long side MASt3R takes
 CONF = 1.5  # MASt3R's confidence bar for a usable point
 MIN_SURE = 500  # pixels sure in both frames that a similarity is fitted from
+KEYFRAMES = 8  # keyframes of a track that are kept, to find lost lock among
 
 
 def similarity(src, dst):  # noqa: ANN001, ANN201 (numpy arrays, imported in `main`)
@@ -166,7 +172,8 @@ def track(model, device: str, answers) -> None:  # noqa: ANN001 (the runtime's o
     from mast3r_slam.tracker import FrameTracker  # ty: ignore[import-not-found]
     from PIL import Image
 
-    keyframes = _Keyframes()
+    keyframes = _Keyframes()  # the keyframe frames are tracked against: one
+    kept: list = []  # and the last `KEYFRAMES` of this track, to find lost lock among
     tracker = FrameTracker(model, keyframes, device)
     last = None
     count = 0
@@ -196,28 +203,55 @@ def track(model, device: str, answers) -> None:  # noqa: ANN001 (the runtime's o
         asked = json.loads(line)
         started = time.perf_counter()
         rgb = np.asarray(Image.open(asked["image"]).convert("RGB"), dtype=np.float32) / 255.0
-        begin = asked.get("reset") or last is None
+        begin = asked.get("reset") or asked.get("anchor") or last is None
         pose = lietorch.Sim3.Identity(1, device=device) if begin else last.T_WC
         frame = create_frame(count, rgb, pose, img_size=SIZE, device=device)
         count += 1
-        answer: dict = {"ok": True, "started": bool(begin), "keyframe": bool(begin)}
+        answer: dict = {"ok": True, "started": bool(begin), "keyframe": bool(begin), "recovered": False}
         if begin:
             points, confidence = mast3r_inference_mono(model, frame)
             frame.update_pointmap(points, confidence)
             keyframes.clear()
             keyframes.append(frame)
+            kept.clear()
+            kept.append(frame)
             tracker.reset_idx_f2k()
-            keep(frame, asked)
+            if asked.get("anchor"):
+                answer["keyframe"] = False  # the pack has this picture's cloud already
+            else:
+                keep(frame, asked)
             last = frame
         else:
             with torch.inference_mode():
-                new_keyframe, _, lost = tracker.track(frame)
+                # A frame of another shape than the keyframe (the camera's stream changed size) can't be matched
+                # to it: MASt3R-SLAM's matcher stacks the two.
+                same = frame.img.shape == keyframes[0].img.shape
+                new_keyframe, _, lost = tracker.track(frame) if same else (False, None, True)
+                if lost:
+                    # Lock on the current keyframe is lost: look for the frame among the keyframes before it, the
+                    # newest first (the camera swung back, or a blurred stretch is over).
+                    current = keyframes[0]
+                    for earlier in reversed(kept):
+                        if earlier is current or earlier.img.shape != frame.img.shape:
+                            continue
+                        keyframes[0] = earlier
+                        tracker.reset_idx_f2k()
+                        frame.T_WC = earlier.T_WC
+                        new_keyframe, _, lost = tracker.track(frame)
+                        if not lost:
+                            answer["recovered"] = True
+                            break
+                    if lost:
+                        keyframes[0] = current
+                        tracker.reset_idx_f2k()
             if lost:
-                answer = {"ok": False, "started": False, "keyframe": False}
+                answer = {"ok": False, "started": False, "keyframe": False, "recovered": False}
             else:
                 last = frame
                 if new_keyframe:
                     keyframes[0] = frame
+                    kept.append(frame)
+                    del kept[:-KEYFRAMES]
                     keep(frame, asked)
                     answer["keyframe"] = True
         if answer["ok"]:
