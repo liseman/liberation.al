@@ -62,6 +62,35 @@ def test_moving_a_file_into_a_real_data_path_is_refused(tmp_path):
     assert "moved-in" in conftest.hits.pop()[0]
 
 
+def test_reading_a_real_model_file_is_allowed():
+    """Downloaded model files are inputs, not the owner's data: the tests that run the real weights read them where
+    they are installed (tests/test_vision_backend.py, tests/test_speech.py). A file that isn't there reads as missing,
+    not as the guard's refusal, which is what those tests' skip checks and the models they open depend on."""
+    real = cfg.workdir() / "data" / "models" / "no-such-model.onnx"
+    with pytest.raises(FileNotFoundError):
+        real.open("rb")
+    assert conftest.hits == []
+
+
+# Neither creates a file: the guard refuses first, and a guard that let them through finds nothing to write to.
+@pytest.mark.parametrize(
+    "writer",
+    [lambda path: open(path, "r+b"), lambda path: os.open(path, os.O_WRONLY)],  # noqa: SIM115 - it raises
+    ids=["io.open", "os.open"],
+)
+def test_writing_a_real_model_file_is_refused(writer):
+    real = cfg.workdir() / "data" / "models" / "no-such-model.onnx"
+    with pytest.raises(RuntimeError, match="real data directory"):
+        writer(real)
+    assert "no-such-model.onnx" in conftest.hits.pop()[0]
+
+
+def test_making_a_directory_under_the_real_models_is_refused():
+    with pytest.raises(RuntimeError, match="real data directory"):
+        (cfg.workdir() / "data" / "models" / "no-such-dir").mkdir()
+    assert "no-such-dir" in conftest.hits.pop()[0]
+
+
 @pytest.mark.parametrize(
     "action",
     [services.install, services.uninstall, services.stop, services.start, services.restart],
