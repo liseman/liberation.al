@@ -18,6 +18,9 @@ import { href, linkClick } from '../router';
 
 export const HEARD_S = 60; // heard this recently and not seen: "Heard just now"
 export const PEOPLE_MS = 15_000; // here_now is the live scene's last 30 s
+// A heart rate is shown this long after it was read, and then goes: the server drops a reading older than this, but
+// the poll only asks every VITALS_MS, so the client keeps its own clock rather than showing one for up to 35 s.
+export const HEART_FRESH_S = 20;
 
 export interface Here {
   key: string;
@@ -29,9 +32,9 @@ export interface Here {
   heart?: number; // beats a minute, only when a close camera has a confident reading from the last 20 s
 }
 
-/** What the heart's tooltip says: plain words, and what the number is not. */
+/** What the heart's tooltip says after the number: plain words, and what the number is not. */
 const HEART_TOOLTIP =
-  "Measured from the camera's picture, so it's approximate; it isn't a medical device. It shows only while a close camera has a confident reading.";
+  "read from the camera's picture. Approximate, not a medical reading. Shown only while a close camera sees them clearly.";
 
 const capital = (s: string) => s.charAt(0).toLocaleUpperCase() + s.slice(1);
 const whereSeen = (
@@ -56,7 +59,10 @@ export function hereNow(
   pets?: PetsView,
   vitals?: Vitals,
 ): Here[] {
-  const heart = (name: string): number | undefined => vitals?.people[normName(name)]?.bpm;
+  const heart = (name: string): number | undefined => {
+    const reading = vitals?.people[normName(name)];
+    return reading && now - reading.at <= HEART_FRESH_S ? reading.bpm : undefined;
+  };
   const seen = people
     .filter(p => p.here_now)
     .sort((a, b) => (a.here_now?.since ?? now) - (b.here_now?.since ?? now))
@@ -137,21 +143,21 @@ export function HereNow({ onNameFace }: { onNameFace?: MouseEventHandler<HTMLAnc
               <a href={h.href} onClick={linkClick}>
                 <EntityAvatar name={h.name} photo={h.photo} here={h.seen} size={40} />
                 <span className="here-who">
-                  <span className="here-name">{h.name}</span>
-                  <span className="here-where">
-                    {h.where}
+                  {/* The reading sits on the name line: the where line is the widest part of an item, so a reading
+                      there made it wider (and, on a phone, a line taller) every time one came or went. */}
+                  <span className="here-title">
+                    <span className="here-name">{h.name}</span>
                     {h.heart !== undefined && (
-                      <Tooltip label={`About ${h.heart} beats a minute. ${HEART_TOOLTIP}`} withArrow multiline w={260}>
+                      <Tooltip label={`About ${h.heart} beats a minute, ${HEART_TOOLTIP}`} withArrow multiline w={260}>
                         <span className="here-heart">
                           <IconHeart size={11} stroke={2} aria-hidden />
                           <span aria-hidden>{h.heart}</span>
-                          <VisuallyHidden>
-                            Heart rate about {h.heart} beats a minute. {HEART_TOOLTIP}
-                          </VisuallyHidden>
+                          <VisuallyHidden>heart rate about {h.heart} a minute, approximate</VisuallyHidden>
                         </span>
                       </Tooltip>
                     )}
                   </span>
+                  <span className="here-where">{h.where}</span>
                 </span>
               </a>
             </li>
