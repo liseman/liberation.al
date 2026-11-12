@@ -1,7 +1,7 @@
 /* Settings inside the shared drawer: its menu and cards retain their draft while the drawer is closed. */
 .page {
   display: flex;
-  min-height: calc(100vh - var(--top-h, 56px));
+  min-height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px));
   background: var(--mantine-color-body);
 }
 .nav {
@@ -16,7 +16,7 @@
   position: sticky;
   top: var(--top-h, 56px);
   align-self: flex-start;
-  height: calc(100vh - var(--top-h, 56px)); /* the menu runs the page's height, as designed */
+  height: calc(100dvh - var(--top-h, 56px) - var(--bottom-h, 0px)); /* the menu runs the page's height, as designed */
   overflow-y: auto;
 }
 .title {

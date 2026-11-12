@@ -4,9 +4,10 @@
 // moment: /places?place=<id>&t=<epoch>. Places is places and plans only: what happened where belongs to the journal.
 import { Badge, Button, Group, NavLink, Paper, SegmentedControl, Text, useComputedColorScheme } from '@mantine/core';
 import { useQuery } from '@tanstack/react-query';
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useRef, useState } from 'react';
 import type { Scene } from '../../plan-editor/protocol';
 import { confirm } from '../lib/confirm';
+import { useFillsPage } from '../lib/fill';
 import { ago, plural } from '../lib/format';
 import { BlockSkeleton } from '../lib/loading';
 import { PageHeader, PageLoading } from '../lib/page';
@@ -125,6 +126,11 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
   const [editing, setEditing] = useState(false);
   // Where the 3D view puts its One camera / All cameras switch: on the Plan / 3D switcher's line.
   const [viewSwitch, setViewSwitch] = useState<HTMLElement | null>(null);
+  // The plan drawn fills the window under the place's heading, as the map does, so switching between the two moves
+  // nothing: lib/fill.ts measures where the box starts (after the card's top row), and data-fills-page has the page and
+  // the card give up their own room under it.
+  const fillRef = useRef<HTMLDivElement>(null);
+  const fillStyle = useFillsPage(fillRef);
   const [unsaved, setUnsaved] = useState(false);
   /** Leave the editor (to look, or for another place), asking first when that drops unsaved changes. */
   const leave = async (then: () => void) => {
@@ -290,7 +296,9 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                     />
                   </Suspense>
                 ) : (
-                  <>
+                  // One box for the plan and everything under it, the place's own bar included, so the box starts where
+                  // the map's does and both end at the window's bottom edge.
+                  <div ref={fillRef} className={classes.planFill} data-fills-page style={fillStyle}>
                     {!place.example && place.scene && (
                       <OwnerBar key={place.id} place={place} showing={showing} onShow={setShowing} />
                     )}
@@ -352,7 +360,7 @@ export function PlacesTab({ examples = EXAMPLE_PLACES }: { examples?: Place[] })
                         )}
                       </>
                     )}
-                  </>
+                  </div>
                 )}
               </Paper>
             )}
