@@ -3,7 +3,7 @@
 // this browser; off, nothing here runs: no canvas, no GPU context, no frame tap.
 import { SegmentedControl, Tooltip, UnstyledButton } from '@mantine/core';
 import { useReducedMotion } from '@mantine/hooks';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { tapFrames, useLiveNow } from '../camera/mux';
 import { setPref, usePrefs } from '../lib/prefs';
@@ -88,6 +88,10 @@ export function EnhanceLayer({ cam }: { cam: string }) {
   const live = useLiveNow(s => s[cam]);
   const wanted = useRef({ look, calm: !!calm });
   wanted.current = { look, calm: !!calm };
+  // Whether this camera's enhanced picture has a frame to show. It is state, not a class set on the element: a class
+  // set by hand is dropped the next time the class list is rendered (frames stopping and coming back, a reload onto
+  // a camera whose frames haven't started), and the layer then drew every frame without ever showing one.
+  const [drawn, setDrawn] = useState(false);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -102,17 +106,27 @@ export function EnhanceLayer({ cam }: { cam: string }) {
     drawer.setLook(wanted.current.look, wanted.current.calm);
     enhancer.current = drawer;
     let shown = false;
+    // Giving up: the plain picture underneath is the fallback, so this layer's last frame must not stay over it
+    const giveUp = (reason: string) => {
+      stop();
+      setDrawn(false);
+      useEnhanceUnsupported.setState({ reason });
+    };
     const stop = tapFrames(cam, (bitmap, at, flip) => {
-      drawer.draw(bitmap, at, flip);
+      try {
+        drawer.draw(bitmap, at, flip);
+      } catch {
+        giveUp('it stopped with an error; reload to try again');
+        return;
+      }
       if (!shown) {
         shown = true;
-        canvas.classList.add('drawn'); // until a first frame, the plain picture shows through
+        setDrawn(true); // until a first frame, the plain picture shows through
       }
     });
     const lost = (e: Event) => {
       e.preventDefault();
-      stop();
-      useEnhanceUnsupported.setState({ reason: 'the graphics context was lost; reload to try again' });
+      giveUp('the graphics context was lost; reload to try again');
     };
     canvas.addEventListener('webglcontextlost', lost);
     return () => {
@@ -120,6 +134,7 @@ export function EnhanceLayer({ cam }: { cam: string }) {
       canvas.removeEventListener('webglcontextlost', lost);
       drawer.dispose();
       enhancer.current = null;
+      setDrawn(false);
     };
   }, [cam]);
 
@@ -128,5 +143,5 @@ export function EnhanceLayer({ cam }: { cam: string }) {
   }, [look, calm]);
 
   // Frames stopped: the plain picture underneath shows the last one, dimmed, as it does without Enhance
-  return <canvas ref={ref} className={`enhance-canvas${live === false ? ' paused' : ''}`} />;
+  return <canvas ref={ref} className={`enhance-canvas${drawn ? ' drawn' : ''}${live === false ? ' paused' : ''}`} />;
 }
