@@ -6,21 +6,27 @@ import { usePrefs } from '../lib/prefs';
 import { EnhanceButton, EnhanceLayer, EnhanceLook, useEnhanceUnsupported } from './Enhance';
 
 // jsdom has no WebGL: where a test needs frames drawn, a stand-in takes the renderer's place
-const drawer = vi.hoisted(() => ({ on: false, draw: (): void => {}, drawn: 0 }));
+const drawer = vi.hoisted(() => ({ on: false, draw: (): void => {}, drawn: 0, onPageAtDispose: [] as boolean[] }));
 vi.mock('./renderer', async original => {
   const real = await original<typeof import('./renderer')>();
   class StandIn {
+    private readonly canvas: HTMLCanvasElement;
+    constructor(canvas: HTMLCanvasElement) {
+      this.canvas = canvas;
+    }
     setLook(): void {}
     draw(): void {
       drawer.drawn += 1;
       drawer.draw();
     }
-    dispose(): void {}
+    dispose(): void {
+      drawer.onPageAtDispose.push(this.canvas.isConnected);
+    }
   }
   return {
     ...real,
     Enhancer: function Enhancer(canvas: HTMLCanvasElement) {
-      return drawer.on ? new StandIn() : new real.Enhancer(canvas);
+      return drawer.on ? new StandIn(canvas) : new real.Enhancer(canvas);
     },
   };
 });
@@ -48,7 +54,7 @@ afterEach(() => {
   usePrefs.setState({ enhance: undefined, enhanceLook: undefined });
   useEnhanceUnsupported.setState({ reason: undefined });
   useLiveNow.setState(Object.create(null), true);
-  Object.assign(drawer, { on: false, draw: () => {}, drawn: 0 });
+  Object.assign(drawer, { on: false, draw: () => {}, drawn: 0, onPageAtDispose: [] });
   vi.restoreAllMocks();
 });
 
@@ -129,5 +135,13 @@ describe('the Enhance layer', () => {
     expect(container.querySelector('canvas.enhance-canvas')).not.toHaveClass('drawn');
     act(() => feedTaps('cam0', FRAME, 3));
     expect(drawer.drawn).toBe(2);
+  });
+
+  it('disposes of its renderer once its canvas has left the page, so the graphics context is given up', () => {
+    drawer.on = true;
+    const { unmount } = renderPage(<EnhanceLayer cam="cam0" />);
+    unmount();
+    expect(drawer.onPageAtDispose.length).toBeGreaterThan(0);
+    expect(drawer.onPageAtDispose.at(-1)).toBe(false);
   });
 });

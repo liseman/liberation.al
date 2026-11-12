@@ -193,6 +193,7 @@ function compile(gl: WebGL2RenderingContext, fragment: string): WebGLProgram {
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
       throw new Error(`Enhance shader: ${gl.getShaderInfoLog(shader) ?? 'did not compile'}`);
     gl.attachShader(program, shader);
+    gl.deleteShader(shader); // freed with its program
   }
   gl.bindAttribLocation(program, 0, 'a');
   gl.linkProgram(program);
@@ -227,6 +228,8 @@ export class Enhancer {
   private readonly stabiliser = new Stabiliser();
   private readonly lumaFbo: WebGLFramebuffer;
   private readonly lumaTex: WebGLTexture;
+  private readonly corners: WebGLBuffer;
+  private disposed = false;
   private video: WebGLTexture | null = null;
   private videoSize = { width: 0, height: 0 };
   private lumaDims = { width: 0, height: 0 };
@@ -259,8 +262,8 @@ export class Enhancer {
       strength: compile(gl, STRENGTH_PASS),
       display: compile(gl, DISPLAY_PASS),
     };
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    this.corners = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.corners);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
@@ -281,7 +284,7 @@ export class Enhancer {
   draw(frame: TexImageSource & { width: number; height: number }, at: number, flip = false): void {
     const started = performance.now();
     const gl = this.gl;
-    if (gl.isContextLost()) return;
+    if (this.disposed || gl.isContextLost()) return;
     const { width, height } = frame;
     if (!width || !height) return;
     this.prepare(width, height);
@@ -511,8 +514,31 @@ export class Enhancer {
     }
   }
 
-  /** Free the GPU memory now rather than when the canvas is collected. */
+  /** Free the GPU memory now rather than when the canvas is collected. Everything made here is deleted. The context
+   *  itself is given up only once the canvas has left the page: a lost context can never be used again, and a canvas
+   *  still on the page may be handed to a new Enhancer (React's development double-mount does exactly that, and
+   *  Enhance then reported itself unavailable). */
   dispose(): void {
-    this.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    if (this.disposed) return;
+    this.disposed = true;
+    const gl = this.gl;
+    for (const program of Object.values(this.programs)) gl.deleteProgram(program);
+    gl.deleteBuffer(this.corners);
+    gl.deleteTexture(this.lumaTex);
+    gl.deleteFramebuffer(this.lumaFbo);
+    if (this.video) gl.deleteTexture(this.video);
+    for (const t of this.targets ?? []) {
+      gl.deleteTexture(t.fast);
+      gl.deleteTexture(t.slow);
+      gl.deleteFramebuffer(t.fbo);
+    }
+    if (this.strength) {
+      gl.deleteTexture(this.strength.texture);
+      gl.deleteFramebuffer(this.strength.fbo);
+    }
+    this.video = null;
+    this.targets = null;
+    this.strength = null;
+    if (!this.canvas.isConnected) gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }
