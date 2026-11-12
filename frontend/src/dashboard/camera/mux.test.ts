@@ -269,6 +269,34 @@ it('decodes RTSP access units once per camera and shares upright portrait pixels
   expect(worker.terminate).toHaveBeenCalledTimes(1);
 });
 
+it('asks the video decoder for small copies only while something taps the camera, and hands each one on', async () => {
+  const workers = fakeVideoWorkers();
+  const { canvas } = recordingCanvas();
+  const off = mux.attach('cam0', canvas);
+  await settle();
+  const c = net.ready('cam0', 1);
+  c.handlers.onBinary(encoded(1_000_000));
+  const worker = workers[0];
+  if (!worker) throw Error('No worker');
+  const asked = () => worker.messages.flatMap(x => (x.message.type === 'small' ? [x.message.on] : []));
+  // Nothing taps the camera: the worker is told not to make them
+  expect(asked()).toEqual([false]);
+  const picture = () => ({ width: 1920, height: 1080, close: vi.fn() }) as unknown as ImageBitmap;
+  const seen: (ImageBitmap | undefined)[] = [];
+  const stop = mux.tapFrames('cam0', (_bitmap, _at, _flip, small) => seen.push(small));
+  expect(asked()).toEqual([false, true]);
+  const bitmap = picture();
+  const small = picture();
+  worker.emit({ type: 'frame', bitmap, small, frameUs: 1_000_000 });
+  expect(seen).toEqual([small]);
+  // Both are closed once the frame has been drawn and handed on
+  expect(bitmap.close).toHaveBeenCalledTimes(1);
+  expect(small.close).toHaveBeenCalledTimes(1);
+  stop();
+  expect(asked()).toEqual([false, true, false]);
+  off();
+});
+
 it('closes encoded decoders on hide and reconnect, discards late bitmaps and never lets an old connection kill its replacement', async () => {
   const workers = fakeVideoWorkers();
   const page = controlVisibility();

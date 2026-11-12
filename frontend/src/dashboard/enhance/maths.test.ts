@@ -173,6 +173,44 @@ describe('estimateShift', () => {
     );
   });
 
+  it('finds the same place whether it starts looking from zero or from near the answer', () => {
+    fc.assert(
+      fc.property(
+        fc.double({ min: -4, max: 4, noNaN: true }),
+        fc.double({ min: -4, max: 4, noNaN: true }),
+        fc.double({ min: -1.5, max: 1.5, noNaN: true }),
+        fc.double({ min: -1.5, max: 1.5, noNaN: true }),
+        (dx, dy, ex, ey) => {
+          const current = frame(look, dx, dy);
+          const cold = estimateShift(ref, current);
+          // Where the frame before was: up to a pixel and a half away, more than a camera moves between frames
+          const warm = estimateShift(ref, current, { dx: dx + ex, dy: dy + ey });
+          expect(cold).not.toBeNull();
+          expect(warm).not.toBeNull();
+          expect(warm?.dx ?? Number.NaN).toBeCloseTo(cold?.dx ?? Number.NaN, 1);
+          expect(warm?.dy ?? Number.NaN).toBeCloseTo(cold?.dy ?? Number.NaN, 1);
+          expect(warm?.dx ?? Number.NaN).toBeCloseTo(dx, 1);
+          expect(warm?.dy ?? Number.NaN).toBeCloseTo(dy, 1);
+        },
+      ),
+      { numRuns: 25 },
+    );
+  });
+
+  it('finds a jolt from where the frame before was, as it does from zero', () => {
+    // The frame before sat at (0.4, -0.2); this one jumped six pixels
+    const found = estimateShift(ref, frame(look, 6.4, -3.2), { dx: 0.4, dy: -0.2 });
+    expect(found?.dx ?? Number.NaN).toBeCloseTo(6.4, 1);
+    expect(found?.dy ?? Number.NaN).toBeCloseTo(-3.2, 1);
+  });
+
+  it('reuses its working memory frame after frame, and gives the same answers', () => {
+    const again = prepareReference(frame(look));
+    const first = estimateShift(again, frame(look, 2.25, -1.5));
+    estimateShift(again, frame(look, -3, 1));
+    expect(estimateShift(again, frame(look, 2.25, -1.5))).toEqual(first);
+  });
+
   it('ignores someone walking through a corner of the picture', () => {
     const person = (x: number, y: number) => (x > 20 && x < 110 && y > 10 && y < 90 ? 0.9 - 0.002 * x : null);
     const found = estimateShift(ref, frame(look, 1.5, -0.5, person));

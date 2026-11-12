@@ -389,6 +389,63 @@ describe('Pipeline', () => {
     p.reset();
   });
 
+  it('hands a small copy over with each returned frame while asked to, made before the picture leaves', async () => {
+    const order: string[] = [];
+    const smalls: { width: number; height: number; drawn: unknown[] }[] = [];
+    vi.stubGlobal(
+      'OffscreenCanvas',
+      class {
+        width: number;
+        height: number;
+        drawn: unknown[] = [];
+        constructor(width: number, height: number) {
+          this.width = width;
+          this.height = height;
+          smalls.push(this);
+        }
+        getContext() {
+          return {
+            drawImage: (source: unknown) => {
+              this.drawn.push(source);
+              order.push('copy');
+            },
+          };
+        }
+        transferToImageBitmap() {
+          order.push('small leaves');
+          return Object.assign(new FakeBitmap(), { width: this.width, height: this.height });
+        }
+      },
+    );
+    const p = new Pipeline(m => posted.push(m));
+    const { ctx } = fakeContext();
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ctx,
+      transferToImageBitmap: () => {
+        order.push('picture leaves');
+        return new FakeBitmap();
+      },
+    } as unknown as OffscreenCanvas;
+    p.setCanvas(canvas, true);
+    p.show('live');
+    await p.take(jpegMessage(1_000_000));
+    expect(posted.find(m => m.type === 'frame')).not.toHaveProperty('small');
+    p.setSmall(true);
+    await p.take(jpegMessage(2_000_000));
+    const frame = posted.filter(m => m.type === 'frame').at(-1);
+    // The made-up picture is 4 by 3, already small: one copy at its own size, drawn from the frame's canvas
+    expect(frame).toMatchObject({ frameUs: 2_000_000, small: { width: 4, height: 3 } });
+    expect(smalls.map(s => [s.width, s.height])).toEqual([[4, 3]]);
+    expect(smalls[0]?.drawn).toEqual([canvas]);
+    expect(order).toEqual(['picture leaves', 'copy', 'small leaves', 'picture leaves']);
+    p.setSmall(false);
+    await p.take(jpegMessage(3_000_000));
+    expect(posted.filter(m => m.type === 'frame').at(-1)).not.toHaveProperty('small');
+    p.reset();
+  });
+
   function bufferedDecoder(marked = false) {
     const decoded: number[] = [];
     const instances: VideoDecoderInit[] = [];
