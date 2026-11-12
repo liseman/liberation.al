@@ -8,6 +8,8 @@
 //   node tools/enhance_bench.mjs frontend --browser chromium-software --preset behaviour
 //   node tools/enhance_bench.mjs frontend --renderer /path/to/another/renderer.ts ...   (to compare two versions)
 //   node tools/enhance_bench.mjs frontend --copy page ...   (the renderer makes the small copy, as for JPEG frames)
+//   node tools/enhance_bench.mjs frontend --preset behaviour --detail plain   (a scene without hairlines)
+//   node tools/enhance_bench.mjs frontend --preset behaviour --pick 3,11   (only those runs, counted from 0)
 //
 // Browsers: chromium-gpu (Playwright's headless Chromium on the graphics card through ANGLE and Vulkan),
 // chromium-software (the same on SwiftShader, a CPU rasteriser: how a machine without a usable graphics card does),
@@ -56,6 +58,8 @@ const seconds = Number(option('seconds', '6'));
 const firefoxBinary = option('firefox', '/usr/lib/firefox/firefox');
 // 'worker' (the frame's source hands over its small copy, as live video does) or 'page' (the renderer makes it)
 const workerCopy = option('copy', 'worker') === 'worker';
+// 'fine' (the scene has hairlines and fine stripes, which is hard on any stabiliser) or 'plain' (blocks and lines)
+const fine = option('detail', 'fine') === 'fine';
 
 /** The runs a preset asks for. */
 function runsFor() {
@@ -83,7 +87,10 @@ function runsFor() {
     console.error(`unknown preset ${preset}`);
     process.exit(2);
   }
-  return runs.map(run => ({ ...run, workerCopy }));
+  // --pick 3,4: only those runs of the preset, counted from 0
+  const pick = option('pick', '');
+  const picked = pick ? pick.split(',').map(i => runs[Number(i)]).filter(Boolean) : runs;
+  return picked.map(run => ({ ...run, workerCopy, fine }));
 }
 
 // ---- The page: everything below until the server runs in the browser ----
@@ -137,14 +144,14 @@ function frameWorker() {
     }
     // Fine detail, which a careless small copy turns into flicker when the camera wobbles: hairlines and stripes
     c.lineWidth = 1;
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; run.fine && i < 300; i++) {
       c.strokeStyle = grey(Math.round(20 + 220 * random()));
       c.beginPath();
       c.moveTo(random() * w, random() * h);
       c.lineTo(random() * w, random() * h);
       c.stroke();
     }
-    for (let x = 0; x < Math.round(w * 0.12); x += 2) {
+    for (let x = 0; run.fine && x < Math.round(w * 0.12); x += 2) {
       c.fillStyle = grey(x % 4 ? 60 : 190);
       c.fillRect(Math.round(w * 0.3) + x, Math.round(h * 0.55), 1, Math.round(h * 0.15));
     }

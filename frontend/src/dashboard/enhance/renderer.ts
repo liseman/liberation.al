@@ -275,6 +275,8 @@ export class Enhancer {
   private flipped = false;
   /** The small copies, largest first; the last is the one analysed. */
   private steps: Step[] = [];
+  /** Half the small copy, which the luma copy is drawn from. */
+  private halfStep: Step | null = null;
   private lumaStep: Step | null = null;
   private luma = { data: new Float32Array(0), width: 0, height: 0 };
   private smallTexture: WebGLTexture | null = null;
@@ -373,8 +375,12 @@ export class Enhancer {
         from = s.canvas;
       }
     }
+    // The luma copy comes from half the small copy: blurred to about its own size, so fine detail doesn't unsettle
+    // the estimate
     const luma = this.luma;
-    lumaStep.context.drawImage(analysed, 0, 0, luma.width, luma.height);
+    const half = this.halfStep;
+    if (half) half.context.drawImage(analysed, 0, 0, half.canvas.width, half.canvas.height);
+    lumaStep.context.drawImage(half ? half.canvas : analysed, 0, 0, luma.width, luma.height);
     const pixels = lumaStep.context.getImageData(0, 0, luma.width, luma.height).data;
     const [lr, lg, lb] = LUMA;
     for (let i = 0, p = 0; i < luma.data.length; i++, p += 4)
@@ -517,6 +523,8 @@ export class Enhancer {
       // An upside-down picture is turned as the first copy is made
       if (flip && first) first.context.setTransform(-1, 0, 0, -1, first.canvas.width, first.canvas.height);
       const dims = lumaSize(width, height);
+      const last = this.steps[this.steps.length - 1]?.canvas;
+      this.halfStep = last ? step(Math.ceil(last.width / 2), Math.ceil(last.height / 2), true) : null;
       this.lumaStep = step(dims.width, dims.height, true);
       this.luma = { data: new Float32Array(dims.width * dims.height), ...dims };
       this.frameSize = { width, height };
@@ -643,6 +651,7 @@ export class Enhancer {
     this.targets = null;
     this.strength = null;
     this.steps = [];
+    this.halfStep = null;
     this.lumaStep = null;
     if (!this.canvas.isConnected) gl.getExtension('WEBGL_lose_context')?.loseContext();
   }

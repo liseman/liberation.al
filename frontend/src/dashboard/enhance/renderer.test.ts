@@ -162,8 +162,8 @@ describe('Enhancer.draw', () => {
     for (let i = 0; i < 3; i++) enhancer.draw(FULL, 1 + i / 60);
     expect(state.uploads).toHaveLength(3);
     expect(Math.max(...state.uploads)).toBeLessThanOrEqual(SMALL_MAX);
-    // Each frame: the halvings (960, 480), then the luma copy the motion estimate reads (256)
-    expect(copies.slice(0, 3)).toEqual([960, 480, 256]);
+    // Each frame: the halvings (960, 480), then half of that and the luma copy the motion estimate reads (256)
+    expect(copies.slice(0, 4)).toEqual([960, 480, 240, 256]);
     // The highlight's own canvas is no larger than it needs to be
     expect(Math.max(canvas.width, canvas.height)).toBeLessThanOrEqual(960);
   });
